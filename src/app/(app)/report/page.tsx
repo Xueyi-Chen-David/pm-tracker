@@ -7,12 +7,12 @@ import {
   Activity,
   Users,
 } from "lucide-react";
-import { requireUser } from "@/server/auth-helpers";
+import { requireActiveOrg } from "@/server/org";
 import {
   getReportData,
   getWeeklyReport,
   getMeetingsForWeek,
-  getAllUsers,
+  getOrgMemberUsers,
   getTimelineData,
 } from "@/server/queries";
 import {
@@ -42,16 +42,16 @@ export default async function ReportPage({
 }: {
   searchParams: Promise<{ week?: string }>;
 }) {
-  await requireUser();
+  const { org } = await requireActiveOrg();
   const { week } = await searchParams;
   const weekStart = week ? weekStartOf(week) : thisWeekStart();
   const [projects, weeklyReport, meetings, users, timelineProjects] =
     await Promise.all([
-      getReportData(weekStart),
-      getWeeklyReport(weekStart),
-      getMeetingsForWeek(weekStart),
-      getAllUsers(),
-      getTimelineData(),
+      getReportData(org.id, weekStart),
+      getWeeklyReport(org.id, weekStart),
+      getMeetingsForWeek(org.id, weekStart),
+      getOrgMemberUsers(org.id),
+      getTimelineData(org.id),
     ]);
   const nameById = new Map(users.map((u) => [u.id, displayName(u)]));
   // 路線圖不顯示未開始 / 暫停的專案

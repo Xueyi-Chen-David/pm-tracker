@@ -1,9 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Plus, CalendarRange, Target } from "lucide-react";
-import { requireUser } from "@/server/auth-helpers";
-import { getProject, getAllUsers } from "@/server/queries";
-import { canEditProject } from "@/server/access";
+import { requireActiveOrg } from "@/server/org";
+import { getProject, getOrgMemberUsers } from "@/server/queries";
 import {
   HealthBadge,
   StatusBadge,
@@ -31,11 +30,15 @@ export default async function ProjectDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const user = await requireUser();
-  const [project, allUsers] = await Promise.all([getProject(id), getAllUsers()]);
+  const { org } = await requireActiveOrg();
+  const [project, allUsers] = await Promise.all([
+    getProject(org.id, id),
+    getOrgMemberUsers(org.id),
+  ]);
   if (!project) notFound();
 
-  const canEdit = await canEditProject(user.id, id, user.isBoss);
+  // 內部團隊工具：目前組織的任何成員皆可編輯本組織的專案。
+  const canEdit = true;
   const accent = project.color ?? "#94a3b8";
 
   const chartData = project.weeklyUpdates.map((u) => ({

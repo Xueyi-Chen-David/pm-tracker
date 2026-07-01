@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import type { ProjectType } from "@prisma/client";
-import { requireUser } from "@/server/auth-helpers";
+import { requireActiveOrg } from "@/server/org";
 import {
   getProjectsOverview,
-  getAllUsers,
+  getOrgMemberUsers,
   getProjectViews,
 } from "@/server/queries";
 import { PROJECT_TYPE } from "@/lib/constants";
@@ -37,13 +37,13 @@ export default async function ProjectsPage({
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  await requireUser();
+  const { org } = await requireActiveOrg();
   const sp = await searchParams;
   const view = sp.view === "card" ? "card" : "list";
   const [allProjects, users, views] = await Promise.all([
-    getProjectsOverview(),
-    getAllUsers(),
-    getProjectViews(),
+    getProjectsOverview(org.id),
+    getOrgMemberUsers(org.id),
+    getProjectViews(org.id),
   ]);
   const week = thisWeekStart();
 

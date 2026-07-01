@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
-import { requireUser } from "@/server/auth-helpers";
+import { requireActiveOrg } from "@/server/org";
 import { assertCanEditProject } from "@/server/access";
 import { logActivity } from "@/server/activity";
 import { weekStartOf, weekLabel } from "@/lib/date";
@@ -50,18 +50,22 @@ function parseTasks(raw: FormDataEntryValue | null) {
 
 /** 把某筆週報的任務清單同步成傳入的內容（整批取代）。 */
 async function syncWeeklyTasks(
+  orgId: string,
   weeklyUpdateId: string,
   tasks: { title: string; assigneeId: string | null; done: boolean }[],
 ) {
   await db.weeklyTask.deleteMany({ where: { weeklyUpdateId } });
   if (!tasks.length) return;
-  // 過濾不存在的負責人，避免外鍵錯誤
+  // 過濾不存在 / 非本組織成員的負責人，避免外鍵錯誤與跨組織指派
   const ids = [...new Set(tasks.map((t) => t.assigneeId).filter(Boolean))] as string[];
   const valid = new Set(
     ids.length
       ? (
           await db.user.findMany({
-            where: { id: { in: ids } },
+            where: {
+              id: { in: ids },
+              organizationMemberships: { some: { organizationId: orgId } },
+            },
             select: { id: true },
           })
         ).map((u) => u.id)
@@ -97,7 +101,7 @@ export async function upsertWeeklyUpdateAction(
   _prev: WeeklyActionState,
   formData: FormData,
 ): Promise<WeeklyActionState> {
-  const user = await requireUser();
+  const { user, org } = await requireActiveOrg();
   const parsed = WeeklyInput.safeParse({
     projectId: formData.get("projectId"),
     weekStart: formData.get("weekStart"),
@@ -114,7 +118,7 @@ export async function upsertWeeklyUpdateAction(
     return { error: parsed.error.issues[0]?.message ?? "資料格式錯誤" };
   }
   const d = parsed.data;
-  await assertCanEditProject(user.id, d.projectId, user.isBoss);
+  await assertCanEditProject(org.id, d.projectId);
   const weekStart = weekStartOf(d.weekStart);
   const tasks = parseTasks(formData.get("tasks"));
 
@@ -186,7 +190,7 @@ export async function upsertWeeklyUpdateAction(
     where: { projectId_weekStart: { projectId: d.projectId, weekStart } },
     select: { id: true },
   });
-  if (saved) await syncWeeklyTasks(saved.id, tasks);
+  if (saved) await syncWeeklyTasks(org.id, saved.id, tasks);
 
   await syncProjectHeadline(d.projectId);
 
@@ -207,8 +211,8 @@ export async function deleteWeeklyUpdate(input: {
   id: string;
   projectId: string;
 }) {
-  const user = await requireUser();
-  await assertCanEditProject(user.id, input.projectId, user.isBoss);
+  const { user, org } = await requireActiveOrg();
+  await assertCanEditProject(org.id, input.projectId);
   const removed = await db.weeklyUpdate.delete({
     where: { id: input.id },
     select: { weekStart: true },

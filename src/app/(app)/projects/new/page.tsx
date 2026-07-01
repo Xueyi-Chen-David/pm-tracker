@@ -1,5 +1,5 @@
-import { requireUser } from "@/server/auth-helpers";
-import { getAllUsers } from "@/server/queries";
+import { requireActiveOrg } from "@/server/org";
+import { getOrgMemberUsers } from "@/server/queries";
 import { ProjectForm } from "@/components/project-form";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -7,8 +7,8 @@ import { Card, CardContent } from "@/components/ui/card";
 export const metadata = { title: "新增專案 · Project Pulse" };
 
 export default async function NewProjectPage() {
-  await requireUser();
-  const users = await getAllUsers();
+  const { org } = await requireActiveOrg();
+  const users = await getOrgMemberUsers(org.id);
 
   return (
     <div className="mx-auto max-w-2xl">

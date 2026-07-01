@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Crown, FolderKanban, Users2, FileText } from "lucide-react";
-import { requireUser } from "@/server/auth-helpers";
-import { getWorkspaceMembers } from "@/server/queries";
+import { requireActiveOrg, canManageMembers } from "@/server/org";
+import { getOrgMembers } from "@/server/queries";
 import { PageHeader } from "@/components/page-header";
 import { AddMemberButton } from "@/components/add-member-button";
 import { MemberDeleteButton } from "@/components/member-delete-button";
@@ -19,10 +19,11 @@ export default async function TeamPage({
 }: {
   searchParams: Promise<{ view?: string }>;
 }) {
-  await requireUser();
+  const { org, membership } = await requireActiveOrg();
+  const canManage = canManageMembers(membership.role);
   const { view: viewParam } = await searchParams;
   const view = viewParam === "card" ? "card" : "list";
-  const members = await getWorkspaceMembers();
+  const members = await getOrgMembers(org.id);
 
   return (
     <div>
@@ -31,11 +32,11 @@ export default async function TeamPage({
         description={`${members.length} 位成員 · 管理成員、職稱與個人 profile`}
       >
         <ViewToggle view={view} basePath="/team" />
-        <AddMemberButton />
+        {canManage && <AddMemberButton />}
       </PageHeader>
 
       {view === "list" ? (
-        <MembersListTable members={members} />
+        <MembersListTable members={members} canManage={canManage} />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {members.map((m) => {
@@ -82,13 +83,15 @@ export default async function TeamPage({
                   </div>
                 </div>
               </Link>
-              <div className="absolute top-2 right-2">
-                <MemberDeleteButton
-                  id={m.id}
-                  name={displayName(m)}
-                  mode="icon"
-                />
-              </div>
+              {canManage && (
+                <div className="absolute top-2 right-2">
+                  <MemberDeleteButton
+                    id={m.id}
+                    name={displayName(m)}
+                    mode="icon"
+                  />
+                </div>
+              )}
             </Card>
           );
         })}

@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
-import { requireUser } from "@/server/auth-helpers";
+import { requireActiveOrg } from "@/server/org";
 
 const MeetingInput = z.object({
   date: z.string().min(1, "請選擇日期"),
@@ -38,7 +38,7 @@ export async function createMeetingAction(
   _prev: MeetingActionState,
   formData: FormData,
 ): Promise<MeetingActionState> {
-  const user = await requireUser();
+  const { user, org } = await requireActiveOrg();
   const parsed = parse(formData);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "資料格式錯誤" };
@@ -46,6 +46,7 @@ export async function createMeetingAction(
   const d = parsed.data;
   await db.meeting.create({
     data: {
+      organizationId: org.id,
       date: toDate(d.date),
       category: d.category,
       title: d.title,
@@ -64,7 +65,7 @@ export async function updateMeetingAction(
   _prev: MeetingActionState,
   formData: FormData,
 ): Promise<MeetingActionState> {
-  await requireUser();
+  const { org } = await requireActiveOrg();
   const id = String(formData.get("id") ?? "");
   if (!id) return { error: "缺少會議 ID" };
   const parsed = parse(formData);
@@ -72,8 +73,8 @@ export async function updateMeetingAction(
     return { error: parsed.error.issues[0]?.message ?? "資料格式錯誤" };
   }
   const d = parsed.data;
-  await db.meeting.update({
-    where: { id },
+  await db.meeting.updateMany({
+    where: { id, organizationId: org.id },
     data: {
       date: toDate(d.date),
       category: d.category,
@@ -89,8 +90,8 @@ export async function updateMeetingAction(
 }
 
 export async function deleteMeeting(id: string) {
-  await requireUser();
-  await db.meeting.delete({ where: { id } });
+  const { org } = await requireActiveOrg();
+  await db.meeting.deleteMany({ where: { id, organizationId: org.id } });
   revalidatePath("/meetings");
   revalidatePath("/report");
 }

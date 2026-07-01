@@ -32,22 +32,51 @@ async function main() {
     console.log("已清除既有專案，重新植入。");
   }
 
-  // ── 團隊成員 ───────────────────────────────
+  // ── 預設組織（所有 seed 資料歸屬於此） ──────────
+  const org = await db.organization.upsert({
+    where: { id: "org_default" },
+    update: {},
+    create: { id: "org_default", name: "我的組織" },
+  });
+
+  // ── 團隊成員（身分在 User，組織內欄位在 OrganizationMember） ──
   const david = await db.user.upsert({
     where: { email: "dev@korvva.com" },
-    update: { name: "David", isBoss: true, jobTitle: "負責人 / 老闆" },
-    create: { email: "dev@korvva.com", name: "David", isBoss: true, jobTitle: "負責人 / 老闆" },
+    update: { name: "David" },
+    create: { email: "dev@korvva.com", name: "David" },
   });
   const aki = await db.user.upsert({
     where: { email: "aki@korvva.com" },
-    update: { name: "Aki", jobTitle: "業務" },
-    create: { email: "aki@korvva.com", name: "Aki", jobTitle: "業務" },
+    update: { name: "Aki" },
+    create: { email: "aki@korvva.com", name: "Aki" },
   });
   const eng = await db.user.upsert({
     where: { email: "eng@korvva.com" },
-    update: { name: "Kenji", jobTitle: "工程" },
-    create: { email: "eng@korvva.com", name: "Kenji", jobTitle: "工程" },
+    update: { name: "Kenji" },
+    create: { email: "eng@korvva.com", name: "Kenji" },
   });
+
+  const seedMembers = [
+    { u: david, role: "OWNER" as const, jobTitle: "負責人 / 老闆", isBoss: true },
+    { u: aki, role: "MEMBER" as const, jobTitle: "業務", isBoss: false },
+    { u: eng, role: "MEMBER" as const, jobTitle: "工程", isBoss: false },
+  ];
+  for (const m of seedMembers) {
+    await db.organizationMember.upsert({
+      where: {
+        organizationId_userId: { organizationId: org.id, userId: m.u.id },
+      },
+      update: { role: m.role, jobTitle: m.jobTitle, isBoss: m.isBoss },
+      create: {
+        organizationId: org.id,
+        userId: m.u.id,
+        email: m.u.email ?? "",
+        role: m.role,
+        jobTitle: m.jobTitle,
+        isBoss: m.isBoss,
+      },
+    });
+  }
 
   type Seed = {
     name: string;
@@ -298,6 +327,7 @@ async function main() {
   for (const s of projects) {
     const latest = s.weeklies?.[s.weeklies.length - 1];
     const data: Prisma.ProjectCreateInput = {
+      organization: { connect: { id: org.id } },
       name: s.name,
       type: s.type,
       status: s.status ?? "ACTIVE",

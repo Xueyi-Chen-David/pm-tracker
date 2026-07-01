@@ -4,7 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/server/db";
-import { requireUser } from "@/server/auth-helpers";
+import { requireActiveOrg } from "@/server/org";
 import { assertCanEditProject } from "@/server/access";
 import { logActivity } from "@/server/activity";
 import { HEALTH, PROJECT_STATUS } from "@/lib/constants";
@@ -51,7 +51,7 @@ export async function createProjectAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  const user = await requireUser();
+  const { user, org } = await requireActiveOrg();
   const parsed = parseForm(formData);
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "資料格式錯誤" };
@@ -61,6 +61,7 @@ export async function createProjectAction(
 
   const project = await db.project.create({
     data: {
+      organizationId: org.id,
       name: d.name,
       type: d.type,
       description: d.description || null,
@@ -102,10 +103,10 @@ export async function updateProjectAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  const user = await requireUser();
+  const { user, org } = await requireActiveOrg();
   const id = String(formData.get("id") ?? "");
   if (!id) return { error: "缺少專案 ID" };
-  await assertCanEditProject(user.id, id, user.isBoss);
+  await assertCanEditProject(org.id, id);
 
   const parsed = parseForm(formData);
   if (!parsed.success) {
@@ -210,9 +211,9 @@ const StatusHealthInput = z.object({
 export async function setProjectStatusHealth(
   input: z.input<typeof StatusHealthInput>,
 ) {
-  const user = await requireUser();
+  const { user, org } = await requireActiveOrg();
   const d = StatusHealthInput.parse(input);
-  await assertCanEditProject(user.id, d.projectId, user.isBoss);
+  await assertCanEditProject(org.id, d.projectId);
 
   const before = await db.project.findUnique({
     where: { id: d.projectId },
@@ -257,8 +258,8 @@ export async function setProjectStatusHealth(
 }
 
 export async function deleteProject(id: string) {
-  const user = await requireUser();
-  await assertCanEditProject(user.id, id, user.isBoss);
+  const { org } = await requireActiveOrg();
+  await assertCanEditProject(org.id, id);
   await db.project.delete({ where: { id } });
   revalidatePath("/dashboard");
   revalidatePath("/projects");
@@ -270,8 +271,8 @@ export async function setProjectCountInProgress(input: {
   projectId: string;
   countInProgress: boolean;
 }) {
-  const user = await requireUser();
-  await assertCanEditProject(user.id, input.projectId, user.isBoss);
+  const { user, org } = await requireActiveOrg();
+  await assertCanEditProject(org.id, input.projectId);
   await db.project.update({
     where: { id: input.projectId },
     data: { countInProgress: input.countInProgress },
@@ -289,8 +290,8 @@ export async function setProjectCountInProgress(input: {
 }
 
 export async function setProjectArchived(id: string, archived: boolean) {
-  const user = await requireUser();
-  await assertCanEditProject(user.id, id, user.isBoss);
+  const { user, org } = await requireActiveOrg();
+  await assertCanEditProject(org.id, id);
   await db.project.update({ where: { id }, data: { archived } });
   await logActivity({
     projectId: id,

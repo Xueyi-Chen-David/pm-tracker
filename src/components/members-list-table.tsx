@@ -6,7 +6,13 @@ import { MemberName } from "@/components/member-name";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MemberDeleteButton } from "@/components/member-delete-button";
 
-export function MembersListTable({ members }: { members: WorkspaceMember[] }) {
+export function MembersListTable({
+  members,
+  canManage = true,
+}: {
+  members: WorkspaceMember[];
+  canManage?: boolean;
+}) {
   return (
     <div className="bg-card overflow-x-auto rounded-xl border">
       <div className="min-w-[760px]">
@@ -73,11 +79,13 @@ export function MembersListTable({ members }: { members: WorkspaceMember[] }) {
                 </div>
                 <div className="flex-1" />
                 <div className="w-9 shrink-0">
-                  <MemberDeleteButton
-                    id={m.id}
-                    name={displayName(m)}
-                    mode="icon"
-                  />
+                  {canManage && (
+                    <MemberDeleteButton
+                      id={m.id}
+                      name={displayName(m)}
+                      mode="icon"
+                    />
+                  )}
                 </div>
               </div>
             );

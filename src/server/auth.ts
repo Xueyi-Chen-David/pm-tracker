@@ -63,12 +63,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async jwt({ token, user }) {
       if (user?.id) {
         token.id = user.id;
+        // 註：isBoss / jobTitle 已改為「每組織」欄位（OrganizationMember），
+        // 不再放進全域 session；由 requireActiveOrg 於各請求解析。
         const dbUser = await db.user.findUnique({
           where: { id: user.id },
-          select: { isBoss: true, jobTitle: true, nickname: true, useNickname: true },
+          select: { nickname: true, useNickname: true },
         });
-        token.isBoss = dbUser?.isBoss ?? false;
-        token.jobTitle = dbUser?.jobTitle ?? null;
         token.nickname = dbUser?.nickname ?? null;
         token.useNickname = dbUser?.useNickname ?? false;
       }
@@ -76,8 +76,6 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
     async session({ session, token }) {
       if (token.id) session.user.id = token.id as string;
-      session.user.isBoss = Boolean(token.isBoss);
-      session.user.jobTitle = (token.jobTitle as string | null) ?? null;
       session.user.nickname = (token.nickname as string | null) ?? null;
       session.user.useNickname = Boolean(token.useNickname);
       return session;

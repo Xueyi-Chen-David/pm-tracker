@@ -1,28 +1,21 @@
-/**
- * 編輯權限：這是單一 workspace 的內部團隊工具——只要是登入的工作區成員，
- * 都能編輯任何專案（呼叫端皆已先經過 requireUser()）。角色（負責人/成員/檢視者）
- * 與職位文字僅作為顯示與週報用途，不限制編輯。
- *
- * 參數保留以利日後若要恢復更細的權限控管（屆時在此查 DB 判斷）。
- */
-export async function canEditProject(
-  userId: string,
-  projectId: string,
-  isBoss?: boolean,
-): Promise<boolean> {
-  void userId;
-  void projectId;
-  void isBoss;
-  return true;
-}
+import { db } from "./db";
 
+/**
+ * 編輯權限：這是內部團隊工具——只要是「目前組織」的登入成員，都能編輯該組織的
+ * 任何專案（呼叫端皆已先經過 requireActiveOrg()）。角色（負責人/成員/檢視者）與
+ * 職位文字僅作顯示與週報用途，不限制編輯。
+ *
+ * 此函式改負責「縱深防禦」：確認專案確實屬於目前組織，擋掉跨組織存取。
+ */
 export async function assertCanEditProject(
-  userId: string,
+  orgId: string,
   projectId: string,
-  isBoss?: boolean,
 ): Promise<void> {
-  // 目前所有登入成員皆可編輯；保留簽章以利日後加回權限檢查。
-  void userId;
-  void projectId;
-  void isBoss;
+  const project = await db.project.findFirst({
+    where: { id: projectId, organizationId: orgId },
+    select: { id: true },
+  });
+  if (!project) {
+    throw new Error("找不到專案，或它不屬於目前組織。");
+  }
 }

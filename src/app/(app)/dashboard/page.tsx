@@ -8,7 +8,7 @@ import {
   CalendarClock,
 } from "lucide-react";
 import type { ProjectType } from "@prisma/client";
-import { requireUser } from "@/server/auth-helpers";
+import { requireActiveOrg } from "@/server/org";
 import { getDashboardData } from "@/server/queries";
 import { PROJECT_TYPE } from "@/lib/constants";
 import { weekLabel, isOverdue, thisWeekStart } from "@/lib/date";
@@ -30,8 +30,8 @@ export const metadata = { title: "總覽 · Project Pulse" };
 const GROUP_ORDER: ProjectType[] = ["PROJECT", "ROUTINE", "ONE_TIME"];
 
 export default async function DashboardPage() {
-  await requireUser();
-  const { projects } = await getDashboardData();
+  const { org } = await requireActiveOrg();
+  const { projects } = await getDashboardData(org.id);
   const week = thisWeekStart();
 
   const enriched = projects.map((p) => {

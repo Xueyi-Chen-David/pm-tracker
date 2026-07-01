@@ -3,13 +3,22 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
-import { requireUser } from "@/server/auth-helpers";
+import { requireActiveOrg } from "@/server/org";
 
 /** yyyy-mm-dd → UTC 午夜（對應 @db.Date，避免時區位移）。 */
 function toUtcDate(v: string): Date {
   const [y, m, d] = v.split("-").map(Number);
   if (!y || !m || !d) throw new Error("日期格式錯誤");
   return new Date(Date.UTC(y, m - 1, d));
+}
+
+/** 確認 userId 是目前組織的成員，避免跨組織寫入。 */
+async function assertOrgMember(orgId: string, userId: string) {
+  const member = await db.organizationMember.findUnique({
+    where: { organizationId_userId: { organizationId: orgId, userId } },
+    select: { id: true },
+  });
+  if (!member) throw new Error("該成員不屬於目前組織。");
 }
 
 const SetInput = z.object({
@@ -19,31 +28,48 @@ const SetInput = z.object({
   reason: z.string().trim().max(100).optional(),
 });
 
-/** 設定某人某天的出席狀態（出席 / 缺席 / 清除）。每人每日一筆。 */
+/** 設定某人某天的出席狀態（出席 / 缺席 / 清除）。每人每日一筆（限本組織）。 */
 export async function setAttendance(input: z.input<typeof SetInput>) {
-  const me = await requireUser();
+  const { user: me, org } = await requireActiveOrg();
   const d = SetInput.parse(input);
+  await assertOrgMember(org.id, d.userId);
   const date = toUtcDate(d.date);
 
   if (d.status === "clear") {
-    await db.attendanceRecord.deleteMany({ where: { userId: d.userId, date } });
+    await db.attendanceRecord.deleteMany({
+      where: { organizationId: org.id, userId: d.userId, date },
+    });
   } else {
     const present = d.status === "present";
     const reason = present ? null : d.reason?.trim() || null;
     await db.attendanceRecord.upsert({
-      where: { userId_date: { userId: d.userId, date } },
+      where: {
+        organizationId_userId_date: {
+          organizationId: org.id,
+          userId: d.userId,
+          date,
+        },
+      },
       update: { present, reason, createdById: me.id },
-      create: { userId: d.userId, date, present, reason, createdById: me.id },
+      create: {
+        organizationId: org.id,
+        userId: d.userId,
+        date,
+        present,
+        reason,
+        createdById: me.id,
+      },
     });
   }
   revalidatePath("/attendance");
 }
 
-/** 設定某成員是否納入出席追蹤（月曆是否顯示他）。 */
+/** 設定某成員是否納入出席追蹤（月曆是否顯示他；限本組織）。 */
 export async function setTrackAttendance(userId: string, on: boolean) {
-  await requireUser();
-  await db.user.update({
-    where: { id: userId },
+  const { org } = await requireActiveOrg();
+  await assertOrgMember(org.id, userId);
+  await db.organizationMember.update({
+    where: { organizationId_userId: { organizationId: org.id, userId } },
     data: { trackAttendance: on },
   });
   revalidatePath("/attendance");

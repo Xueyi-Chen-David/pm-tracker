@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
-import { requireUser } from "@/server/auth-helpers";
+import { requireActiveOrg } from "@/server/org";
 import { assertCanEditProject } from "@/server/access";
 import { logActivity } from "@/server/activity";
 
@@ -24,9 +24,9 @@ function toDate(v?: string): Date | null {
 }
 
 export async function createMilestone(input: z.input<typeof MilestoneInput>) {
-  const user = await requireUser();
+  const { user, org } = await requireActiveOrg();
   const d = MilestoneInput.parse(input);
-  await assertCanEditProject(user.id, d.projectId, user.isBoss);
+  await assertCanEditProject(org.id, d.projectId);
   const count = await db.milestone.count({ where: { projectId: d.projectId } });
   await db.milestone.create({
     data: {
@@ -60,8 +60,8 @@ export async function updateMilestone(input: {
   actualDate?: string;
   isGoal?: boolean;
 }) {
-  const user = await requireUser();
-  await assertCanEditProject(user.id, input.projectId, user.isBoss);
+  const { org } = await requireActiveOrg();
+  await assertCanEditProject(org.id, input.projectId);
   await db.milestone.update({
     where: { id: input.id },
     data: {
@@ -85,8 +85,8 @@ export async function toggleMilestoneDone(input: {
   projectId: string;
   done: boolean;
 }) {
-  const user = await requireUser();
-  await assertCanEditProject(user.id, input.projectId, user.isBoss);
+  const { user, org } = await requireActiveOrg();
+  await assertCanEditProject(org.id, input.projectId);
   const m = await db.milestone.update({
     where: { id: input.id },
     data: {
@@ -109,8 +109,8 @@ export async function deleteMilestone(input: {
   id: string;
   projectId: string;
 }) {
-  const user = await requireUser();
-  await assertCanEditProject(user.id, input.projectId, user.isBoss);
+  const { user, org } = await requireActiveOrg();
+  await assertCanEditProject(org.id, input.projectId);
   const m = await db.milestone.delete({
     where: { id: input.id },
     select: { title: true, isGoal: true },

@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { NewProjectButton } from "@/components/new-project-button";
+import { OrgSwitcher } from "@/components/org-switcher";
 import type { ModuleKey } from "@/lib/modules";
 
 const NAV: { key: ModuleKey; href: string; label: string; icon: typeof LayoutDashboard }[] = [
@@ -49,6 +50,8 @@ type SessionUser = {
 };
 
 type UserOption = { id: string; name: string | null; email: string | null };
+
+type Org = { id: string; name: string };
 
 function NavLinks({
   onNavigate,
@@ -136,10 +139,14 @@ export function AppSidebar({
   user,
   users,
   moduleKeys,
+  activeOrg,
+  orgs,
 }: {
   user: SessionUser;
   users: UserOption[];
   moduleKeys: ModuleKey[];
+  activeOrg: Org;
+  orgs: Org[];
 }) {
   const [open, setOpen] = useState(false);
 
@@ -149,6 +156,9 @@ export function AppSidebar({
       <aside className="bg-card no-print fixed inset-y-0 left-0 z-30 hidden w-60 flex-col gap-4 border-r p-3 lg:flex">
         <div className="pt-2">
           <Brand />
+        </div>
+        <div className="px-1">
+          <OrgSwitcher activeOrg={activeOrg} orgs={orgs} />
         </div>
         <NewProjectButton
           users={users}
@@ -187,6 +197,7 @@ export function AppSidebar({
             <SheetContent side="left" className="w-64 p-3">
               <SheetTitle className="sr-only">導覽選單</SheetTitle>
               <div className="mt-6 flex h-full flex-col gap-4">
+                <OrgSwitcher activeOrg={activeOrg} orgs={orgs} />
                 <NavLinks moduleKeys={moduleKeys} onNavigate={() => setOpen(false)} />
                 <div className="mt-auto">
                   <UserCard user={user} />

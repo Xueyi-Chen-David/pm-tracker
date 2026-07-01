@@ -21,24 +21,15 @@ model User {
   email         String?   @unique
   emailVerified DateTime?
   image         String?
-  // 應用層欄位
-  jobTitle      String? // 職稱（顯示用）
-  isBoss        Boolean   @default(false) // 老闆：週報「需要決策」收件對象
-  active        Boolean   @default(true) // 是否在職 / 啟用
-  // 個人 profile（團隊管理用）
-  persona          String? @db.Text // 角色定位 / persona
-  personality      String? @db.Text // 個性特質
-  bio              String? @db.Text // 簡介 / 備註
-  attendance       String? // 出席情況（自由文字，如：全職、每週二三）
-  productivityNote String? @db.Text // 生產力 / 績效備註
-  // 細分權限：可見模組。空陣列＝可見全部（維持既有行為）；非空＝只可見列出的模組。老闆(isBoss)一律全部可見。
-  allowedModules   String[] @default([])
-  // 是否納入「出席」月曆追蹤（只顯示被勾選的人）。
-  trackAttendance  Boolean  @default(false)
   createdAt     DateTime  @default(now())
+  // 註：組織內欄位（isBoss / jobTitle / 權限 / 出席追蹤 / profile 文字）已改掛在
+  // OrganizationMember 上，讓同一人可在不同組織有不同角色與設定（多租戶隔離）。
 
   accounts      Account[]
   sessions      Session[]
+
+  // 組織成員資格（多組織）。
+  organizationMemberships OrganizationMember[]
 
   ownedProjects   Project[]        @relation("ProjectOwner")
   createdProjects Project[]        @relation("ProjectCreator")
@@ -83,6 +74,66 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
+}
+
+// ─────────────────────────────────────────────
+// Organizations (多租戶：以「組織 / 公司」為單位)
+// ─────────────────────────────────────────────
+
+enum OrgRole {
+  OWNER // 擁有者（建立者）
+  ADMIN // 管理員（可管理成員）
+  MEMBER // 一般成員
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members           OrganizationMember[]
+  projects          Project[]
+  projectViews      ProjectView[]
+  weeklyReports     WeeklyReport[]
+  reportImages      ReportImage[]
+  meetings          Meeting[]
+  attendanceRecords AttendanceRecord[]
+  memberEvents      MemberEvent[]
+}
+
+/**
+ * 組織成員。以 email 為邀請鍵（可在該人登入前先建立），userId 連到全域 User。
+ * 「組織內」欄位（角色 / 職稱 / 老闆 / 權限 / 出席追蹤 / 團隊 profile）都掛在這裡，
+ * 讓同一人在不同組織可有不同設定。
+ */
+model OrganizationMember {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  email          String // 邀請鍵（小寫）＝該 User 的 email
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role           OrgRole      @default(MEMBER)
+
+  // ── 從 User 搬過來的「組織內」欄位 ──
+  jobTitle         String? // 職稱（顯示用）
+  isBoss           Boolean  @default(false) // 老闆：週報「需要決策」收件對象
+  active           Boolean  @default(true) // 是否在職 / 啟用（於此組織）
+  allowedModules   String[] @default([]) // 細分權限：空陣列＝可見全部；非空＝只可見列出的模組
+  trackAttendance  Boolean  @default(false) // 是否納入出席月曆追蹤
+  persona          String?  @db.Text // 角色定位 / persona
+  personality      String?  @db.Text // 個性特質
+  bio              String?  @db.Text // 簡介 / 備註
+  attendance       String? // 出席情況（自由文字）
+  productivityNote String?  @db.Text // 生產力 / 績效備註
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, userId])
+  @@index([organizationId])
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────────
@@ -150,6 +201,9 @@ model Project {
 
   countInProgress Boolean @default(true) // 是否計入週報「完成度」統計（整體平均進度）
 
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
   ownerId String?
   owner   User?   @relation("ProjectOwner", fields: [ownerId], references: [id])
 
@@ -164,6 +218,7 @@ model Project {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([organizationId])
   @@index([type])
   @@index([status])
 }
@@ -293,18 +348,28 @@ model ProjectView {
   isSystem  Boolean         @default(false) // 「全體」＝true，不可刪除
   sortOrder Int             @default(0)
   createdAt DateTime        @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }
 
 /// 每週週報的「整體說明」自由文字（每週一筆，依週一日期為唯一鍵）。
 model WeeklyReport {
   id          String   @id @default(cuid())
-  weekStart   DateTime @unique @db.Date
+  weekStart   DateTime @db.Date
   summary     String   @db.Text // 純文字鏡像（不含圖片 raw data，給 log / 純文字情境）
   contentHtml String?  @db.Text // 文件內文（像 doc/email，文字與內嵌圖片在一起）
   images      String[] // 舊版圖片欄位（保留相容）
   content     Json? // 舊版區塊（保留相容）
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, weekStart])
 }
 
 /// 週報內文的圖片（以二進位存，內文只引用短網址，base64 不會流經 action / log）。
@@ -313,6 +378,11 @@ model ReportImage {
   data      Bytes
   mime      String   @default("image/jpeg")
   createdAt DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }
 
 /// 會議記錄（全體會議 / 研發部會議 等）。依日期歸入對應週、顯示在該週週報。
@@ -328,6 +398,10 @@ model Meeting {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
   @@index([date])
 }
 
@@ -344,7 +418,11 @@ model AttendanceRecord {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@unique([userId, date])
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId, date])
+  @@index([organizationId])
   @@index([date])
 }
 
@@ -360,5 +438,9 @@ model MemberEvent {
   createdById String?
   createdAt   DateTime  @default(now())
 
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
   @@index([userId, startDate])
 }

@@ -1,4 +1,4 @@
-import { requireModuleAccess } from "@/server/auth-helpers";
+import { requireModuleAccess } from "@/server/org";
 
 export default async function Layout({
   children,

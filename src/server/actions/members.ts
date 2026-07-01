@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
-import { requireUser } from "@/server/auth-helpers";
+import { requireActiveOrg, canManageMembers } from "@/server/org";
 import { assertCanEditProject } from "@/server/access";
 import { logActivity } from "@/server/activity";
 import { primaryName } from "@/lib/display";
@@ -17,15 +17,25 @@ const nameSelect = {
   email: true,
 } as const;
 
-/** 加入既有使用者為成員。 */
+/** 確認 userId 是目前組織的成員。 */
+async function assertOrgMember(orgId: string, userId: string) {
+  const m = await db.organizationMember.findUnique({
+    where: { organizationId_userId: { organizationId: orgId, userId } },
+    select: { id: true },
+  });
+  if (!m) throw new Error("該成員不屬於目前組織。");
+}
+
+/** 加入既有組織成員為專案成員。 */
 export async function addMember(input: {
   projectId: string;
   userId: string;
   role?: z.infer<typeof Role>;
   roleLabel?: string;
 }) {
-  const user = await requireUser();
-  await assertCanEditProject(user.id, input.projectId, user.isBoss);
+  const { user, org } = await requireActiveOrg();
+  await assertCanEditProject(org.id, input.projectId);
+  await assertOrgMember(org.id, input.userId);
   const role = Role.parse(input.role ?? "MEMBER");
   const existing = await db.projectMember.findUnique({
     where: {
@@ -60,7 +70,10 @@ export async function addMember(input: {
   revalidatePath(`/projects/${input.projectId}`);
 }
 
-/** 用 Email 邀請（若該人尚未有帳號，先建立 placeholder 使用者）。 */
+/**
+ * 用 Email 邀請到專案。若該人尚未有帳號先建立 placeholder User；若尚非本組織成員，
+ * 則等同把新人加入組織——此步驟需要組織擁有者 / 管理員權限。
+ */
 export async function inviteMemberByEmail(input: {
   projectId: string;
   email: string;
@@ -68,8 +81,8 @@ export async function inviteMemberByEmail(input: {
   role?: z.infer<typeof Role>;
   roleLabel?: string;
 }) {
-  const user = await requireUser();
-  await assertCanEditProject(user.id, input.projectId, user.isBoss);
+  const { org, membership } = await requireActiveOrg();
+  await assertCanEditProject(org.id, input.projectId);
   const email = input.email.trim().toLowerCase();
   if (!email.includes("@")) throw new Error("Email 格式不正確");
   const target = await db.user.upsert({
@@ -77,6 +90,20 @@ export async function inviteMemberByEmail(input: {
     update: input.name ? { name: input.name } : {},
     create: { email, name: input.name || email.split("@")[0] },
   });
+  const existingMembership = await db.organizationMember.findUnique({
+    where: {
+      organizationId_userId: { organizationId: org.id, userId: target.id },
+    },
+    select: { id: true },
+  });
+  if (!existingMembership) {
+    if (!canManageMembers(membership.role)) {
+      throw new Error("只有組織擁有者 / 管理員能把新成員加入組織。");
+    }
+    await db.organizationMember.create({
+      data: { organizationId: org.id, userId: target.id, email, role: "MEMBER" },
+    });
+  }
   await addMember({
     projectId: input.projectId,
     userId: target.id,
@@ -91,8 +118,8 @@ export async function updateMember(input: {
   role?: z.infer<typeof Role>;
   roleLabel?: string;
 }) {
-  const user = await requireUser();
-  await assertCanEditProject(user.id, input.projectId, user.isBoss);
+  const { org } = await requireActiveOrg();
+  await assertCanEditProject(org.id, input.projectId);
   await db.projectMember.update({
     where: { id: input.memberId },
     data: {
@@ -108,8 +135,8 @@ export async function removeMember(input: {
   memberId: string;
   projectId: string;
 }) {
-  const user = await requireUser();
-  await assertCanEditProject(user.id, input.projectId, user.isBoss);
+  const { user, org } = await requireActiveOrg();
+  await assertCanEditProject(org.id, input.projectId);
   const member = await db.projectMember.delete({
     where: { id: input.memberId },
     select: { user: { select: nameSelect } },
@@ -125,8 +152,9 @@ export async function removeMember(input: {
 
 /** 設定負責人（同時確保此人是 OWNER 成員）。 */
 export async function setOwner(input: { projectId: string; userId: string }) {
-  const user = await requireUser();
-  await assertCanEditProject(user.id, input.projectId, user.isBoss);
+  const { user, org } = await requireActiveOrg();
+  await assertCanEditProject(org.id, input.projectId);
+  await assertOrgMember(org.id, input.userId);
   await db.project.update({
     where: { id: input.projectId },
     data: { ownerId: input.userId },

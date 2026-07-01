@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
-import { requireUser } from "@/server/auth-helpers";
+import { requireActiveOrg } from "@/server/org";
 import { assertCanEditProject } from "@/server/access";
 import { logActivity } from "@/server/activity";
 
@@ -14,9 +14,9 @@ const NoteInput = z.object({
 
 /** 使用者手動新增一筆備註（kind=NOTE）。 */
 export async function addActivityNote(input: z.input<typeof NoteInput>) {
-  const user = await requireUser();
+  const { user, org } = await requireActiveOrg();
   const d = NoteInput.parse(input);
-  await assertCanEditProject(user.id, d.projectId, user.isBoss);
+  await assertCanEditProject(org.id, d.projectId);
   await logActivity({
     projectId: d.projectId,
     kind: "NOTE",
@@ -34,9 +34,9 @@ const EditNoteInput = z.object({
 
 /** 編輯備註內容（僅限手動備註 kind=NOTE，系統自動紀錄不可改）。 */
 export async function updateActivityNote(input: z.input<typeof EditNoteInput>) {
-  const user = await requireUser();
+  const { org } = await requireActiveOrg();
   const d = EditNoteInput.parse(input);
-  await assertCanEditProject(user.id, d.projectId, user.isBoss);
+  await assertCanEditProject(org.id, d.projectId);
   const existing = await db.activity.findUnique({
     where: { id: d.id },
     select: { kind: true, projectId: true },
@@ -56,8 +56,8 @@ export async function updateActivityNote(input: z.input<typeof EditNoteInput>) {
 
 /** 刪除任一筆操作紀錄。 */
 export async function deleteActivity(input: { id: string; projectId: string }) {
-  const user = await requireUser();
-  await assertCanEditProject(user.id, input.projectId, user.isBoss);
+  const { org } = await requireActiveOrg();
+  await assertCanEditProject(org.id, input.projectId);
   await db.activity.delete({ where: { id: input.id } });
   revalidatePath(`/projects/${input.projectId}`);
 }

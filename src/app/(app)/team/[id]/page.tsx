@@ -13,7 +13,7 @@ import {
   ListChecks,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { requireUser } from "@/server/auth-helpers";
+import { requireActiveOrg, canManageMembers } from "@/server/org";
 import { getMemberProfile } from "@/server/queries";
 import { thisWeekStart, weekLabel } from "@/lib/date";
 import { displayName, displayInitial } from "@/lib/display";
@@ -32,8 +32,9 @@ export default async function MemberProfilePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  await requireUser();
-  const m = await getMemberProfile(id);
+  const { org, membership } = await requireActiveOrg();
+  const canManage = canManageMembers(membership.role);
+  const m = await getMemberProfile(org.id, id);
   if (!m) notFound();
 
   const week = thisWeekStart();
@@ -304,22 +305,24 @@ export default async function MemberProfilePage({
         </div>
       </div>
 
-      <div className="rounded-xl border border-red-200 bg-red-50/40 p-4">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <div className="text-sm font-semibold text-red-700">刪除成員</div>
-            <p className="text-muted-foreground text-xs">
-              將此成員從工作區移除；他建立 / 負責的專案會轉由你接手，成員資格一併移除。此動作無法復原。
-            </p>
+      {canManage && (
+        <div className="rounded-xl border border-red-200 bg-red-50/40 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-sm font-semibold text-red-700">移除成員</div>
+              <p className="text-muted-foreground text-xs">
+                將此成員從目前組織移除；他在本組織建立 / 負責的專案會轉由你接手，成員資格一併移除（不影響其他組織）。此動作無法復原。
+              </p>
+            </div>
+            <MemberDeleteButton
+              id={m.id}
+              name={displayName(m)}
+              mode="button"
+              redirectTo="/team"
+            />
           </div>
-          <MemberDeleteButton
-            id={m.id}
-            name={displayName(m)}
-            mode="button"
-            redirectTo="/team"
-          />
         </div>
-      </div>
+      )}
     </div>
   );
 }

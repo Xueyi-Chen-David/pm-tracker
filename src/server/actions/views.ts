@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
-import { requireUser } from "@/server/auth-helpers";
+import { requireActiveOrg } from "@/server/org";
 
 export type ViewActionState = { error?: string; ok?: boolean; id?: string } | null;
 
@@ -27,7 +27,7 @@ export async function createProjectViewAction(
   _prev: ViewActionState,
   formData: FormData,
 ): Promise<ViewActionState> {
-  await requireUser();
+  const { org } = await requireActiveOrg();
   const parsed = CreateInput.safeParse({
     name: formData.get("name"),
     statuses: formData.getAll("statuses").map(String),
@@ -38,9 +38,13 @@ export async function createProjectViewAction(
     return { error: parsed.error.issues[0]?.message ?? "資料格式錯誤" };
   }
   const { name, statuses, types, exclude } = parsed.data;
-  const max = await db.projectView.aggregate({ _max: { sortOrder: true } });
+  const max = await db.projectView.aggregate({
+    where: { organizationId: org.id },
+    _max: { sortOrder: true },
+  });
   const view = await db.projectView.create({
     data: {
+      organizationId: org.id,
       name,
       statuses,
       types,
@@ -53,8 +57,10 @@ export async function createProjectViewAction(
 }
 
 export async function deleteProjectView(id: string) {
-  await requireUser();
-  const view = await db.projectView.findUnique({ where: { id } });
+  const { org } = await requireActiveOrg();
+  const view = await db.projectView.findFirst({
+    where: { id, organizationId: org.id },
+  });
   if (!view) return;
   if (view.isSystem) throw new Error("「全體」視窗無法刪除。");
   await db.projectView.delete({ where: { id } });

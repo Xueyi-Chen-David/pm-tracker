@@ -1,9 +1,8 @@
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { requireUser } from "@/server/auth-helpers";
-import { getProject, getAllUsers } from "@/server/queries";
-import { canEditProject } from "@/server/access";
+import { requireActiveOrg } from "@/server/org";
+import { getProject, getOrgMemberUsers } from "@/server/queries";
 import { ProjectForm } from "@/components/project-form";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -17,12 +16,12 @@ export default async function EditProjectPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const user = await requireUser();
-  const [project, users] = await Promise.all([getProject(id), getAllUsers()]);
+  const { org } = await requireActiveOrg();
+  const [project, users] = await Promise.all([
+    getProject(org.id, id),
+    getOrgMemberUsers(org.id),
+  ]);
   if (!project) notFound();
-  if (!(await canEditProject(user.id, id, user.isBoss))) {
-    redirect(`/projects/${id}`);
-  }
 
   return (
     <div className="mx-auto max-w-2xl">

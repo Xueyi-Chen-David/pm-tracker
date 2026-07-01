@@ -1,4 +1,4 @@
-import { requireUser } from "@/server/auth-helpers";
+import { requireActiveOrg } from "@/server/org";
 import { getAttendanceMonth, getTrackableMembers } from "@/server/queries";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -34,7 +34,7 @@ export default async function AttendancePage({
 }: {
   searchParams: Promise<{ month?: string }>;
 }) {
-  await requireUser();
+  const { org } = await requireActiveOrg();
   const { month: monthParam } = await searchParams;
 
   const now = new Date();
@@ -59,8 +59,8 @@ export default async function AttendancePage({
   });
 
   const [rows, trackable] = await Promise.all([
-    getAttendanceMonth(start, end),
-    getTrackableMembers(),
+    getAttendanceMonth(org.id, start, end),
+    getTrackableMembers(org.id),
   ]);
 
   const members: GridMember[] = rows.map((m) => {

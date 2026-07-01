@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireUser } from "@/server/auth-helpers";
+import { requireActiveOrg } from "@/server/org";
 import { getTimelineData } from "@/server/queries";
 import { PageHeader } from "@/components/page-header";
 import { TimelineChart } from "@/components/timeline-chart";
@@ -12,8 +12,8 @@ import { Star } from "lucide-react";
 export const metadata = { title: "時程藍圖 · Project Pulse" };
 
 export default async function TimelinePage() {
-  await requireUser();
-  const all = await getTimelineData();
+  const { org } = await requireActiveOrg();
+  const all = await getTimelineData(org.id);
   // 時間線不顯示未開始 / 暫停的專案
   const projects = all.filter(
     (p) => p.status !== "NOT_STARTED" && p.status !== "ON_HOLD",

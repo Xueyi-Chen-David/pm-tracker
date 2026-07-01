@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Plus, Pencil, Users, CalendarDays } from "lucide-react";
-import { requireUser } from "@/server/auth-helpers";
-import { getMeetings, getAllUsers } from "@/server/queries";
+import { requireActiveOrg } from "@/server/org";
+import { getMeetings, getOrgMemberUsers } from "@/server/queries";
 import { meetingCategoryBadge } from "@/lib/constants";
 import { fmtDate } from "@/lib/date";
 import { displayName } from "@/lib/display";
@@ -18,9 +18,12 @@ export default async function MeetingsPage({
 }: {
   searchParams: Promise<{ cat?: string }>;
 }) {
-  await requireUser();
+  const { org } = await requireActiveOrg();
   const { cat } = await searchParams;
-  const [all, members] = await Promise.all([getMeetings(), getAllUsers()]);
+  const [all, members] = await Promise.all([
+    getMeetings(org.id),
+    getOrgMemberUsers(org.id),
+  ]);
   const nameById = new Map(members.map((m) => [m.id, displayName(m)]));
   const categories = Array.from(new Set(all.map((m) => m.category)));
   const meetings = cat ? all.filter((m) => m.category === cat) : all;

@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
-import { requireUser } from "@/server/auth-helpers";
+import { requireActiveOrg } from "@/server/org";
 
 const EventInput = z.object({
   userId: z.string().min(1),
@@ -21,8 +21,14 @@ function toDate(v: string): Date {
 }
 
 export async function createMemberEvent(input: z.input<typeof EventInput>) {
-  const user = await requireUser();
+  const { user, org } = await requireActiveOrg();
   const d = EventInput.parse(input);
+  const member = await db.organizationMember.findUnique({
+    where: { organizationId_userId: { organizationId: org.id, userId: d.userId } },
+    select: { id: true },
+  });
+  if (!member) throw new Error("該成員不屬於目前組織。");
+
   const start = toDate(d.startDate);
   const end = d.endDate ? toDate(d.endDate) : null;
   // 結束日早於開始日時忽略結束日
@@ -30,6 +36,7 @@ export async function createMemberEvent(input: z.input<typeof EventInput>) {
 
   await db.memberEvent.create({
     data: {
+      organizationId: org.id,
       userId: d.userId,
       type: d.type,
       startDate: start,
@@ -44,8 +51,10 @@ export async function createMemberEvent(input: z.input<typeof EventInput>) {
 }
 
 export async function deleteMemberEvent(input: { id: string; userId: string }) {
-  await requireUser();
-  await db.memberEvent.delete({ where: { id: input.id } });
+  const { org } = await requireActiveOrg();
+  await db.memberEvent.deleteMany({
+    where: { id: input.id, organizationId: org.id },
+  });
   revalidatePath(`/team/${input.userId}`);
   revalidatePath("/team");
   revalidatePath("/attendance");
