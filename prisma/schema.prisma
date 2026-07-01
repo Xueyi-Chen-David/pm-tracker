@@ -31,6 +31,10 @@ model User {
   bio              String? @db.Text // 簡介 / 備註
   attendance       String? // 出席情況（自由文字，如：全職、每週二三）
   productivityNote String? @db.Text // 生產力 / 績效備註
+  // 細分權限：可見模組。空陣列＝可見全部（維持既有行為）；非空＝只可見列出的模組。老闆(isBoss)一律全部可見。
+  allowedModules   String[] @default([])
+  // 是否納入「出席」月曆追蹤（只顯示被勾選的人）。
+  trackAttendance  Boolean  @default(false)
   createdAt     DateTime  @default(now())
 
   accounts      Account[]
@@ -43,6 +47,7 @@ model User {
   activities      Activity[]
   memberEvents    MemberEvent[]
   weeklyTasks     WeeklyTask[]
+  attendanceRecords AttendanceRecord[]
 }
 
 model Account {
@@ -323,6 +328,23 @@ model Meeting {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  @@index([date])
+}
+
+/// 每日出席紀錄（每人每日最多一筆；present=有出席，false=缺席）。
+/// 只追蹤 User.trackAttendance = true 的成員，供出席月曆一眼檢視。
+model AttendanceRecord {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date        DateTime @db.Date
+  present     Boolean  @default(true) // true=出席 / false=缺席
+  reason      String? // 缺席原因（請假 / 出差…；選填）
+  createdById String? // 登記者
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([userId, date])
   @@index([date])
 }
 

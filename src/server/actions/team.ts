@@ -4,6 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
 import { requireUser } from "@/server/auth-helpers";
+import { MODULE_KEYS } from "@/lib/modules";
 
 export type TeamActionState = { error?: string; ok?: boolean } | null;
 
@@ -85,6 +86,14 @@ export async function updateProfileAction(
     return { error: parsed.error.issues[0]?.message ?? "資料格式錯誤" };
   }
   const d = parsed.data;
+
+  // 細分權限（可見模組）：勾「可存取全部」→ 空陣列（＝全開）；否則收集勾選的模組 key。
+  const allModules = formData.get("allModules") === "on";
+  const allowedModules = allModules
+    ? []
+    : MODULE_KEYS.filter((k) => formData.get(`mod_${k}`) === "on");
+  const trackAttendance = formData.get("trackAttendance") === "on";
+
   try {
     await db.user.update({
       where: { id: d.id },
@@ -102,6 +111,8 @@ export async function updateProfileAction(
         productivityNote: d.productivityNote || null,
         isBoss: d.isBoss ?? false,
         active: d.active ?? true,
+        allowedModules,
+        trackAttendance,
       },
     });
   } catch (e) {
@@ -112,6 +123,7 @@ export async function updateProfileAction(
   }
   revalidatePath("/team");
   revalidatePath(`/team/${d.id}`);
+  revalidatePath("/attendance");
   return { ok: true };
 }
 

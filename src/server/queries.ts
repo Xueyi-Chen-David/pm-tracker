@@ -112,8 +112,35 @@ export type WorkspaceMember = Awaited<
   ReturnType<typeof getWorkspaceMembers>
 >[number];
 
-/** 出席頁：指定日期，所有在職成員 + 當天涵蓋的事件（請假 / 出差…）。 */
-export async function getAttendanceForDate(date: Date) {
+/**
+ * 出席月曆：被追蹤（trackAttendance）的在職成員 + 指定月份 [start, end) 的每日出席紀錄。
+ */
+export async function getAttendanceMonth(start: Date, end: Date) {
+  return db.user.findMany({
+    where: { active: true, trackAttendance: true },
+    orderBy: [{ isBoss: "desc" }, { name: "asc" }],
+    select: {
+      id: true,
+      name: true,
+      nickname: true,
+      useNickname: true,
+      email: true,
+      image: true,
+      isBoss: true,
+      attendanceRecords: {
+        where: { date: { gte: start, lt: end } },
+        select: { date: true, present: true, reason: true },
+      },
+    },
+  });
+}
+
+export type AttendanceMonthMember = Awaited<
+  ReturnType<typeof getAttendanceMonth>
+>[number];
+
+/** 出席追蹤成員管理：所有在職成員 + 是否已納入追蹤。 */
+export async function getTrackableMembers() {
   return db.user.findMany({
     where: { active: true },
     orderBy: [{ isBoss: "desc" }, { name: "asc" }],
@@ -124,22 +151,11 @@ export async function getAttendanceForDate(date: Date) {
       useNickname: true,
       email: true,
       image: true,
-      attendance: true,
       isBoss: true,
-      memberEvents: {
-        where: {
-          startDate: { lte: date },
-          OR: [{ endDate: { gte: date } }, { endDate: null, startDate: { gte: date } }],
-        },
-        orderBy: { startDate: "asc" },
-      },
+      trackAttendance: true,
     },
   });
 }
-
-export type AttendanceMember = Awaited<
-  ReturnType<typeof getAttendanceForDate>
->[number];
 
 /** 成員個人頁：profile + 負責/參與專案 + 近期週報活動。 */
 export async function getMemberProfile(id: string) {

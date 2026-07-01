@@ -27,15 +27,16 @@ import {
 } from "@/components/ui/avatar";
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { NewProjectButton } from "@/components/new-project-button";
+import type { ModuleKey } from "@/lib/modules";
 
-const NAV = [
-  { href: "/dashboard", label: "總覽", icon: LayoutDashboard },
-  { href: "/projects", label: "專案與任務", icon: FolderKanban },
-  { href: "/timeline", label: "時程藍圖", icon: CalendarRange },
-  { href: "/team", label: "團隊", icon: Users },
-  { href: "/attendance", label: "出席狀況", icon: UserCheck },
-  { href: "/meetings", label: "會議記錄", icon: NotebookPen },
-  { href: "/report", label: "週報", icon: FileText },
+const NAV: { key: ModuleKey; href: string; label: string; icon: typeof LayoutDashboard }[] = [
+  { key: "dashboard", href: "/dashboard", label: "總覽", icon: LayoutDashboard },
+  { key: "projects", href: "/projects", label: "專案與任務", icon: FolderKanban },
+  { key: "timeline", href: "/timeline", label: "時程藍圖", icon: CalendarRange },
+  { key: "team", href: "/team", label: "團隊", icon: Users },
+  { key: "attendance", href: "/attendance", label: "出席狀況", icon: UserCheck },
+  { key: "meetings", href: "/meetings", label: "會議記錄", icon: NotebookPen },
+  { key: "report", href: "/report", label: "週報", icon: FileText },
 ];
 
 type SessionUser = {
@@ -49,11 +50,18 @@ type SessionUser = {
 
 type UserOption = { id: string; name: string | null; email: string | null };
 
-function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
+function NavLinks({
+  onNavigate,
+  moduleKeys,
+}: {
+  onNavigate?: () => void;
+  moduleKeys: ModuleKey[];
+}) {
   const pathname = usePathname();
+  const allowed = new Set(moduleKeys);
   return (
     <nav className="flex flex-col gap-1">
-      {NAV.map((item) => {
+      {NAV.filter((item) => allowed.has(item.key)).map((item) => {
         const active =
           pathname === item.href || pathname.startsWith(item.href + "/");
         const Icon = item.icon;
@@ -127,9 +135,11 @@ function UserCard({ user }: { user: SessionUser }) {
 export function AppSidebar({
   user,
   users,
+  moduleKeys,
 }: {
   user: SessionUser;
   users: UserOption[];
+  moduleKeys: ModuleKey[];
 }) {
   const [open, setOpen] = useState(false);
 
@@ -149,7 +159,7 @@ export function AppSidebar({
           }
         />
         <div className="px-1">
-          <NavLinks />
+          <NavLinks moduleKeys={moduleKeys} />
         </div>
         <div className="mt-auto">
           <UserCard user={user} />
@@ -177,7 +187,7 @@ export function AppSidebar({
             <SheetContent side="left" className="w-64 p-3">
               <SheetTitle className="sr-only">導覽選單</SheetTitle>
               <div className="mt-6 flex h-full flex-col gap-4">
-                <NavLinks onNavigate={() => setOpen(false)} />
+                <NavLinks moduleKeys={moduleKeys} onNavigate={() => setOpen(false)} />
                 <div className="mt-auto">
                   <UserCard user={user} />
                 </div>

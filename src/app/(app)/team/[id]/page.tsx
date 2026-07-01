@@ -115,6 +115,8 @@ export default async function MemberProfilePage({
                   productivityNote: m.productivityNote,
                   isBoss: m.isBoss,
                   active: m.active,
+                  allowedModules: m.allowedModules,
+                  trackAttendance: m.trackAttendance,
                 }}
               />
             </CardContent>

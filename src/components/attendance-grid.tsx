@@ -1,0 +1,258 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { Check, X } from "lucide-react";
+import { setAttendance } from "@/server/actions/attendance";
+import { MEMBER_EVENT_TYPES } from "@/lib/constants";
+import { cn } from "@/lib/utils";
+import { displayInitial } from "@/lib/display";
+import { MemberName } from "@/components/member-name";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+
+export type GridDay = {
+  day: number;
+  dateStr: string; // yyyy-mm-dd
+  weekday: number; // 0=Sun … 6=Sat
+  weekend: boolean;
+  label: string; // 例：7/1（三）
+};
+
+type Mark = { present: boolean; reason: string | null };
+
+export type GridMember = {
+  id: string;
+  name: string | null;
+  nickname: string | null;
+  useNickname: boolean;
+  email: string | null;
+  image: string | null;
+  isBoss: boolean;
+  marks: Record<string, Mark>;
+};
+
+const WEEKDAY_LABEL = ["日", "一", "二", "三", "四", "五", "六"];
+
+export function AttendanceGrid({
+  members,
+  days,
+}: {
+  members: GridMember[];
+  days: GridDay[];
+}) {
+  // 每日在勤人數（頁尾），依伺服器資料計算。
+  const dayPresent = days.map(
+    (d) => members.filter((m) => m.marks[d.dateStr]?.present === true).length,
+  );
+
+  return (
+    <div className="overflow-x-auto rounded-xl border">
+      <table className="border-separate border-spacing-0 text-sm">
+        <thead>
+          <tr>
+            <th className="bg-card sticky left-0 z-20 min-w-40 border-b border-r px-3 py-2 text-left font-medium">
+              成員
+            </th>
+            {days.map((d) => (
+              <th
+                key={d.dateStr}
+                className={cn(
+                  "w-9 border-b px-0 py-1 text-center font-normal",
+                  d.weekend && "bg-muted/40",
+                )}
+              >
+                <div className="text-muted-foreground text-[10px] leading-none">
+                  {WEEKDAY_LABEL[d.weekday]}
+                </div>
+                <div className="text-xs leading-tight font-medium">{d.day}</div>
+              </th>
+            ))}
+            <th className="bg-card border-b border-l px-2 py-2 text-center font-medium">
+              統計
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {members.map((m) => {
+            let present = 0;
+            let absent = 0;
+            for (const d of days) {
+              const mk = m.marks[d.dateStr];
+              if (mk?.present === true) present++;
+              else if (mk?.present === false) absent++;
+            }
+            return (
+              <tr key={m.id} className="hover:bg-muted/30">
+                <td className="bg-card sticky left-0 z-10 min-w-40 border-b border-r px-3 py-1.5">
+                  <div className="flex items-center gap-2">
+                    <Avatar className="h-7 w-7 shrink-0">
+                      {m.image && <AvatarImage src={m.image} alt="" />}
+                      <AvatarFallback className="text-[10px]">
+                        {displayInitial(m)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <MemberName u={m} className="min-w-0 text-sm" />
+                  </div>
+                </td>
+                {days.map((d) => (
+                  <td
+                    key={d.dateStr}
+                    className={cn(
+                      "border-b p-0.5 text-center",
+                      d.weekend && "bg-muted/30",
+                    )}
+                  >
+                    <AttendanceCell
+                      userId={m.id}
+                      dateStr={d.dateStr}
+                      label={d.label}
+                      mark={m.marks[d.dateStr]}
+                    />
+                  </td>
+                ))}
+                <td className="border-b border-l px-2 py-1.5 text-center whitespace-nowrap">
+                  <span className="text-emerald-600">{present}</span>
+                  <span className="text-muted-foreground"> / </span>
+                  <span className="text-rose-600">{absent}</span>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot>
+          <tr className="bg-muted/40">
+            <td className="bg-muted/40 sticky left-0 z-10 border-r px-3 py-1.5 text-xs font-medium">
+              當日在勤
+            </td>
+            {days.map((d, i) => (
+              <td
+                key={d.dateStr}
+                className="text-muted-foreground px-0 py-1.5 text-center text-[11px]"
+              >
+                {dayPresent[i] || ""}
+              </td>
+            ))}
+            <td className="border-l" />
+          </tr>
+        </tfoot>
+      </table>
+
+      {/* 缺席原因建議清單（整個 grid 共用一份） */}
+      <datalist id="att-reasons">
+        {MEMBER_EVENT_TYPES.map((t) => (
+          <option key={t} value={t} />
+        ))}
+      </datalist>
+    </div>
+  );
+}
+
+function AttendanceCell({
+  userId,
+  dateStr,
+  label,
+  mark,
+}: {
+  userId: string;
+  dateStr: string;
+  label: string;
+  mark?: Mark;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [pending, start] = useTransition();
+  const [state, setState] = useState<Mark | null>(mark ?? null);
+  const [reason, setReason] = useState(mark?.reason ?? "");
+
+  function apply(status: "present" | "absent" | "clear") {
+    start(async () => {
+      try {
+        await setAttendance({
+          userId,
+          date: dateStr,
+          status,
+          reason: status === "absent" ? reason : undefined,
+        });
+        setState(
+          status === "clear"
+            ? null
+            : {
+                present: status === "present",
+                reason: status === "absent" ? reason.trim() || null : null,
+              },
+        );
+        setOpen(false);
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "更新失敗");
+      }
+    });
+  }
+
+  const isPresent = state?.present === true;
+  const isAbsent = state?.present === false;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        title={`${label}${isAbsent && state?.reason ? ` · ${state.reason}` : ""}`}
+        className={cn(
+          "mx-auto flex h-7 w-7 items-center justify-center rounded-md border text-xs transition-colors",
+          isPresent && "border-emerald-300 bg-emerald-100 text-emerald-700",
+          isAbsent && "border-rose-300 bg-rose-100 text-rose-700",
+          !isPresent &&
+            !isAbsent &&
+            "text-muted-foreground/40 border-transparent hover:bg-muted",
+          pending && "opacity-50",
+        )}
+      >
+        {isPresent ? (
+          <Check className="h-4 w-4" />
+        ) : isAbsent ? (
+          <X className="h-4 w-4" />
+        ) : (
+          <span aria-hidden>·</span>
+        )}
+      </PopoverTrigger>
+      <PopoverContent align="center" className="w-56 gap-2">
+        <div className="text-muted-foreground text-xs">{label}</div>
+        <div className="grid grid-cols-3 gap-1.5">
+          <button
+            type="button"
+            onClick={() => apply("present")}
+            className="rounded-md border border-emerald-300 bg-emerald-50 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
+          >
+            出席
+          </button>
+          <button
+            type="button"
+            onClick={() => apply("absent")}
+            className="rounded-md border border-rose-300 bg-rose-50 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100"
+          >
+            缺席
+          </button>
+          <button
+            type="button"
+            onClick={() => apply("clear")}
+            className="text-muted-foreground rounded-md border py-1 text-xs font-medium hover:bg-muted"
+          >
+            清除
+          </button>
+        </div>
+        <input
+          list="att-reasons"
+          value={reason}
+          onChange={(e) => setReason(e.currentTarget.value)}
+          placeholder="缺席原因（選填）"
+          className="h-8 w-full rounded-md border px-2 text-sm"
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}

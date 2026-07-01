@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { updateProfileAction } from "@/server/actions/team";
+import { MODULES } from "@/lib/modules";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,12 +24,27 @@ export type ProfileValues = {
   productivityNote: string | null;
   isBoss: boolean;
   active: boolean;
+  allowedModules: string[];
+  trackAttendance: boolean;
 };
 
 export function ProfileForm({ values }: { values: ProfileValues }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
+  // 細分權限：空陣列＝可存取全部模組。
+  const [allAccess, setAllAccess] = useState(values.allowedModules.length === 0);
+  const [mods, setMods] = useState<Set<string>>(
+    () => new Set(values.allowedModules),
+  );
+  function toggleMod(key: string, on: boolean) {
+    setMods((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -170,6 +186,49 @@ export function ProfileForm({ values }: { values: ProfileValues }) {
           />
           在職 / 啟用
         </label>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            name="trackAttendance"
+            defaultChecked={values.trackAttendance}
+            className="accent-primary h-4 w-4"
+          />
+          納入出席追蹤（顯示於出席月曆）
+        </label>
+      </div>
+
+      {/* 細分權限：可見模組 */}
+      <div className="space-y-2.5 rounded-lg border p-3">
+        <div className="text-sm font-medium">可見模組（存取權限）</div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            name="allModules"
+            checked={allAccess}
+            onChange={(e) => setAllAccess(e.currentTarget.checked)}
+            className="accent-primary h-4 w-4"
+          />
+          可存取<strong className="font-semibold">全部</strong>模組
+        </label>
+        {!allAccess && (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 pt-1 sm:grid-cols-3">
+            {MODULES.map((m) => (
+              <label key={m.key} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name={`mod_${m.key}`}
+                  checked={mods.has(m.key)}
+                  onChange={(e) => toggleMod(m.key, e.currentTarget.checked)}
+                  className="accent-primary h-4 w-4"
+                />
+                {m.label}
+              </label>
+            ))}
+          </div>
+        )}
+        <p className="text-muted-foreground text-xs">
+          未勾「全部」時，此成員只看得到勾選的頁面。老闆一律可見全部。
+        </p>
       </div>
 
       {error && (
