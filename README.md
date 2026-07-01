@@ -1,36 +1,102 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Project Pulse · 專案管理儀表板
 
-## Getting Started
+一眼掌握所有**專案型、常態型、一次性任務**的進度與每週狀態，快速找出問題，並一鍵把週報輸出成 PDF 給老闆看。
 
-First, run the development server:
+## 功能
+
+- **三種任務類型**：專案型 / 常態型 / 一次性，分組管理。
+- **團隊與角色**：每個專案可指派成員、設定**負責人**，成員可給不同角色（負責人 / 成員 / 檢視者 + 自訂角色文字）；可用 Email 邀請尚未有帳號的人。
+- **進度追蹤**：狀態、優先序、開始 / 結束日、整體進度 %、紅黃綠燈健康度。
+- **每週進度紀錄**：本週目標 / 本週完成 / 整體進度 % / 下週目標 / 風險阻礙 / 需老闆決策；同一週去重、可編輯。
+- **歷史趨勢圖**：點進專案看進度折線圖（X 軸時間、點依紅黃綠燈著色）+ 全部每週紀錄。
+- **總覽 Dashboard**：所有任務的當週狀態一覽，自動標出「需要關注」「需老闆決策」「本週未更新」。
+- **時程藍圖（甘特風）**：各專案**理想時程**（淺色橫條）對比**現實進度**（深色填充），里程碑顯示計畫日 vs 實際達成日、目標 ★、今日線。
+- **一鍵週報**：仿儀表板樣式的週報頁，可切換週次，瀏覽器「列印 / 存成 PDF」即得 A4 橫向報告。
+
+## 技術
+
+Next.js 16（App Router）· React 19 · TypeScript · Tailwind v4 · shadcn/ui（Base UI）· Prisma 7 + Postgres · Auth.js (NextAuth v5, Google 登入) · Recharts。
+
+---
+
+## 本機開發
+
+### 1. 資料庫（本機用 Docker Postgres）
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+docker run -d --name pm-tracker-db \
+  -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=pmtracker \
+  -p 5455:5432 postgres:17
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+> 預設 `.env` 的 `DATABASE_URL` 已指向 `127.0.0.1:5455`。若該 port 被占用，換一個並同步改 `.env`。
+> （用 `127.0.0.1` 而非 `localhost`，避免 Windows 上 IPv6/Docker 的連線問題。）
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 2. 安裝、建表、植入範例資料
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+bun install
+bun run db:migrate      # 套用 migration（首次會建立資料表）
+bun run db:seed         # 植入 11 個範例專案 + 團隊成員 + 幾週週報（可選）
+```
 
-## Learn More
+### 3. 啟動
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+bun run dev             # http://localhost:3000
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+開發模式下 `.env` 的 `ALLOW_DEV_LOGIN=1` 會在登入頁顯示「開發者快速登入」，輸入任意 Email 即可登入（會自動建立帳號）。
+範例資料的負責人是 `dev@korvva.com`，用這個 Email 登入即可看到全部資料。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 常用指令
 
-## Deploy on Vercel
+| 指令 | 說明 |
+|------|------|
+| `bun run dev` | 開發伺服器 |
+| `bun run build` | 正式打包（會先 `prisma generate`） |
+| `bun run check` | ESLint + TypeScript 型別檢查（唯一的程式碼把關） |
+| `bun run db:migrate` | 建立 / 套用 migration（本機開發） |
+| `bun run db:deploy` | 套用既有 migration（正式環境用） |
+| `bun run db:studio` | Prisma Studio 看資料 |
+| `bun run db:seed` | 植入範例資料（已存在則略過；`--force` 可重置） |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+---
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 環境變數（`.env`）
+
+| 變數 | 說明 |
+|------|------|
+| `DATABASE_URL` | Postgres 連線字串。本機 Docker；正式環境用 Neon（需 `?sslmode=require`）。 |
+| `AUTH_SECRET` | Auth.js 加密金鑰，用 `openssl rand -base64 32` 產生。 |
+| `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | Google OAuth client。填了才會出現「用 Google 登入」。 |
+| `ALLOW_DEV_LOGIN` | `1` 啟用開發者快速登入；**正式環境請設 `0`**。 |
+
+### 設定 Google 登入
+
+1. [Google Cloud Console](https://console.cloud.google.com) → APIs & Services → Credentials → 建立 **OAuth client ID**（Web application）。
+2. **Authorized redirect URI** 加入：
+   - 本機：`http://localhost:3000/api/auth/callback/google`
+   - 正式：`https://<你的網域>/api/auth/callback/google`
+3. 把 client id / secret 填入 `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`，重啟即可。
+
+---
+
+## 部署到 Vercel + Neon
+
+1. **Neon**：建一個 Postgres，複製連線字串（含 `?sslmode=require`）。
+2. **Vercel**：匯入此專案，設定環境變數 `DATABASE_URL`、`AUTH_SECRET`、`AUTH_GOOGLE_ID`、`AUTH_GOOGLE_SECRET`，並把 `ALLOW_DEV_LOGIN` 設 `0`（或不設）。
+3. Build 指令維持預設（`bun run build`，內含 `prisma generate`）。
+4. 第一次部署後，對正式 DB 套用 schema：本機把 `DATABASE_URL` 暫指向 Neon 後執行 `bun run db:deploy`（或在 CI 跑）。
+5. 到 Google OAuth 把正式網域的 redirect URI 加進去。
+
+> Auth.js 已開 `trustHost: true`，Vercel 上不需額外設 `AUTH_URL`。
+
+---
+
+## 每週使用流程
+
+1. **新增專案 / 任務**（側欄按鈕）→ 選類型、指派負責人與成員、填起訖日與目標。
+2. 進專案詳情 → **新增本週進度**（目標 / 完成 / 進度 / 風險 / 需決策），並在「里程碑」設定理想日與目標。
+3. **總覽**隨時看所有任務當週狀態，紅黃燈與「需老闆決策」一眼揪出問題。
+4. 週五 → 開**週報**頁 → 「列印 / 存成 PDF」→ 寄給老闆。

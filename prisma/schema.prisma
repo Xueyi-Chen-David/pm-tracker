@@ -1,0 +1,342 @@
+// Project tracker — Prisma schema (Postgres + driver adapter, Prisma 7)
+// 本機開發用 Docker Postgres；正式環境把 DATABASE_URL 換成 Neon 即可。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────
+// Auth.js (NextAuth v5) — Prisma adapter, database sessions
+// ─────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String? // 真實姓名
+  nickname      String? // 綽號 / 暱稱
+  useNickname   Boolean   @default(false) // 顯示時用綽號取代真實姓名
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  // 應用層欄位
+  jobTitle      String? // 職稱（顯示用）
+  isBoss        Boolean   @default(false) // 老闆：週報「需要決策」收件對象
+  active        Boolean   @default(true) // 是否在職 / 啟用
+  // 個人 profile（團隊管理用）
+  persona          String? @db.Text // 角色定位 / persona
+  personality      String? @db.Text // 個性特質
+  bio              String? @db.Text // 簡介 / 備註
+  attendance       String? // 出席情況（自由文字，如：全職、每週二三）
+  productivityNote String? @db.Text // 生產力 / 績效備註
+  createdAt     DateTime  @default(now())
+
+  accounts      Account[]
+  sessions      Session[]
+
+  ownedProjects   Project[]        @relation("ProjectOwner")
+  createdProjects Project[]        @relation("ProjectCreator")
+  memberships     ProjectMember[]
+  weeklyUpdates   WeeklyUpdate[]
+  activities      Activity[]
+  memberEvents    MemberEvent[]
+  weeklyTasks     WeeklyTask[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─────────────────────────────────────────────
+// Domain models
+// ─────────────────────────────────────────────
+
+enum ProjectType {
+  ROUTINE // 常態型任務
+  PROJECT // 專案型任務
+  ONE_TIME // 一次型任務
+}
+
+enum ProjectStatus {
+  NOT_STARTED // 未開始
+  ACTIVE // 進行中
+  ON_HOLD // 暫停
+  COMPLETED // 已完成
+  CANCELLED // 已取消
+}
+
+// RAG 紅黃綠燈 — 一眼看出問題（業界週報慣例）
+enum Health {
+  GREEN // 順利
+  YELLOW // 需注意
+  RED // 有阻礙/落後
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum MemberRole {
+  OWNER // 負責人
+  MEMBER // 成員
+  VIEWER // 檢視者
+}
+
+enum MilestoneStatus {
+  PLANNED // 規劃中
+  IN_PROGRESS // 進行中
+  DONE // 已完成
+  MISSED // 已逾期/未達成
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  name        String
+  type        ProjectType   @default(PROJECT)
+  description String?       @db.Text
+  status      ProjectStatus @default(ACTIVE)
+  health      Health        @default(GREEN) // 目前健康度（可由最新週報帶入）
+  priority    Priority      @default(MEDIUM)
+
+  startDate     DateTime? // 開始日
+  targetDate    DateTime? // 理想完成日（planned）
+  actualEndDate DateTime? // 實際完成日
+
+  progress  Int     @default(0) // 目前整體進度 0-100
+  color     String? // timeline / 標籤顏色（hex）
+  archived  Boolean @default(false)
+  sortOrder Int     @default(0)
+
+  countInProgress Boolean @default(true) // 是否計入週報「完成度」統計（整體平均進度）
+
+  ownerId String?
+  owner   User?   @relation("ProjectOwner", fields: [ownerId], references: [id])
+
+  createdById String
+  createdBy   User   @relation("ProjectCreator", fields: [createdById], references: [id])
+
+  members       ProjectMember[]
+  weeklyUpdates WeeklyUpdate[]
+  milestones    Milestone[]
+  activities    Activity[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type])
+  @@index([status])
+}
+
+model ProjectMember {
+  id        String     @id @default(cuid())
+  projectId String
+  userId    String
+  role      MemberRole @default(MEMBER)
+  roleLabel String? // 自訂角色文字（例：PM / 工程 / 設計）
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}
+
+model WeeklyUpdate {
+  id        String   @id @default(cuid())
+  projectId String
+  weekStart DateTime @db.Date // 該週週一（唯一鍵，用於去重 / 排序）
+
+  progress       Int     @default(0) // 該週整體進度 0-100
+  health         Health  @default(GREEN) // 該週狀態（RAG）
+  thisWeekGoals  String? @db.Text // 本週目標
+  thisWeekDone   String? @db.Text // 本週完成
+  nextWeekGoals  String? @db.Text // 下週目標
+  risks          String? @db.Text // 風險 / 阻礙
+  needsDecision  String? @db.Text // 需要老闆決策（空＝無）
+  note           String? @db.Text // 其他備註
+
+  project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  authorId String?
+  author   User?   @relation(fields: [authorId], references: [id])
+
+  tasks WeeklyTask[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, weekStart])
+  @@index([weekStart])
+}
+
+/// 每週進度紀錄下的具體任務，可指定負責人。
+model WeeklyTask {
+  id             String       @id @default(cuid())
+  weeklyUpdateId String
+  weeklyUpdate   WeeklyUpdate @relation(fields: [weeklyUpdateId], references: [id], onDelete: Cascade)
+  title          String
+  done           Boolean      @default(false)
+  assigneeId     String?
+  assignee       User?        @relation(fields: [assigneeId], references: [id])
+  sortOrder      Int          @default(0)
+  createdAt      DateTime     @default(now())
+
+  @@index([weeklyUpdateId])
+}
+
+model Milestone {
+  id        String          @id @default(cuid())
+  projectId String
+  title     String
+  detail    String?         @db.Text
+  status    MilestoneStatus @default(PLANNED)
+
+  plannedDate DateTime? @db.Date // 理想時程
+  actualDate  DateTime? @db.Date // 實際達成時程
+
+  isGoal    Boolean @default(false) // 設為「目標」（vs 一般里程碑）
+  sortOrder Int     @default(0)
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+}
+
+// 操作紀錄的種類（決定圖示 / 篩選；NOTE＝使用者手動備註）
+enum ActivityKind {
+  CREATE // 建立專案
+  STATUS // 狀態變更
+  HEALTH // 健康度變更
+  PROGRESS // 進度變更
+  FIELD // 一般欄位編輯
+  MILESTONE // 里程碑變更
+  MEMBER // 成員變更
+  WEEKLY // 週報變更
+  ARCHIVE // 封存 / 取消封存
+  NOTE // 使用者手動備註
+}
+
+/**
+ * 專案操作紀錄（活動軌跡）。系統在各動作後自動寫入；使用者亦可手動新增備註（kind=NOTE）。
+ * 任何一筆都可被刪除（內部團隊工具）。
+ */
+model Activity {
+  id        String       @id @default(cuid())
+  projectId String
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  kind      ActivityKind @default(NOTE)
+  message   String       @db.Text // 顯示文字（如「狀態：進行中 → 已完成」）
+  userId    String? // 操作者（手動備註必有；系統動作通常有）
+  user      User?        @relation(fields: [userId], references: [id])
+  createdAt DateTime     @default(now())
+
+  @@index([projectId, createdAt])
+}
+
+/**
+ * 專案清單的「視窗 / 分頁」。「全體」為系統視窗（isSystem，不可刪），其餘可自由新增/刪除。
+ * 每個視窗用 status / type 篩選專案（null＝不限）。
+ */
+model ProjectView {
+  id        String          @id @default(cuid())
+  name      String
+  /** 篩選條件：狀態 / 類型（空陣列＝不限）。 */
+  statuses  ProjectStatus[]
+  types     ProjectType[]
+  /** true＝反向：顯示「不符合」上述條件的專案（排除某些）。 */
+  exclude   Boolean         @default(false)
+  isSystem  Boolean         @default(false) // 「全體」＝true，不可刪除
+  sortOrder Int             @default(0)
+  createdAt DateTime        @default(now())
+}
+
+/// 每週週報的「整體說明」自由文字（每週一筆，依週一日期為唯一鍵）。
+model WeeklyReport {
+  id          String   @id @default(cuid())
+  weekStart   DateTime @unique @db.Date
+  summary     String   @db.Text // 純文字鏡像（不含圖片 raw data，給 log / 純文字情境）
+  contentHtml String?  @db.Text // 文件內文（像 doc/email，文字與內嵌圖片在一起）
+  images      String[] // 舊版圖片欄位（保留相容）
+  content     Json? // 舊版區塊（保留相容）
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// 週報內文的圖片（以二進位存，內文只引用短網址，base64 不會流經 action / log）。
+model ReportImage {
+  id        String   @id @default(cuid())
+  data      Bytes
+  mime      String   @default("image/jpeg")
+  createdAt DateTime @default(now())
+}
+
+/// 會議記錄（全體會議 / 研發部會議 等）。依日期歸入對應週、顯示在該週週報。
+model Meeting {
+  id          String   @id @default(cuid())
+  date        DateTime @db.Date
+  category    String // 例：全體會議 / 研發部會議
+  title       String
+  attendeeIds String[] // 與會成員（User id；「全體」＝全部成員）
+  attendees   String?  @db.Text // 其他與會者（非系統成員，自由文字）
+  notes       String?  @db.Text // 會議記錄 / 決議
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([date])
+}
+
+/// 成員事件（請假 / 出差 / 在家工作 等），記在個人 profile。
+model MemberEvent {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String // 請假 / 出差 / 在家工作 / 外出 / 其他
+  startDate   DateTime  @db.Date
+  endDate     DateTime? @db.Date // 範圍結束（null＝單日）
+  note        String?   @db.Text
+  createdById String?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId, startDate])
+}

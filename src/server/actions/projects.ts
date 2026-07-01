@@ -1,0 +1,304 @@
+"use server";
+
+import { z } from "zod";
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { db } from "@/server/db";
+import { requireUser } from "@/server/auth-helpers";
+import { assertCanEditProject } from "@/server/access";
+import { logActivity } from "@/server/activity";
+import { HEALTH, PROJECT_STATUS } from "@/lib/constants";
+
+export type ActionState = { error?: string } | null;
+
+const ProjectInput = z.object({
+  name: z.string().trim().min(1, "請輸入名稱").max(200),
+  type: z.enum(["ROUTINE", "PROJECT", "ONE_TIME"]),
+  description: z.string().trim().max(4000).optional().nullable(),
+  status: z.enum(["NOT_STARTED", "ACTIVE", "ON_HOLD", "COMPLETED", "CANCELLED"]),
+  priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]),
+  health: z.enum(["GREEN", "YELLOW", "RED"]),
+  progress: z.coerce.number().int().min(0).max(100),
+  startDate: z.string().optional(),
+  targetDate: z.string().optional(),
+  ownerId: z.string().optional(),
+  color: z.string().optional(),
+});
+
+function toDate(v?: string | null): Date | null {
+  if (!v) return null;
+  const d = new Date(v);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function parseForm(formData: FormData) {
+  return ProjectInput.safeParse({
+    name: formData.get("name"),
+    type: formData.get("type"),
+    description: formData.get("description"),
+    status: formData.get("status"),
+    priority: formData.get("priority"),
+    health: formData.get("health"),
+    progress: formData.get("progress") ?? 0,
+    startDate: formData.get("startDate") || undefined,
+    targetDate: formData.get("targetDate") || undefined,
+    ownerId: formData.get("ownerId") || undefined,
+    color: formData.get("color") || undefined,
+  });
+}
+
+export async function createProjectAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const user = await requireUser();
+  const parsed = parseForm(formData);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "資料格式錯誤" };
+  }
+  const d = parsed.data;
+  const ownerId = d.ownerId || user.id;
+
+  const project = await db.project.create({
+    data: {
+      name: d.name,
+      type: d.type,
+      description: d.description || null,
+      status: d.status,
+      priority: d.priority,
+      health: d.health,
+      progress: d.progress,
+      startDate: toDate(d.startDate),
+      targetDate: toDate(d.targetDate),
+      color: d.color || null,
+      ownerId,
+      createdById: user.id,
+      members: {
+        create: [
+          // 負責人自動成為 OWNER 成員
+          { userId: ownerId, role: "OWNER" },
+          // 建立者若不同於負責人，加為成員
+          ...(ownerId !== user.id
+            ? [{ userId: user.id, role: "MEMBER" as const }]
+            : []),
+        ],
+      },
+    },
+  });
+
+  await logActivity({
+    projectId: project.id,
+    kind: "CREATE",
+    message: "建立了專案",
+    userId: user.id,
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath("/projects");
+  redirect(`/projects/${project.id}`);
+}
+
+export async function updateProjectAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const user = await requireUser();
+  const id = String(formData.get("id") ?? "");
+  if (!id) return { error: "缺少專案 ID" };
+  await assertCanEditProject(user.id, id, user.isBoss);
+
+  const parsed = parseForm(formData);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "資料格式錯誤" };
+  }
+  const d = parsed.data;
+
+  const before = await db.project.findUnique({
+    where: { id },
+    select: {
+      name: true,
+      type: true,
+      description: true,
+      status: true,
+      priority: true,
+      health: true,
+      progress: true,
+      ownerId: true,
+      startDate: true,
+      targetDate: true,
+      color: true,
+    },
+  });
+
+  await db.project.update({
+    where: { id },
+    data: {
+      name: d.name,
+      type: d.type,
+      description: d.description || null,
+      status: d.status,
+      priority: d.priority,
+      health: d.health,
+      progress: d.progress,
+      startDate: toDate(d.startDate),
+      targetDate: toDate(d.targetDate),
+      color: d.color || null,
+      ownerId: d.ownerId || undefined,
+      actualEndDate:
+        d.status === "COMPLETED" ? new Date() : null,
+    },
+  });
+
+  // 比對前後值，逐項寫入有意義的操作紀錄
+  if (before) {
+    if (before.status !== d.status) {
+      await logActivity({
+        projectId: id,
+        kind: "STATUS",
+        message: `狀態：${PROJECT_STATUS[before.status].label} → ${PROJECT_STATUS[d.status].label}`,
+        userId: user.id,
+      });
+    }
+    if (before.health !== d.health) {
+      await logActivity({
+        projectId: id,
+        kind: "HEALTH",
+        message: `健康度：${HEALTH[before.health].label} → ${HEALTH[d.health].label}`,
+        userId: user.id,
+      });
+    }
+    if (before.progress !== d.progress) {
+      await logActivity({
+        projectId: id,
+        kind: "PROGRESS",
+        message: `進度：${before.progress}% → ${d.progress}%`,
+        userId: user.id,
+      });
+    }
+    const otherChanged =
+      before.name !== d.name ||
+      before.type !== d.type ||
+      before.priority !== d.priority ||
+      (before.ownerId ?? "") !== (d.ownerId || before.ownerId || "") ||
+      (before.description ?? "") !== (d.description || "") ||
+      (before.color ?? "") !== (d.color || "");
+    if (otherChanged) {
+      await logActivity({
+        projectId: id,
+        kind: "FIELD",
+        message: "更新了專案資訊",
+        userId: user.id,
+      });
+    }
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${id}`);
+  redirect(`/projects/${id}`);
+}
+
+const StatusHealthInput = z.object({
+  projectId: z.string().min(1),
+  status: z
+    .enum(["NOT_STARTED", "ACTIVE", "ON_HOLD", "COMPLETED", "CANCELLED"])
+    .optional(),
+  health: z.enum(["GREEN", "YELLOW", "RED"]).optional(),
+});
+
+/** 詳情頁的「快速調整」：只改狀態 / 健康度並寫入操作紀錄。 */
+export async function setProjectStatusHealth(
+  input: z.input<typeof StatusHealthInput>,
+) {
+  const user = await requireUser();
+  const d = StatusHealthInput.parse(input);
+  await assertCanEditProject(user.id, d.projectId, user.isBoss);
+
+  const before = await db.project.findUnique({
+    where: { id: d.projectId },
+    select: { status: true, health: true },
+  });
+  if (!before) throw new Error("找不到專案");
+
+  const data: {
+    status?: typeof d.status;
+    health?: typeof d.health;
+    actualEndDate?: Date | null;
+  } = {};
+  if (d.status && d.status !== before.status) {
+    data.status = d.status;
+    data.actualEndDate = d.status === "COMPLETED" ? new Date() : null;
+  }
+  if (d.health && d.health !== before.health) data.health = d.health;
+  if (data.status === undefined && data.health === undefined) return;
+
+  await db.project.update({ where: { id: d.projectId }, data });
+
+  if (data.status) {
+    await logActivity({
+      projectId: d.projectId,
+      kind: "STATUS",
+      message: `狀態：${PROJECT_STATUS[before.status].label} → ${PROJECT_STATUS[data.status].label}`,
+      userId: user.id,
+    });
+  }
+  if (data.health) {
+    await logActivity({
+      projectId: d.projectId,
+      kind: "HEALTH",
+      message: `健康度：${HEALTH[before.health].label} → ${HEALTH[data.health].label}`,
+      userId: user.id,
+    });
+  }
+
+  revalidatePath(`/projects/${d.projectId}`);
+  revalidatePath("/dashboard");
+  revalidatePath("/projects");
+}
+
+export async function deleteProject(id: string) {
+  const user = await requireUser();
+  await assertCanEditProject(user.id, id, user.isBoss);
+  await db.project.delete({ where: { id } });
+  revalidatePath("/dashboard");
+  revalidatePath("/projects");
+  redirect("/projects");
+}
+
+/** 設定某專案是否計入週報「完成度」（整體平均進度）統計。 */
+export async function setProjectCountInProgress(input: {
+  projectId: string;
+  countInProgress: boolean;
+}) {
+  const user = await requireUser();
+  await assertCanEditProject(user.id, input.projectId, user.isBoss);
+  await db.project.update({
+    where: { id: input.projectId },
+    data: { countInProgress: input.countInProgress },
+  });
+  await logActivity({
+    projectId: input.projectId,
+    kind: "FIELD",
+    message: input.countInProgress
+      ? "改為計入完成度統計"
+      : "改為不計入完成度統計",
+    userId: user.id,
+  });
+  revalidatePath(`/projects/${input.projectId}`);
+  revalidatePath("/report");
+}
+
+export async function setProjectArchived(id: string, archived: boolean) {
+  const user = await requireUser();
+  await assertCanEditProject(user.id, id, user.isBoss);
+  await db.project.update({ where: { id }, data: { archived } });
+  await logActivity({
+    projectId: id,
+    kind: "ARCHIVE",
+    message: archived ? "封存了專案" : "取消封存專案",
+    userId: user.id,
+  });
+  revalidatePath("/dashboard");
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${id}`);
+}
