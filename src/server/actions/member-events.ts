@@ -4,8 +4,8 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
 import { requireActiveOrg } from "@/server/org";
-import { eventTypeMarksAbsent } from "@/lib/constants";
-import { applyEventAbsence, removeEventAbsence } from "@/lib/attendance-sync";
+import { eventAttendanceEffect } from "@/lib/constants";
+import { recomputeAttendance, weekdaysInRange } from "@/lib/attendance-sync";
 
 const EventInput = z.object({
   userId: z.string().min(1),
@@ -48,16 +48,14 @@ export async function createMemberEvent(input: z.input<typeof EventInput>) {
     },
   });
 
-  // 請假等「缺席」類型：直接反映到出席月曆。
-  if (eventTypeMarksAbsent(d.type)) {
-    await applyEventAbsence(
+  // 請假 / 出差 / 在家工作：直接反映到出席月曆（其餘類型不影響）。
+  if (eventAttendanceEffect(d.type)) {
+    await recomputeAttendance(
       db,
       org.id,
       d.userId,
-      d.type,
       user.id,
-      start,
-      endDate ?? start,
+      weekdaysInRange(start, endDate ?? start),
     );
   }
 
@@ -67,7 +65,7 @@ export async function createMemberEvent(input: z.input<typeof EventInput>) {
 }
 
 export async function deleteMemberEvent(input: { id: string; userId: string }) {
-  const { org } = await requireActiveOrg();
+  const { user, org } = await requireActiveOrg();
   // 先讀出事件（需要範圍 + 類型來回收自動出席紀錄），再刪除。
   const event = await db.memberEvent.findFirst({
     where: { id: input.id, organizationId: org.id },
@@ -77,13 +75,13 @@ export async function deleteMemberEvent(input: { id: string; userId: string }) {
     where: { id: input.id, organizationId: org.id },
   });
 
-  if (event && eventTypeMarksAbsent(event.type)) {
-    await removeEventAbsence(
+  if (event && eventAttendanceEffect(event.type)) {
+    await recomputeAttendance(
       db,
       org.id,
       event.userId,
-      event.startDate,
-      event.endDate ?? event.startDate,
+      user.id,
+      weekdaysInRange(event.startDate, event.endDate ?? event.startDate),
     );
   }
 

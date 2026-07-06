@@ -1,8 +1,12 @@
-import type { PrismaClient } from "@prisma/client";
-import { eventTypeMarksAbsent } from "@/lib/constants";
+import type { PrismaClient, Prisma } from "@prisma/client";
+import {
+  eventAttendanceEffect,
+  type AttendanceEffect,
+} from "@/lib/constants";
 
-// 請假事件 ↔ 出席月曆 的同步邏輯（純資料層，傳入 Prisma client 以便測試）。
-// 只處理「缺席」類型（目前只有請假）；出差 / 在家工作 / 外出 不動出席紀錄。
+// 成員事件 ↔ 出席月曆 的同步（純資料層，傳入 Prisma client 以便測試）。
+//   請假 → 缺席；出差 / 在家工作 → 在外工作（圈圈）；其餘不影響。
+// 一律以「目前所有成員事件」重算，只動自動（auto）紀錄，人工紀錄一律保留。
 
 const DAY_MS = 24 * 3600 * 1000;
 
@@ -16,96 +20,94 @@ export function weekdaysInRange(start: Date, end: Date): Date[] {
   return days;
 }
 
+type EventRow = { type: string; startDate: Date; endDate: Date | null };
+
 /**
- * 請假事件 → 出席月曆：把範圍內每個平日標記為缺席（自動）。
- * - 尚無紀錄：新增一筆自動缺席（reason = 事件類型）。
- * - 已是自動紀錄：更新為缺席並刷新原因。
- * - 已是人工紀錄（autoAbsent=false）：尊重人工設定，不覆蓋。
+ * 某天由所有事件推導出的出席效果；請假（缺席）優先於出差/在家工作（在外工作）。
+ * 回傳 null＝該天沒有任何會影響出席的事件。
  */
-export async function applyEventAbsence(
-  db: PrismaClient,
-  orgId: string,
-  userId: string,
-  type: string,
-  createdById: string,
-  start: Date,
-  end: Date,
-) {
-  const days = weekdaysInRange(start, end);
-  if (!days.length) return;
-
-  const existing = await db.attendanceRecord.findMany({
-    where: { organizationId: orgId, userId, date: { in: days } },
-    select: { date: true, autoAbsent: true },
-  });
-  const byTime = new Map(existing.map((r) => [r.date.getTime(), r]));
-
-  const toCreate = days.filter((d) => !byTime.has(d.getTime()));
-  const toRefresh = days.filter((d) => byTime.get(d.getTime())?.autoAbsent);
-
-  await db.$transaction([
-    ...(toCreate.length
-      ? [
-          db.attendanceRecord.createMany({
-            data: toCreate.map((date) => ({
-              organizationId: orgId,
-              userId,
-              date,
-              present: false,
-              reason: type,
-              autoAbsent: true,
-              createdById,
-            })),
-            skipDuplicates: true,
-          }),
-        ]
-      : []),
-    ...toRefresh.map((date) =>
-      db.attendanceRecord.updateMany({
-        where: { organizationId: orgId, userId, date },
-        data: { present: false, reason: type },
-      }),
-    ),
-  ]);
+function effectForDate(
+  events: EventRow[],
+  date: Date,
+): { effect: AttendanceEffect; type: string } | null {
+  const t = date.getTime();
+  let offsite: { effect: AttendanceEffect; type: string } | null = null;
+  for (const e of events) {
+    const s = e.startDate.getTime();
+    const en = (e.endDate ?? e.startDate).getTime();
+    if (t < s || t > en) continue;
+    const eff = eventAttendanceEffect(e.type);
+    if (!eff) continue;
+    if (eff === "absent") return { effect: "absent", type: e.type }; // 缺席優先
+    offsite ??= { effect: "offsite", type: e.type };
+  }
+  return offsite;
 }
 
 /**
- * 刪除請假事件後回收自動缺席紀錄：範圍內每個平日，若已無其他請假事件覆蓋，
- * 就刪掉那天的「自動」缺席（autoAbsent=true）。人工紀錄一律保留。
- * 注意：呼叫前應已把被刪的事件從 DB 移除，避免它自己算進「仍被覆蓋」。
+ * 依「目前所有成員事件」重算指定平日的自動出席紀錄。
+ * - 該天有事件效果：建立 / 更新一筆自動紀錄（缺席或在外工作）。
+ * - 該天已無事件效果：刪掉原本的自動紀錄。
+ * - 人工紀錄（auto=false）：一律不動（人工優先）。
+ * 建立 / 刪除 請假・出差・在家工作 事件後呼叫，傳入受影響的平日清單。
  */
-export async function removeEventAbsence(
+export async function recomputeAttendance(
   db: PrismaClient,
   orgId: string,
   userId: string,
-  start: Date,
-  end: Date,
+  createdById: string,
+  dates: Date[],
 ) {
-  const days = weekdaysInRange(start, end);
-  if (!days.length) return;
+  if (!dates.length) return;
+  const maxDate = new Date(Math.max(...dates.map((d) => d.getTime())));
 
-  // 此人其餘（尚存）、開始日不晚於本範圍結束的事件——用來判斷是否仍被覆蓋。
-  const others = await db.memberEvent.findMany({
-    where: { organizationId: orgId, userId, startDate: { lte: end } },
-    select: { type: true, startDate: true, endDate: true },
-  });
-  const absentOthers = others.filter((e) => eventTypeMarksAbsent(e.type));
-  const covered = (date: Date) =>
-    absentOthers.some((e) => {
-      const s = e.startDate.getTime();
-      const en = (e.endDate ?? e.startDate).getTime();
-      return date.getTime() >= s && date.getTime() <= en;
-    });
+  const [events, existing] = await Promise.all([
+    db.memberEvent.findMany({
+      where: { organizationId: orgId, userId, startDate: { lte: maxDate } },
+      select: { type: true, startDate: true, endDate: true },
+    }),
+    db.attendanceRecord.findMany({
+      where: { organizationId: orgId, userId, date: { in: dates } },
+      select: { id: true, date: true, auto: true },
+    }),
+  ]);
+  const exByTime = new Map(existing.map((r) => [r.date.getTime(), r]));
 
-  const toDelete = days.filter((d) => !covered(d));
-  if (!toDelete.length) return;
+  const ops: Prisma.PrismaPromise<unknown>[] = [];
+  for (const date of dates) {
+    const ex = exByTime.get(date.getTime());
+    if (ex && !ex.auto) continue; // 人工紀錄：保留，不動
+    const win = effectForDate(events, date);
 
-  await db.attendanceRecord.deleteMany({
-    where: {
-      organizationId: orgId,
-      userId,
-      autoAbsent: true,
-      date: { in: toDelete },
-    },
-  });
+    if (!win) {
+      if (ex) ops.push(db.attendanceRecord.delete({ where: { id: ex.id } }));
+      continue;
+    }
+    const present = win.effect !== "absent";
+    const offsite = win.effect === "offsite";
+    if (ex) {
+      ops.push(
+        db.attendanceRecord.update({
+          where: { id: ex.id },
+          data: { present, offsite, reason: win.type },
+        }),
+      );
+    } else {
+      ops.push(
+        db.attendanceRecord.create({
+          data: {
+            organizationId: orgId,
+            userId,
+            date,
+            present,
+            offsite,
+            reason: win.type,
+            auto: true,
+            createdById,
+          },
+        }),
+      );
+    }
+  }
+  if (ops.length) await db.$transaction(ops);
 }

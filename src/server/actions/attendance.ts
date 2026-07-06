@@ -24,11 +24,12 @@ async function assertOrgMember(orgId: string, userId: string) {
 const SetInput = z.object({
   userId: z.string().min(1),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日期格式錯誤"),
-  status: z.enum(["present", "absent", "clear"]),
+  // present=出席、absent=缺席、offsite=在外工作（出差/在家工作）、clear=清除
+  status: z.enum(["present", "absent", "offsite", "clear"]),
   reason: z.string().trim().max(100).optional(),
 });
 
-/** 設定某人某天的出席狀態（出席 / 缺席 / 清除）。每人每日一筆（限本組織）。 */
+/** 設定某人某天的出席狀態（出席 / 缺席 / 在外工作 / 清除）。每人每日一筆（限本組織）。 */
 export async function setAttendance(input: z.input<typeof SetInput>) {
   const { user: me, org } = await requireActiveOrg();
   const d = SetInput.parse(input);
@@ -40,9 +41,11 @@ export async function setAttendance(input: z.input<typeof SetInput>) {
       where: { organizationId: org.id, userId: d.userId, date },
     });
   } else {
-    const present = d.status === "present";
-    const reason = present ? null : d.reason?.trim() || null;
-    // 人工登記一律標為非自動：即使原本是請假事件帶出的，人工一改就「脫鉤」，
+    const offsite = d.status === "offsite";
+    const present = d.status !== "absent"; // 出差/在家工作也算出席
+    // 缺席與在外工作保留事由；出席清空事由。
+    const reason = present && !offsite ? null : d.reason?.trim() || null;
+    // 人工登記一律標為非自動：即使原本是事件帶出的，人工一改就「脫鉤」，
     // 之後刪除該事件也不會回收這筆，且不會被事件重新覆蓋。
     await db.attendanceRecord.upsert({
       where: {
@@ -52,14 +55,15 @@ export async function setAttendance(input: z.input<typeof SetInput>) {
           date,
         },
       },
-      update: { present, reason, autoAbsent: false, createdById: me.id },
+      update: { present, reason, offsite, auto: false, createdById: me.id },
       create: {
         organizationId: org.id,
         userId: d.userId,
         date,
         present,
         reason,
-        autoAbsent: false,
+        offsite,
+        auto: false,
         createdById: me.id,
       },
     });

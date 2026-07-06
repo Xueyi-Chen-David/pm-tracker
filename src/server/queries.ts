@@ -211,7 +211,7 @@ export async function getAttendanceMonth(orgId: string, start: Date, end: Date) 
           ...userIdentitySelect,
           attendanceRecords: {
             where: { organizationId: orgId, date: { gte: start, lt: end } },
-            select: { date: true, present: true, reason: true },
+            select: { date: true, present: true, reason: true, offsite: true },
           },
         },
       },

@@ -67,7 +67,7 @@ export default async function AttendancePage({
     const marks: GridMember["marks"] = {};
     for (const r of m.attendanceRecords) {
       const ds = r.date.toISOString().slice(0, 10);
-      marks[ds] = { present: r.present, reason: r.reason };
+      marks[ds] = { present: r.present, reason: r.reason, offsite: r.offsite };
     }
     return {
       id: m.id,
@@ -104,12 +104,16 @@ export default async function AttendancePage({
           缺席
         </span>
         <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-sky-400 bg-sky-100" />
+          出差 / 在家工作
+        </span>
+        <span className="inline-flex items-center gap-1.5">
           <span className="inline-flex h-4 w-4 items-center justify-center rounded border">
             ·
           </span>
           未記錄
         </span>
-        <span>· 點格子登記，統計欄為「出席 / 缺席」天數</span>
+        <span>· 點格子登記；請假 / 出差 / 在家工作 由團隊成員頁的事件自動帶入</span>
       </div>
 
       {members.length === 0 ? (

@@ -416,9 +416,10 @@ model AttendanceRecord {
   userId      String
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   date        DateTime @db.Date
-  present     Boolean  @default(true) // true=出席 / false=缺席
-  reason      String? // 缺席原因（請假 / 出差…；選填）
-  autoAbsent  Boolean  @default(false) // 由請假事件自動產生（vs 人工登記）；人工編輯會清為 false
+  present     Boolean  @default(true) // true=出席 / false=缺席（offsite 時 present 不看，另以圈圈呈現）
+  reason      String? // 事由（請假 / 出差 / 在家工作…；選填）
+  offsite     Boolean  @default(false) // 出差 / 在家工作（在外工作）：出席月曆顯示為圈圈
+  auto        Boolean  @default(false) // 由成員事件自動產生（vs 人工登記）；人工編輯會清為 false
   createdById String? // 登記者
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt

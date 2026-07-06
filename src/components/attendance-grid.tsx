@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Check, X } from "lucide-react";
+import { Check, X, Circle } from "lucide-react";
 import { setAttendance } from "@/server/actions/attendance";
 import { MEMBER_EVENT_TYPES } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -24,7 +24,8 @@ export type GridDay = {
   label: string; // 例：7/1（三）
 };
 
-type Mark = { present: boolean; reason: string | null };
+// offsite=true 代表在外工作（出差 / 在家工作），以圈圈呈現，不計入出席/缺席統計。
+type Mark = { present: boolean; reason: string | null; offsite: boolean };
 
 export type GridMember = {
   id: string;
@@ -46,7 +47,7 @@ export function AttendanceGrid({
   members: GridMember[];
   days: GridDay[];
 }) {
-  // 每日在勤人數（頁尾），依伺服器資料計算。
+  // 每日在勤人數（頁尾）＝出席，含在外工作（出差 / 在家工作），依伺服器資料計算。
   const dayPresent = days.map(
     (d) => members.filter((m) => m.marks[d.dateStr]?.present === true).length,
   );
@@ -84,6 +85,7 @@ export function AttendanceGrid({
             let absent = 0;
             for (const d of days) {
               const mk = m.marks[d.dateStr];
+              // 出差 / 在家工作（present=true）也算出席
               if (mk?.present === true) present++;
               else if (mk?.present === false) absent++;
             }
@@ -170,21 +172,36 @@ function AttendanceCell({
   const [state, setState] = useState<Mark | null>(mark ?? null);
   const [reason, setReason] = useState(mark?.reason ?? "");
 
-  function apply(status: "present" | "absent" | "clear") {
+  // status=offsite 時（出差 / 在家工作）用 offsiteReason 帶入類型文字。
+  function apply(
+    status: "present" | "absent" | "offsite" | "clear",
+    offsiteReason?: string,
+  ) {
     start(async () => {
       try {
         await setAttendance({
           userId,
           date: dateStr,
           status,
-          reason: status === "absent" ? reason : undefined,
+          reason:
+            status === "absent"
+              ? reason
+              : status === "offsite"
+                ? offsiteReason
+                : undefined,
         });
         setState(
           status === "clear"
             ? null
             : {
-                present: status === "present",
-                reason: status === "absent" ? reason.trim() || null : null,
+                present: status !== "absent", // 出差/在家工作也算出席
+                reason:
+                  status === "absent"
+                    ? reason.trim() || null
+                    : status === "offsite"
+                      ? (offsiteReason ?? null)
+                      : null,
+                offsite: status === "offsite",
               },
         );
         setOpen(false);
@@ -195,24 +212,30 @@ function AttendanceCell({
     });
   }
 
-  const isPresent = state?.present === true;
-  const isAbsent = state?.present === false;
+  // 在外工作（出差 / 在家工作）優先於一般出席呈現：圈圈、藍色。
+  const isOffsite = state?.offsite === true;
+  const isPresent = !isOffsite && state?.present === true;
+  const isAbsent = !isOffsite && state?.present === false;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        title={`${label}${isAbsent && state?.reason ? ` · ${state.reason}` : ""}`}
+        title={`${label}${(isAbsent || isOffsite) && state?.reason ? ` · ${state.reason}` : ""}`}
         className={cn(
           "mx-auto flex h-7 w-7 items-center justify-center rounded-md border text-xs transition-colors",
           isPresent && "border-emerald-300 bg-emerald-100 text-emerald-700",
           isAbsent && "border-rose-300 bg-rose-100 text-rose-700",
+          isOffsite && "rounded-full border-sky-400 bg-sky-100 text-sky-700",
           !isPresent &&
             !isAbsent &&
+            !isOffsite &&
             "text-muted-foreground/40 border-transparent hover:bg-muted",
           pending && "opacity-50",
         )}
       >
-        {isPresent ? (
+        {isOffsite ? (
+          <Circle className="h-3.5 w-3.5" />
+        ) : isPresent ? (
           <Check className="h-4 w-4" />
         ) : isAbsent ? (
           <X className="h-4 w-4" />
@@ -243,6 +266,22 @@ function AttendanceCell({
             className="text-muted-foreground rounded-md border py-1 text-xs font-medium hover:bg-muted"
           >
             清除
+          </button>
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
+          <button
+            type="button"
+            onClick={() => apply("offsite", "出差")}
+            className="rounded-md border border-sky-300 bg-sky-50 py-1 text-xs font-medium text-sky-700 hover:bg-sky-100"
+          >
+            出差
+          </button>
+          <button
+            type="button"
+            onClick={() => apply("offsite", "在家工作")}
+            className="rounded-md border border-sky-300 bg-sky-50 py-1 text-xs font-medium text-sky-700 hover:bg-sky-100"
+          >
+            在家工作
           </button>
         </div>
         <input
