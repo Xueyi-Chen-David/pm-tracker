@@ -23,6 +23,8 @@ import {
 type Task = { title: string; assigneeId: string; done: boolean };
 type MemberOption = NameSource & { id: string };
 
+type TaskSource = { title: string; assigneeId: string | null; done: boolean }[];
+
 type Existing = {
   weekStart: string; // yyyy-mm-dd
   progress: number;
@@ -33,7 +35,13 @@ type Existing = {
   risks?: string | null;
   needsDecision?: string | null;
   note?: string | null;
-  tasks?: { title: string; assigneeId: string | null; done: boolean }[];
+  tasks?: TaskSource;
+};
+
+// 新增本週進度時，從「上一週」自動帶入的內容（下週目標 → 本週目標、未完成任務 → 本週任務）。
+type CarryOver = {
+  thisWeekGoals?: string | null;
+  tasks?: TaskSource; // 已由上層過濾成未完成、done=false
 };
 
 const selectClass =
@@ -43,8 +51,8 @@ const selectClass =
 const taskSelectClass =
   "border-input bg-transparent dark:bg-input/30 h-8 max-w-[10rem] rounded-md border px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]";
 
-const toTasks = (e?: Existing): Task[] =>
-  (e?.tasks ?? []).map((t) => ({
+const toTasks = (src?: TaskSource): Task[] =>
+  (src ?? []).map((t) => ({
     title: t.title,
     assigneeId: t.assigneeId ?? "",
     done: t.done,
@@ -55,18 +63,27 @@ export function WeeklyUpdateDialog({
   defaultWeekStart,
   existing,
   members,
+  carryOver,
   trigger,
 }: {
   projectId: string;
   defaultWeekStart: string;
   existing?: Existing;
   members: MemberOption[];
+  carryOver?: CarryOver;
   trigger: React.ReactNode;
 }) {
   const router = useRouter();
+  // 編輯既有紀錄用其內容；新增則帶入上一週的未完成任務與下週目標。
+  const seedTasks = existing?.tasks ?? carryOver?.tasks;
+  const seedGoals = existing ? existing.thisWeekGoals : carryOver?.thisWeekGoals;
+  const showCarryHint =
+    !existing &&
+    !!(carryOver?.thisWeekGoals?.trim() || carryOver?.tasks?.length);
+
   const [open, setOpen] = useState(false);
   const [progress, setProgress] = useState(existing?.progress ?? 0);
-  const [tasks, setTasks] = useState<Task[]>(toTasks(existing));
+  const [tasks, setTasks] = useState<Task[]>(toTasks(seedTasks));
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
 
@@ -74,7 +91,7 @@ export function WeeklyUpdateDialog({
     setOpen(next);
     if (next) {
       setProgress(existing?.progress ?? 0);
-      setTasks(toTasks(existing));
+      setTasks(toTasks(seedTasks));
       setError(null);
     }
   }
@@ -131,6 +148,11 @@ export function WeeklyUpdateDialog({
           <form onSubmit={handleSubmit} className="space-y-4">
             <input type="hidden" name="projectId" value={projectId} />
             <input type="hidden" name="tasks" value={tasksPayload} />
+            {showCarryHint && (
+              <p className="bg-muted/60 text-muted-foreground rounded-md px-3 py-2 text-xs">
+                已自動帶入上週的「下週目標」與未完成任務，可自由修改後儲存。
+              </p>
+            )}
             {existing && (
               <input
                 type="hidden"
@@ -247,7 +269,7 @@ export function WeeklyUpdateDialog({
               )}
             </div>
 
-            <Area name="thisWeekGoals" label="本週目標" value={existing?.thisWeekGoals} />
+            <Area name="thisWeekGoals" label="本週目標" value={seedGoals} />
             <Area name="thisWeekDone" label="本週完成" value={existing?.thisWeekDone} />
             <Area name="nextWeekGoals" label="下週目標" value={existing?.nextWeekGoals} />
             <Area

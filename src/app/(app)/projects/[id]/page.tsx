@@ -2,7 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowLeft, Plus, CalendarRange, Target } from "lucide-react";
 import { requireActiveOrg } from "@/server/org";
-import { getProject, getOrgMemberUsers } from "@/server/queries";
+import {
+  getProject,
+  getOrgMemberUsers,
+  getKrLinksForProject,
+} from "@/server/queries";
 import {
   HealthBadge,
   StatusBadge,
@@ -31,9 +35,10 @@ export default async function ProjectDetailPage({
 }) {
   const { id } = await params;
   const { org } = await requireActiveOrg();
-  const [project, allUsers] = await Promise.all([
+  const [project, allUsers, okrLinks] = await Promise.all([
     getProject(org.id, id),
     getOrgMemberUsers(org.id),
+    getKrLinksForProject(org.id, id),
   ]);
   if (!project) notFound();
 
@@ -81,7 +86,27 @@ export default async function ProjectDetailPage({
     actorName: a.user ? displayNameFull(a.user) : null,
   }));
 
-  const defaultWeekStart = toDateInput(thisWeekStart());
+  const thisWeek = thisWeekStart();
+  const defaultWeekStart = toDateInput(thisWeek);
+
+  // 新增本週進度時，自動帶入「上一週」的內容：
+  //   下週目標 → 本週目標、未完成任務 → 本週任務。
+  // weeklyUpdates 已依 weekStart asc 排序，取本週之前最近的一筆即為上一週。
+  const prevWeekly = [...project.weeklyUpdates]
+    .filter((u) => u.weekStart.getTime() < thisWeek.getTime())
+    .at(-1);
+  const carryOver = prevWeekly
+    ? {
+        thisWeekGoals: prevWeekly.nextWeekGoals,
+        tasks: prevWeekly.tasks
+          .filter((t) => !t.done)
+          .map((t) => ({
+            title: t.title,
+            assigneeId: t.assigneeId,
+            done: false,
+          })),
+      }
+    : undefined;
 
   return (
     <div className="space-y-5">
@@ -112,6 +137,20 @@ export default async function ProjectDetailPage({
                 <p className="text-muted-foreground mt-1.5 max-w-2xl text-sm whitespace-pre-wrap">
                   {project.description}
                 </p>
+              )}
+              {okrLinks.length > 0 && (
+                <div className="mt-2.5 flex flex-wrap gap-1.5">
+                  {okrLinks.map((l) => (
+                    <Link
+                      key={l.id}
+                      href={`/okr?cycle=${encodeURIComponent(l.objective.cycle)}`}
+                      className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 hover:bg-violet-100"
+                      title="這個專案支援的 OKR 目標"
+                    >
+                      <Target className="h-3 w-3" /> 支援 OKR：{l.objective.title} / {l.title}
+                    </Link>
+                  ))}
+                </div>
               )}
             </div>
             <ProjectActions
@@ -166,6 +205,7 @@ export default async function ProjectDetailPage({
                   projectId={project.id}
                   defaultWeekStart={defaultWeekStart}
                   members={memberOptions}
+                  carryOver={carryOver}
                   trigger={
                     <Button size="sm">
                       <Plus className="h-4 w-4" /> 新增本週進度

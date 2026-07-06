@@ -4,6 +4,8 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
 import { requireActiveOrg } from "@/server/org";
+import { eventTypeMarksAbsent } from "@/lib/constants";
+import { applyEventAbsence, removeEventAbsence } from "@/lib/attendance-sync";
 
 const EventInput = z.object({
   userId: z.string().min(1),
@@ -45,6 +47,20 @@ export async function createMemberEvent(input: z.input<typeof EventInput>) {
       createdById: user.id,
     },
   });
+
+  // 請假等「缺席」類型：直接反映到出席月曆。
+  if (eventTypeMarksAbsent(d.type)) {
+    await applyEventAbsence(
+      db,
+      org.id,
+      d.userId,
+      d.type,
+      user.id,
+      start,
+      endDate ?? start,
+    );
+  }
+
   revalidatePath(`/team/${d.userId}`);
   revalidatePath("/team");
   revalidatePath("/attendance");
@@ -52,9 +68,25 @@ export async function createMemberEvent(input: z.input<typeof EventInput>) {
 
 export async function deleteMemberEvent(input: { id: string; userId: string }) {
   const { org } = await requireActiveOrg();
+  // 先讀出事件（需要範圍 + 類型來回收自動出席紀錄），再刪除。
+  const event = await db.memberEvent.findFirst({
+    where: { id: input.id, organizationId: org.id },
+    select: { userId: true, type: true, startDate: true, endDate: true },
+  });
   await db.memberEvent.deleteMany({
     where: { id: input.id, organizationId: org.id },
   });
+
+  if (event && eventTypeMarksAbsent(event.type)) {
+    await removeEventAbsence(
+      db,
+      org.id,
+      event.userId,
+      event.startDate,
+      event.endDate ?? event.startDate,
+    );
+  }
+
   revalidatePath(`/team/${input.userId}`);
   revalidatePath("/team");
   revalidatePath("/attendance");

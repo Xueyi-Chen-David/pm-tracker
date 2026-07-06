@@ -148,3 +148,12 @@ export function memberEventBadge(type: string): string {
     MEMBER_EVENT_BADGE[type] ?? "bg-slate-100 text-slate-600 border-slate-200"
   );
 }
+
+// 哪些成員事件類型要反映成出席月曆的「缺席」。
+// 目前只有「請假」——出差 / 在家工作 / 外出 視為仍在工作，不動出席紀錄。
+export const ABSENT_EVENT_TYPES = new Set<string>(["請假"]);
+
+/** 該事件類型是否應在出席月曆自動標記為缺席。 */
+export function eventTypeMarksAbsent(type: string): boolean {
+  return ABSENT_EVENT_TYPES.has(type.trim());
+}

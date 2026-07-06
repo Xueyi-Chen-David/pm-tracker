@@ -9,6 +9,7 @@
 
 export type ModuleKey =
   | "dashboard"
+  | "okr"
   | "projects"
   | "timeline"
   | "team"
@@ -25,6 +26,7 @@ export type AppModule = {
 /** 顯示順序＝側欄順序。firstAllowedHref 也依此順序挑第一個可見頁。 */
 export const MODULES: readonly AppModule[] = [
   { key: "dashboard", label: "總覽", href: "/dashboard" },
+  { key: "okr", label: "OKR / 目標", href: "/okr" },
   { key: "projects", label: "專案與任務", href: "/projects" },
   { key: "timeline", label: "時程藍圖", href: "/timeline" },
   { key: "team", label: "團隊", href: "/team" },

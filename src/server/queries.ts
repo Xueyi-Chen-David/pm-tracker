@@ -1,3 +1,4 @@
+import { cache } from "react";
 import type { ProjectStatus } from "@prisma/client";
 import { db } from "./db";
 import { thisWeekStart, weekStartOf } from "@/lib/date";
@@ -76,11 +77,52 @@ export async function ensureProjectViews(orgId: string) {
   }
 }
 
+const PROJECT_VIEW_ORDER = [
+  { isSystem: "desc" as const },
+  { sortOrder: "asc" as const },
+  { createdAt: "asc" as const },
+];
+
+/**
+ * 系統分頁的不變條件是否已滿足（分頁存在、「全體」設定正確、有「未開始」分頁）。
+ * 只有回 true 時才需要跑「含寫入」的 ensureProjectViews 修補——避免每次讀取都多打
+ * count + findFirst + findMany 三個查詢。
+ */
+function projectViewsNeedRepair(
+  views: {
+    isSystem: boolean;
+    exclude: boolean;
+    statuses: string[];
+    types: string[];
+  }[],
+): boolean {
+  if (views.length === 0) return true;
+  const sys = views.find((v) => v.isSystem);
+  if (!sys || !isAllConfigured(sys)) return true;
+  const hasNotStarted = views.some(
+    (v) =>
+      !v.isSystem &&
+      !v.exclude &&
+      v.types.length === 0 &&
+      v.statuses.length === 1 &&
+      v.statuses[0] === "NOT_STARTED",
+  );
+  return !hasNotStarted;
+}
+
 export async function getProjectViews(orgId: string) {
+  // 常見情況（分頁已建好且系統「全體」設定正確）→ 只要一次查詢就回傳。
+  // 只有偵測到缺分頁 / 設定跑掉時，才跑會寫入的 ensureProjectViews 修補。
+  const views = await db.projectView.findMany({
+    where: { organizationId: orgId },
+    orderBy: PROJECT_VIEW_ORDER,
+  });
+  if (!projectViewsNeedRepair(views)) return views;
+
   await ensureProjectViews(orgId);
   return db.projectView.findMany({
     where: { organizationId: orgId },
-    orderBy: [{ isSystem: "desc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
+    orderBy: PROJECT_VIEW_ORDER,
   });
 }
 
@@ -93,15 +135,19 @@ const userIdentitySelect = {
   image: true,
 } as const;
 
-/** 成員選單用：目前組織的成員（回傳身分欄位 + isBoss）。 */
-export async function getOrgMemberUsers(orgId: string) {
+/**
+ * 成員選單用：目前組織的成員（回傳身分欄位 + isBoss）。
+ * 以 React cache 於單一請求內去重——版面（側欄）與幾乎每個頁面都會用同一個 orgId
+ * 呼叫它，快取後同一次請求只查一次。
+ */
+export const getOrgMemberUsers = cache(async (orgId: string) => {
   const members = await db.organizationMember.findMany({
     where: { organizationId: orgId },
     orderBy: [{ isBoss: "desc" }, { user: { name: "asc" } }],
     select: { isBoss: true, user: { select: userIdentitySelect } },
   });
   return members.map((m) => ({ ...m.user, isBoss: m.isBoss }));
-}
+});
 
 /** 團隊頁：目前組織的成員 + 負責/參與專案數、週報數（皆限本組織）。 */
 export async function getOrgMembers(orgId: string) {
@@ -405,5 +451,76 @@ export async function getMeetingsForWeek(orgId: string, weekStart: Date) {
   return db.meeting.findMany({
     where: { organizationId: orgId, date: { gte: weekStart, lte: weekEnd } },
     orderBy: [{ date: "asc" }, { createdAt: "asc" }],
+  });
+}
+
+// ─────────────────────────────────────────────
+// OKR（org-scoped）
+// ─────────────────────────────────────────────
+
+/** 本組織所有出現過的季別（cycle），最新在前——給季別選單。 */
+export async function getOkrCycles(orgId: string) {
+  const rows = await db.objective.findMany({
+    where: { organizationId: orgId },
+    distinct: ["cycle"],
+    select: { cycle: true },
+    orderBy: { cycle: "desc" },
+  });
+  return rows.map((r) => r.cycle);
+}
+
+/** 某季別的目標 + KR（含負責人、連結專案的當下快照、目標負責人）。 */
+export async function getObjectives(orgId: string, cycle: string) {
+  return db.objective.findMany({
+    where: { organizationId: orgId, cycle, archived: false },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    include: {
+      owner: { select: userIdentitySelect },
+      keyResults: {
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        include: {
+          owners: { select: userIdentitySelect },
+          project: {
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              health: true,
+              progress: true,
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+export type ObjectiveWithKrs = Awaited<ReturnType<typeof getObjectives>>[number];
+export type KeyResultRow = ObjectiveWithKrs["keyResults"][number];
+
+/** KR→專案選單用：本組織未封存專案的精簡清單（含當下狀態）。 */
+export async function getProjectsLite(orgId: string) {
+  return db.project.findMany({
+    where: { organizationId: orgId, archived: false },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    select: {
+      id: true,
+      name: true,
+      status: true,
+      health: true,
+      progress: true,
+    },
+  });
+}
+
+/** 反向：某專案被哪些 KR / Objective 引用（專案頁「支援目標」chip 用）。 */
+export async function getKrLinksForProject(orgId: string, projectId: string) {
+  return db.keyResult.findMany({
+    where: { projectId, objective: { organizationId: orgId } },
+    select: {
+      id: true,
+      title: true,
+      objective: { select: { id: true, title: true, cycle: true } },
+    },
   });
 }

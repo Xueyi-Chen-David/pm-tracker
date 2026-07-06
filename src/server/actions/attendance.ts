@@ -42,6 +42,8 @@ export async function setAttendance(input: z.input<typeof SetInput>) {
   } else {
     const present = d.status === "present";
     const reason = present ? null : d.reason?.trim() || null;
+    // 人工登記一律標為非自動：即使原本是請假事件帶出的，人工一改就「脫鉤」，
+    // 之後刪除該事件也不會回收這筆，且不會被事件重新覆蓋。
     await db.attendanceRecord.upsert({
       where: {
         organizationId_userId_date: {
@@ -50,13 +52,14 @@ export async function setAttendance(input: z.input<typeof SetInput>) {
           date,
         },
       },
-      update: { present, reason, createdById: me.id },
+      update: { present, reason, autoAbsent: false, createdById: me.id },
       create: {
         organizationId: org.id,
         userId: d.userId,
         date,
         present,
         reason,
+        autoAbsent: false,
         createdById: me.id,
       },
     });

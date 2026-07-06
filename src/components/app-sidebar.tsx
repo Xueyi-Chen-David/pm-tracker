@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   LayoutDashboard,
+  Target,
   FolderKanban,
   CalendarRange,
   FileText,
@@ -32,6 +33,7 @@ import type { ModuleKey } from "@/lib/modules";
 
 const NAV: { key: ModuleKey; href: string; label: string; icon: typeof LayoutDashboard }[] = [
   { key: "dashboard", href: "/dashboard", label: "總覽", icon: LayoutDashboard },
+  { key: "okr", href: "/okr", label: "OKR / 目標", icon: Target },
   { key: "projects", href: "/projects", label: "專案與任務", icon: FolderKanban },
   { key: "timeline", href: "/timeline", label: "時程藍圖", icon: CalendarRange },
   { key: "team", href: "/team", label: "團隊", icon: Users },

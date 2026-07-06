@@ -39,6 +39,8 @@ model User {
   memberEvents    MemberEvent[]
   weeklyTasks     WeeklyTask[]
   attendanceRecords AttendanceRecord[]
+  objectivesOwned Objective[] @relation("ObjectiveOwner")
+  keyResultsOwned KeyResult[] @relation("KrOwners")
 }
 
 model Account {
@@ -100,6 +102,7 @@ model Organization {
   meetings          Meeting[]
   attendanceRecords AttendanceRecord[]
   memberEvents      MemberEvent[]
+  objectives        Objective[]
 }
 
 /**
@@ -214,6 +217,7 @@ model Project {
   weeklyUpdates WeeklyUpdate[]
   milestones    Milestone[]
   activities    Activity[]
+  keyResults    KeyResult[]     @relation("KrProject")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -414,6 +418,7 @@ model AttendanceRecord {
   date        DateTime @db.Date
   present     Boolean  @default(true) // true=出席 / false=缺席
   reason      String? // 缺席原因（請假 / 出差…；選填）
+  autoAbsent  Boolean  @default(false) // 由請假事件自動產生（vs 人工登記）；人工編輯會清為 false
   createdById String? // 登記者
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -443,4 +448,73 @@ model MemberEvent {
 
   @@index([organizationId])
   @@index([userId, startDate])
+}
+
+// ─────────────────────────────────────────────
+// OKR（目標與關鍵成果）
+// OKR 是「即時鏡子」：Objective 依季別分組 KR；KR 可連到一個 Project，
+// 連上後其狀態/進度/健康度改讀專案當下值（不落庫），未連的才手動填。
+// ─────────────────────────────────────────────
+
+enum KrStatus {
+  NOT_STARTED // 未開始
+  IN_PROGRESS // 進行中
+  DONE // 已完成
+  BLOCKED // 延宕 / 卡住
+  CANCELLED // 取消
+}
+
+/// 目標（Objective）。依組織 + 季別(cycle) 分組，底下掛多條 KeyResult。
+model Objective {
+  id          String    @id @default(cuid())
+  title       String
+  description String?   @db.Text
+  cycle       String // 季別，如 "2026 Q3"
+  targetDate  DateTime? @db.Date // 目標日期（7/10、8月底…）
+  sortOrder   Int       @default(0)
+  archived    Boolean   @default(false)
+
+  ownerId String?
+  owner   User?   @relation("ObjectiveOwner", fields: [ownerId], references: [id])
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  keyResults KeyResult[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, cycle])
+}
+
+/// 關鍵成果（Key Result）。連到 Project 時＝即時鏡子（狀態/進度讀專案）；
+/// 未連時用自身 status/progress/health（供非專案的檢查點：律師看過合約、名片…）。
+model KeyResult {
+  id          String   @id @default(cuid())
+  objectiveId String
+  objective   Objective @relation(fields: [objectiveId], references: [id], onDelete: Cascade)
+  title       String
+  kind        String   @default("kr") // "kr" | "todo"
+
+  // 連到專案（可選）＝即時抓專案當下狀態；null＝手動。
+  projectId String?
+  project   Project? @relation("KrProject", fields: [projectId], references: [id], onDelete: SetNull)
+
+  // 手動 KR 用（連了專案就改讀專案的，這些被忽略）。
+  status   KrStatus @default(NOT_STARTED)
+  health   Health   @default(GREEN)
+  progress Int      @default(0) // 0-100
+  note     String?  @db.Text // 這週目標 / 備註
+  dueDate  DateTime? @db.Date
+
+  owners     User[]  @relation("KrOwners") // 多負責人（組織成員）
+  ownerLabel String? // 外部非成員自由文字（律師 Also…）
+
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([objectiveId])
+  @@index([projectId])
 }
