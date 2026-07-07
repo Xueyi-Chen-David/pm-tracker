@@ -177,8 +177,9 @@ export function ObjectiveCard({
       {open && (
         <div className="border-t">
           {objective.keyResults.length > 0 && (
-            <table className="w-full">
-              <thead>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[680px]">
+                <thead>
                 <tr className="bg-muted/40 text-muted-foreground text-[11px]">
                   <th className="py-1.5 pr-2 pl-3 text-left font-medium">Key Result</th>
                   <th className="px-2 py-1.5 text-left font-medium">負責人</th>
@@ -199,7 +200,8 @@ export function ObjectiveCard({
                   />
                 ))}
               </tbody>
-            </table>
+              </table>
+            </div>
           )}
 
           {/* 新增 KR */}
