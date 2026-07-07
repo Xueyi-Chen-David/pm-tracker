@@ -31,6 +31,8 @@ export type WeeklyTaskItem = {
 export type WeeklyItem = {
   id: string;
   weekStart: string; // ISO
+  /** True for weeks before the current one — their per-week task list is hidden. */
+  isPast: boolean;
   progress: number;
   health: "GREEN" | "YELLOW" | "RED";
   thisWeekGoals: string | null;
@@ -144,7 +146,7 @@ export function WeeklyHistory({
             <ProgressBar value={u.progress} />
           </div>
 
-          {u.tasks.length > 0 && (
+          {!u.isPast && u.tasks.length > 0 && (
             <ul className="mt-2 space-y-1">
               {u.tasks.map((t) => (
                 <li key={t.id} className="flex items-center gap-1.5 text-sm">

@@ -52,11 +52,15 @@ export default async function ProjectDetailPage({
     health: u.health,
   }));
 
+  const thisWeek = thisWeekStart();
+
   const historyItems = [...project.weeklyUpdates]
     .reverse()
     .map((u) => ({
       id: u.id,
       weekStart: u.weekStart.toISOString(),
+      // 過去週次（早於本週）不顯示每週任務清單，只留摘要。
+      isPast: u.weekStart.getTime() < thisWeek.getTime(),
       progress: u.progress,
       health: u.health,
       thisWeekGoals: u.thisWeekGoals,
@@ -86,7 +90,6 @@ export default async function ProjectDetailPage({
     actorName: a.user ? displayNameFull(a.user) : null,
   }));
 
-  const thisWeek = thisWeekStart();
   const defaultWeekStart = toDateInput(thisWeek);
 
   // 新增本週進度時，自動帶入「上一週」的內容：
@@ -196,7 +199,7 @@ export default async function ProjectDetailPage({
 
       <div className="grid gap-5 lg:grid-cols-3">
         {/* 左：進度趨勢 + 每週歷史 */}
-        <div className="flex flex-col gap-5 lg:col-span-2">
+        <div className="space-y-5 lg:col-span-2">
           <Card>
             <CardHeader className="flex-row items-center justify-between">
               <CardTitle>進度趨勢</CardTitle>
@@ -219,7 +222,7 @@ export default async function ProjectDetailPage({
             </CardContent>
           </Card>
 
-          <Card className="lg:flex-1">
+          <Card className="lg:h-[30rem]">
             <CardHeader>
               <CardTitle>每週進度紀錄</CardTitle>
             </CardHeader>
@@ -235,7 +238,7 @@ export default async function ProjectDetailPage({
         </div>
 
         {/* 右：里程碑 → 成員 → 操作紀錄（各自限高、可捲動） */}
-        <div className="flex flex-col gap-5">
+        <div className="space-y-5">
           <Card>
             <CardHeader>
               <CardTitle>里程碑 / 目標</CardTitle>
@@ -264,7 +267,7 @@ export default async function ProjectDetailPage({
             </CardContent>
           </Card>
 
-          <Card className="lg:flex-1">
+          <Card className="lg:h-[30rem]">
             <CardHeader>
               <CardTitle>操作紀錄</CardTitle>
             </CardHeader>
