@@ -74,7 +74,7 @@ export function WeeklyHistory({
   }
 
   return (
-    <ol className="scroll-y max-h-[28rem] space-y-3 overflow-y-auto pr-1.5">
+    <ol className="scroll-y max-h-[28rem] space-y-3 overflow-y-auto pr-1.5 lg:max-h-none lg:min-h-0 lg:flex-1">
       {items.map((u) => (
         <li
           key={u.id}

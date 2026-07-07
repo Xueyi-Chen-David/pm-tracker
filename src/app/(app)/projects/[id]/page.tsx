@@ -196,7 +196,7 @@ export default async function ProjectDetailPage({
 
       <div className="grid gap-5 lg:grid-cols-3">
         {/* 左：進度趨勢 + 每週歷史 */}
-        <div className="space-y-5 lg:col-span-2">
+        <div className="flex flex-col gap-5 lg:col-span-2">
           <Card>
             <CardHeader className="flex-row items-center justify-between">
               <CardTitle>進度趨勢</CardTitle>
@@ -219,11 +219,11 @@ export default async function ProjectDetailPage({
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="lg:flex-1">
             <CardHeader>
               <CardTitle>每週進度紀錄</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
               <WeeklyHistory
                 projectId={project.id}
                 items={historyItems}
@@ -235,7 +235,7 @@ export default async function ProjectDetailPage({
         </div>
 
         {/* 右：里程碑 → 成員 → 操作紀錄（各自限高、可捲動） */}
-        <div className="space-y-5">
+        <div className="flex flex-col gap-5">
           <Card>
             <CardHeader>
               <CardTitle>里程碑 / 目標</CardTitle>
@@ -264,11 +264,11 @@ export default async function ProjectDetailPage({
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="lg:flex-1">
             <CardHeader>
               <CardTitle>操作紀錄</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
               <ActivityLog
                 projectId={project.id}
                 items={activityItems}

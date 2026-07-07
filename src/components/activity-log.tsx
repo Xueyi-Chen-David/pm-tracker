@@ -123,7 +123,7 @@ export function ActivityLog({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3 lg:min-h-0 lg:flex-1">
       {canEdit && (
         <div className="space-y-2">
           <Textarea
@@ -149,7 +149,7 @@ export function ActivityLog({
           尚無操作紀錄。
         </p>
       ) : (
-        <ol className="scroll-y max-h-[20rem] space-y-0.5 overflow-y-auto pr-1.5">
+        <ol className="scroll-y max-h-[20rem] space-y-0.5 overflow-y-auto pr-1.5 lg:max-h-none lg:min-h-0 lg:flex-1">
           {items.map((it) => {
             const meta = KIND_META[it.kind] ?? KIND_META.NOTE;
             const Icon = meta.icon;
