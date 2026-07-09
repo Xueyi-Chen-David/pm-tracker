@@ -294,7 +294,7 @@ export function KeyResultRow({
             const v = e.currentTarget.value;
             if (v !== (kr.note ?? "")) patch({ note: v });
           }}
-          className="block w-full min-w-[8rem] resize-none overflow-hidden rounded-md bg-transparent px-1 py-0.5 text-xs leading-snug break-words outline-none hover:bg-muted/50 focus:bg-muted/50"
+          className="block w-48 max-w-full resize-none overflow-hidden rounded-md bg-transparent px-1 py-0.5 text-xs leading-snug break-words whitespace-pre-wrap outline-none hover:bg-muted/50 focus:bg-muted/50"
         />
       </td>
 

@@ -186,7 +186,7 @@ export function ObjectiveCard({
                   <th className="px-2 py-1.5 text-left font-medium">狀態</th>
                   <th className="px-2 py-1.5 text-left font-medium">進度</th>
                   <th className="px-2 py-1.5 text-center font-medium">健康</th>
-                  <th className="px-2 py-1.5 text-left font-medium">這週備註</th>
+                  <th className="w-48 px-2 py-1.5 text-left font-medium">這週備註</th>
                   <th className="w-8" />
                 </tr>
               </thead>
