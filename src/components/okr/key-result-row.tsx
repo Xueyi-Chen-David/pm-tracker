@@ -60,6 +60,12 @@ const HEALTH_CYCLE: Record<Health, Health> = {
 const inputCls =
   "border-input h-8 w-full rounded-md border bg-transparent px-2 text-sm outline-none focus:border-ring";
 
+function autoSizeNote(el: HTMLTextAreaElement | null) {
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = `${el.scrollHeight}px`;
+}
+
 export function KeyResultRow({
   kr,
   members,
@@ -277,15 +283,18 @@ export function KeyResultRow({
       </td>
 
       {/* 這週備註 */}
-      <td className="px-2 py-1.5">
-        <input
+      <td className="px-2 py-1.5 align-top">
+        <textarea
+          ref={autoSizeNote}
           defaultValue={kr.note ?? ""}
           placeholder="—"
+          rows={1}
+          onInput={(e) => autoSizeNote(e.currentTarget)}
           onBlur={(e) => {
             const v = e.currentTarget.value;
             if (v !== (kr.note ?? "")) patch({ note: v });
           }}
-          className="w-full min-w-[8rem] rounded-md bg-transparent px-1 py-0.5 text-xs outline-none hover:bg-muted/50 focus:bg-muted/50"
+          className="block w-full min-w-[8rem] resize-none overflow-hidden rounded-md bg-transparent px-1 py-0.5 text-xs leading-snug break-words outline-none hover:bg-muted/50 focus:bg-muted/50"
         />
       </td>
 
