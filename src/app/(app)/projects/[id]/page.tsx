@@ -14,7 +14,6 @@ import {
   TypeBadge,
 } from "@/components/badges";
 import { ProgressBar } from "@/components/progress-bar";
-import { ProgressChart } from "@/components/progress-chart";
 import { WeeklyHistory } from "@/components/weekly-history";
 import { WeeklyUpdateDialog } from "@/components/weekly-update-dialog";
 import { MembersPanel } from "@/components/members-panel";
@@ -24,7 +23,7 @@ import { ProjectStatusControl } from "@/components/project-status-control";
 import { ActivityLog } from "@/components/activity-log";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { fmtDate, weekLabel, toDateInput, thisWeekStart } from "@/lib/date";
+import { fmtDate, toDateInput, thisWeekStart } from "@/lib/date";
 import { displayName, displayNameFull } from "@/lib/display";
 import { MemberName } from "@/components/member-name";
 
@@ -45,12 +44,6 @@ export default async function ProjectDetailPage({
   // 內部團隊工具：目前組織的任何成員皆可編輯本組織的專案。
   const canEdit = true;
   const accent = project.color ?? "#94a3b8";
-
-  const chartData = project.weeklyUpdates.map((u) => ({
-    label: weekLabel(u.weekStart),
-    progress: u.progress,
-    health: u.health,
-  }));
 
   const thisWeek = thisWeekStart();
 
@@ -198,44 +191,33 @@ export default async function ProjectDetailPage({
       </Card>
 
       <div className="grid gap-5 lg:grid-cols-3">
-        {/* 左：進度趨勢 + 每週歷史 */}
-        <div className="space-y-5 lg:col-span-2">
-          <Card>
-            <CardHeader className="flex-row items-center justify-between">
-              <CardTitle>進度趨勢</CardTitle>
-              {canEdit && (
-                <WeeklyUpdateDialog
-                  projectId={project.id}
-                  defaultWeekStart={defaultWeekStart}
-                  members={memberOptions}
-                  carryOver={carryOver}
-                  trigger={
-                    <Button size="sm">
-                      <Plus className="h-4 w-4" /> 新增本週進度
-                    </Button>
-                  }
-                />
-              )}
-            </CardHeader>
-            <CardContent>
-              <ProgressChart data={chartData} />
-            </CardContent>
-          </Card>
-
-          <Card className="lg:h-[30rem]">
-            <CardHeader>
-              <CardTitle>每週進度紀錄</CardTitle>
-            </CardHeader>
-            <CardContent className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
-              <WeeklyHistory
+        {/* 左：每週進度紀錄（主內容） */}
+        <Card className="lg:col-span-2 lg:flex lg:h-[36rem] lg:min-h-0 lg:flex-col lg:self-start">
+          <CardHeader className="flex-row items-center justify-between">
+            <CardTitle>每週進度紀錄</CardTitle>
+            {canEdit && (
+              <WeeklyUpdateDialog
                 projectId={project.id}
-                items={historyItems}
+                defaultWeekStart={defaultWeekStart}
                 members={memberOptions}
-                canEdit={canEdit}
+                carryOver={carryOver}
+                trigger={
+                  <Button size="sm">
+                    <Plus className="h-4 w-4" /> 新增本週進度
+                  </Button>
+                }
               />
-            </CardContent>
-          </Card>
-        </div>
+            )}
+          </CardHeader>
+          <CardContent className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
+            <WeeklyHistory
+              projectId={project.id}
+              items={historyItems}
+              members={memberOptions}
+              canEdit={canEdit}
+            />
+          </CardContent>
+        </Card>
 
         {/* 右：里程碑 → 成員 → 操作紀錄（各自限高、可捲動） */}
         <div className="space-y-5">
