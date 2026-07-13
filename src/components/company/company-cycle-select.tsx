@@ -3,15 +3,15 @@
 import { useRouter, useSearchParams } from "next/navigation";
 
 /**
- * 公司營運頁的週期切換（年度用 ?year=、季度用 ?q=）。
- * 只改自己那個參數，保留另一個，導回 /company。
+ * 公司營運頁的週期切換（季度用 ?qy= 選年份）。
+ * 只改自己那個參數，保留其他，導回 /company。
  */
 export function CompanyCycleSelect({
   param,
   active,
   options,
 }: {
-  param: "year" | "q";
+  param: "year" | "q" | "qy";
   active: string;
   options: string[];
 }) {

@@ -112,3 +112,36 @@ export function currentCycle(now = new Date()): string {
   const q = Math.floor(now.getMonth() / 3) + 1;
   return `${now.getFullYear()} Q${q}`;
 }
+
+// ── 季度 cycle 工具（季度 OKR：先選年份，再分 Q1–Q4） ──────────────
+
+export const QUARTERS = [1, 2, 3, 4] as const;
+
+/** 各季對應月份（顯示用）。 */
+export const QUARTER_MONTHS: Record<number, string> = {
+  1: "1–3 月",
+  2: "4–6 月",
+  3: "7–9 月",
+  4: "10–12 月",
+};
+
+/** 目前年份字串，如 "2026"。 */
+export function currentYear(now = new Date()): string {
+  return String(now.getFullYear());
+}
+
+/** 組出季度 cycle 標籤：quarterCycle("2026", 3) → "2026 Q3"。 */
+export function quarterCycle(year: string, q: number): string {
+  return `${year} Q${q}`;
+}
+
+/** 從 cycle 取年份："2026 Q3" / "2026" → "2026"。 */
+export function cycleYear(cycle: string): string {
+  return cycle.split(" ")[0] ?? cycle;
+}
+
+/** 從季度 cycle 取季別："2026 Q3" → 3；非季度格式回 null。 */
+export function cycleQuarter(cycle: string): number | null {
+  const m = cycle.match(/Q([1-4])/);
+  return m ? Number(m[1]) : null;
+}

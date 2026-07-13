@@ -1,15 +1,19 @@
 import { Plus } from "lucide-react";
-import type { OkrLevel } from "@prisma/client";
 import { requireActiveOrg } from "@/server/org";
 import {
-  getObjectives,
   getObjectivesByLevel,
-  getOkrCycles,
   getOrgMemberUsers,
   getOrgVision,
   getProjectsLite,
 } from "@/server/queries";
-import { currentCycle } from "@/lib/okr";
+import {
+  currentYear,
+  cycleYear,
+  cycleQuarter,
+  quarterCycle,
+  QUARTERS,
+  QUARTER_MONTHS,
+} from "@/lib/okr";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { VisionEditor } from "@/components/company/vision-editor";
@@ -26,7 +30,7 @@ function ymd(d: Date | null): string | null {
   return d ? d.toISOString().slice(0, 10) : null;
 }
 
-type ObjectiveRow = Awaited<ReturnType<typeof getObjectives>>[number];
+type ObjectiveRow = Awaited<ReturnType<typeof getObjectivesByLevel>>[number];
 
 function toView(o: ObjectiveRow): ObjectiveView {
   return {
@@ -55,36 +59,48 @@ function toView(o: ObjectiveRow): ObjectiveView {
 export default async function CompanyPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ qy?: string }>;
 }) {
   const { org } = await requireActiveOrg();
-  const { q: qParam } = await searchParams;
+  const { qy: qyParam } = await searchParams;
 
-  const currentYear = String(new Date().getFullYear());
+  const thisYear = currentYear();
+  const nextYear = String(Number(thisYear) + 1);
 
-  const [vision, members, projects, annualRows, quarterCycles] =
+  const [vision, members, projects, annualRows, quarterRows] =
     await Promise.all([
       getOrgVision(org.id),
       getOrgMemberUsers(org.id),
       getProjectsLite(org.id),
-      getObjectivesByLevel(org.id, "ANNUAL"), // 一次取回所有年份
-      getOkrCycles(org.id, "QUARTERLY"),
+      getObjectivesByLevel(org.id, "ANNUAL"),
+      getObjectivesByLevel(org.id, "QUARTERLY"),
     ]);
-
-  const activeQuarter = qParam?.trim() || quarterCycles[0] || currentCycle();
-  const quarterRows = await getObjectives(org.id, "QUARTERLY", activeQuarter);
-  const quarterly = quarterRows.map(toView);
 
   // 年度 OKR：依年份分組，目前年份即使尚無目標也顯示。
   const annualViews = annualRows.map(toView);
   const annualCycles = Array.from(new Set(annualViews.map((o) => o.cycle)));
-  const years = Array.from(new Set([...annualCycles, currentYear])).sort();
+  const years = Array.from(new Set([...annualCycles, thisYear])).sort();
   const annualByYear = new Map<string, ObjectiveView[]>();
   for (const y of years) annualByYear.set(y, []);
   for (const o of annualViews) {
     const arr = annualByYear.get(o.cycle);
     if (arr) arr.push(o);
     else annualByYear.set(o.cycle, [o]);
+  }
+
+  // 季度 OKR：先選年份，再看該年 Q1–Q4。可選年份＝有資料的年份 ∪ 今年 / 明年。
+  const quarterViews = quarterRows.map(toView);
+  const quarterYears = Array.from(
+    new Set([...quarterViews.map((o) => cycleYear(o.cycle)), thisYear, nextYear]),
+  ).sort();
+  const selectedYear =
+    qyParam && quarterYears.includes(qyParam) ? qyParam : thisYear;
+  const quarterByQ = new Map<number, ObjectiveView[]>();
+  for (const q of QUARTERS) quarterByQ.set(q, []);
+  for (const o of quarterViews) {
+    if (cycleYear(o.cycle) !== selectedYear) continue;
+    const q = cycleQuarter(o.cycle);
+    if (q) quarterByQ.get(q)?.push(o);
   }
 
   return (
@@ -100,22 +116,17 @@ export default async function CompanyPage({
         years={years}
         byYear={annualByYear}
         cycles={annualCycles}
-        currentYear={currentYear}
+        currentYear={thisYear}
         members={members}
         projects={projects}
       />
 
-      <OkrSection
-        level="QUARTERLY"
-        heading="季度 OKR"
-        subtitle="這一季的重點；KR 可連到專案即時反映進度"
-        objectives={quarterly}
+      <QuarterlyOkrSection
+        year={selectedYear}
+        years={quarterYears}
+        byQuarter={quarterByQ}
         members={members}
         projects={projects}
-        cycles={quarterCycles}
-        activeCycle={activeQuarter}
-        selectParam="q"
-        selectOptions={quarterCycles.length ? quarterCycles : [activeQuarter]}
       />
     </div>
   );
@@ -214,77 +225,91 @@ function AnnualOkrSection({
   );
 }
 
-function OkrSection({
-  level,
-  heading,
-  subtitle,
-  objectives,
+/**
+ * 季度 OKR：先用右上的年份下拉選一個年份，底下就出現該年的 Q1–Q4，
+ * 每一季各自新增 / 檢視目標（Objective）與底下的 Key Result。
+ */
+function QuarterlyOkrSection({
+  year,
+  years,
+  byQuarter,
   members,
   projects,
-  cycles,
-  activeCycle,
-  selectParam,
-  selectOptions,
 }: {
-  level: OkrLevel;
-  heading: string;
-  subtitle: string;
-  objectives: ObjectiveView[];
+  year: string;
+  years: string[];
+  byQuarter: Map<number, ObjectiveView[]>;
   members: React.ComponentProps<typeof ObjectiveCard>["members"];
   projects: React.ComponentProps<typeof ObjectiveCard>["projects"];
-  cycles: string[];
-  activeCycle: string;
-  selectParam: "q";
-  selectOptions: string[];
 }) {
+  const yearCycles = QUARTERS.map((q) => quarterCycle(year, q));
+  const total = QUARTERS.reduce((s, q) => s + (byQuarter.get(q)?.length ?? 0), 0);
+
   return (
-    <section className="space-y-3">
+    <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h2 className="text-lg font-semibold">{heading}</h2>
+          <h2 className="text-lg font-semibold">季度 OKR</h2>
           <p className="text-muted-foreground text-xs">
-            {activeCycle} · {objectives.length} 個目標 · {subtitle}
+            先選年份，再為各季（Q1–Q4）設定目標與 KR · {year} 年共 {total} 個目標
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <CompanyCycleSelect
-            param={selectParam}
-            active={activeCycle}
-            options={selectOptions}
-          />
-          <ObjectiveDialog
-            members={members}
-            cycles={cycles}
-            defaultCycle={activeCycle}
-            level={level}
-            trigger={
-              <Button className="gap-1.5">
-                <Plus className="h-4 w-4" /> 新增目標
-              </Button>
-            }
-          />
-        </div>
+        <CompanyCycleSelect param="qy" active={year} options={years} />
       </div>
 
-      {objectives.length === 0 ? (
-        <div className="text-muted-foreground rounded-xl border border-dashed py-10 text-center text-sm">
-          {activeCycle} 尚無{heading}。點右上「新增目標」開始。
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {objectives.map((o, i) => (
-            <ObjectiveCard
-              key={o.id}
-              objective={o}
-              index={i}
-              members={members}
-              projects={projects}
-              cycles={cycles}
-              level={level}
-            />
-          ))}
-        </div>
-      )}
+      <div className="grid gap-4 lg:grid-cols-2">
+        {QUARTERS.map((q) => {
+          const cycle = quarterCycle(year, q);
+          const objs = byQuarter.get(q) ?? [];
+          return (
+            <div key={q} className="space-y-2">
+              <div className="flex items-center gap-2 border-b pb-1">
+                <h3 className="text-base font-semibold">Q{q}</h3>
+                <span className="text-muted-foreground text-xs">
+                  {QUARTER_MONTHS[q]} · {objs.length} 個目標
+                </span>
+                <div className="ml-auto">
+                  <ObjectiveDialog
+                    members={members}
+                    cycles={yearCycles}
+                    defaultCycle={cycle}
+                    level="QUARTERLY"
+                    trigger={
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 gap-1 text-xs"
+                      >
+                        <Plus className="h-3.5 w-3.5" /> 新增
+                      </Button>
+                    }
+                  />
+                </div>
+              </div>
+
+              {objs.length === 0 ? (
+                <p className="text-muted-foreground rounded-lg border border-dashed px-3 py-4 text-center text-xs">
+                  {year} Q{q} 尚無目標。點右側「新增」建立。
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {objs.map((o, i) => (
+                    <ObjectiveCard
+                      key={o.id}
+                      objective={o}
+                      index={i}
+                      members={members}
+                      projects={projects}
+                      cycles={yearCycles}
+                      level="QUARTERLY"
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </section>
   );
 }
