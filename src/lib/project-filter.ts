@@ -4,8 +4,24 @@ import type {
   ProjectStatus,
   ProjectType,
 } from "@prisma/client";
-import type { ProjectOverview } from "@/server/queries";
 import { HEALTH, PRIORITY, PROJECT_STATUS, PROJECT_TYPE } from "@/lib/constants";
+
+/**
+ * 篩選 / 排序所需的最小專案欄位。ProjectOverview 與 ProjectWithTasks 皆滿足，
+ * 各函式用泛型保留呼叫端原本的完整型別（含 tasks 等）。
+ */
+export type FilterableProject = {
+  name: string;
+  description: string | null;
+  type: ProjectType;
+  status: ProjectStatus;
+  priority: Priority;
+  health: Health;
+  progress: number;
+  targetDate: Date | null;
+  updatedAt: Date;
+  ownerId: string | null;
+};
 
 // ── 排序 ───────────────────────────────────────────────────────────────────
 
@@ -69,14 +85,14 @@ const TYPE_RANK: Record<ProjectType, number> = {
   ONE_TIME: 2,
 };
 
-function tiebreak(a: ProjectOverview, b: ProjectOverview): number {
+function tiebreak(a: FilterableProject, b: FilterableProject): number {
   return a.name.localeCompare(b.name, "zh-Hant");
 }
 
 function primaryCompare(
   key: Exclude<SortKey, "default" | "target">,
-  a: ProjectOverview,
-  b: ProjectOverview,
+  a: FilterableProject,
+  b: FilterableProject,
 ): number {
   switch (key) {
     case "name":
@@ -97,11 +113,11 @@ function primaryCompare(
 }
 
 /** 依排序鍵與方向回傳新陣列；`default` 保留資料庫原順序（sortOrder）。 */
-export function sortProjects(
-  projects: ProjectOverview[],
+export function sortProjects<T extends FilterableProject>(
+  projects: T[],
   key: SortKey,
   dir: SortDir,
-): ProjectOverview[] {
+): T[] {
   if (key === "default") return projects;
   const mul = dir === "asc" ? 1 : -1;
   return [...projects].sort((a, b) => {
@@ -131,10 +147,10 @@ export type ProjectFilters = {
   owner?: string;
 };
 
-export function filterProjects(
-  projects: ProjectOverview[],
+export function filterProjects<T extends FilterableProject>(
+  projects: T[],
   f: ProjectFilters,
-): ProjectOverview[] {
+): T[] {
   return projects.filter((p) => {
     if (f.type && p.type !== f.type) return false;
     if (f.status && p.status !== f.status) return false;
@@ -165,7 +181,7 @@ export type ViewSpec = {
   exclude: boolean;
 };
 
-export function matchesView(p: ProjectOverview, v: ViewSpec): boolean {
+export function matchesView(p: FilterableProject, v: ViewSpec): boolean {
   const hasStatus = v.statuses.length > 0;
   const hasType = v.types.length > 0;
   if (!hasStatus && !hasType) return true; // 無條件＝全體
@@ -175,10 +191,10 @@ export function matchesView(p: ProjectOverview, v: ViewSpec): boolean {
   return v.exclude ? !matched : matched;
 }
 
-export function filterByView(
-  projects: ProjectOverview[],
+export function filterByView<T extends FilterableProject>(
+  projects: T[],
   v: ViewSpec,
-): ProjectOverview[] {
+): T[] {
   return projects.filter((p) => matchesView(p, v));
 }
 

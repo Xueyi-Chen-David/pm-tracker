@@ -51,6 +51,11 @@ export function MembersListTable({
                       {m.isBoss && (
                         <Crown className="h-3.5 w-3.5 shrink-0 text-amber-500" />
                       )}
+                      {(m.role === "OWNER" || m.role === "ADMIN") && (
+                        <span className="shrink-0 rounded bg-violet-100 px-1.5 text-[10px] text-violet-700">
+                          {m.role === "OWNER" ? "擁有者" : "管理者"}
+                        </span>
+                      )}
                       {!m.active && (
                         <span className="rounded bg-slate-100 px-1.5 text-[10px] text-slate-500">
                           停用

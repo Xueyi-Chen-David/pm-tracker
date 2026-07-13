@@ -6,13 +6,15 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import {
   LayoutDashboard,
-  Target,
+  Building2,
   FolderKanban,
   CalendarRange,
   FileText,
   Users,
   UserCheck,
   NotebookPen,
+  ClipboardList,
+  CircleUser,
   Menu,
   LogOut,
   Plus,
@@ -29,17 +31,33 @@ import {
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { NewProjectButton } from "@/components/new-project-button";
 import { OrgSwitcher } from "@/components/org-switcher";
+import { NotificationBell, type NotificationItem } from "@/components/notification-bell";
+import { ViewAsToggle } from "@/components/view-as-toggle";
 import type { ModuleKey } from "@/lib/modules";
 
-const NAV: { key: ModuleKey; href: string; label: string; icon: typeof LayoutDashboard }[] = [
+type NavItem = {
+  key: ModuleKey;
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+};
+
+// 主要模組：總覽置頂，其次公司營運、專案與任務。
+const NAV_MAIN: NavItem[] = [
   { key: "dashboard", href: "/dashboard", label: "總覽", icon: LayoutDashboard },
-  { key: "okr", href: "/okr", label: "OKR / 目標", icon: Target },
+  { key: "company", href: "/company", label: "公司營運", icon: Building2 },
   { key: "projects", href: "/projects", label: "專案與任務", icon: FolderKanban },
   { key: "timeline", href: "/timeline", label: "時程藍圖", icon: CalendarRange },
   { key: "team", href: "/team", label: "團隊", icon: Users },
   { key: "attendance", href: "/attendance", label: "出席狀況", icon: UserCheck },
   { key: "meetings", href: "/meetings", label: "會議記錄", icon: NotebookPen },
   { key: "report", href: "/report", label: "週報", icon: FileText },
+];
+
+// 個人區塊：放在最底部，以隔線分隔。
+const NAV_PERSONAL: NavItem[] = [
+  { key: "daily", href: "/daily", label: "每日報告", icon: ClipboardList },
+  { key: "me", href: "/me", label: "個人資料", icon: CircleUser },
 ];
 
 type SessionUser = {
@@ -64,29 +82,43 @@ function NavLinks({
 }) {
   const pathname = usePathname();
   const allowed = new Set(moduleKeys);
+
+  const renderItem = (item: NavItem) => {
+    const active =
+      pathname === item.href || pathname.startsWith(item.href + "/");
+    const Icon = item.icon;
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        onClick={onNavigate}
+        className={cn(
+          "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+          active
+            ? "bg-primary text-primary-foreground shadow-sm"
+            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+        )}
+      >
+        <Icon className="h-4.5 w-4.5 shrink-0" />
+        {item.label}
+      </Link>
+    );
+  };
+
+  const personal = NAV_PERSONAL.filter((item) => allowed.has(item.key));
+
   return (
     <nav className="flex flex-col gap-1">
-      {NAV.filter((item) => allowed.has(item.key)).map((item) => {
-        const active =
-          pathname === item.href || pathname.startsWith(item.href + "/");
-        const Icon = item.icon;
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            className={cn(
-              "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-              active
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:bg-muted hover:text-foreground",
-            )}
-          >
-            <Icon className="h-4.5 w-4.5 shrink-0" />
-            {item.label}
-          </Link>
-        );
-      })}
+      {NAV_MAIN.filter((item) => allowed.has(item.key)).map(renderItem)}
+      {personal.length > 0 && (
+        <>
+          <div className="my-2 border-t" />
+          <div className="text-muted-foreground px-3 pb-1 text-[11px] font-semibold tracking-wide">
+            個人
+          </div>
+          {personal.map(renderItem)}
+        </>
+      )}
     </nav>
   );
 }
@@ -143,12 +175,20 @@ export function AppSidebar({
   moduleKeys,
   activeOrg,
   orgs,
+  canPreviewAsEmployee,
+  previewingAsEmployee,
+  notifications,
+  unread,
 }: {
   user: SessionUser;
   users: UserOption[];
   moduleKeys: ModuleKey[];
   activeOrg: Org;
   orgs: Org[];
+  canPreviewAsEmployee: boolean;
+  previewingAsEmployee: boolean;
+  notifications: NotificationItem[];
+  unread: number;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -156,8 +196,9 @@ export function AppSidebar({
     <>
       {/* 桌機固定側欄 */}
       <aside className="bg-card no-print fixed inset-y-0 left-0 z-30 hidden w-60 flex-col gap-4 border-r p-3 lg:flex">
-        <div className="pt-2">
+        <div className="flex items-center justify-between pt-2">
           <Brand />
+          <NotificationBell items={notifications} unread={unread} />
         </div>
         <div className="px-1">
           <OrgSwitcher activeOrg={activeOrg} orgs={orgs} />
@@ -173,6 +214,11 @@ export function AppSidebar({
         <div className="px-1">
           <NavLinks moduleKeys={moduleKeys} />
         </div>
+        {canPreviewAsEmployee && (
+          <div className="px-1">
+            <ViewAsToggle previewing={previewingAsEmployee} />
+          </div>
+        )}
         <div className="mt-auto">
           <UserCard user={user} />
         </div>
@@ -182,6 +228,7 @@ export function AppSidebar({
       <header className="bg-card no-print sticky top-0 z-30 flex items-center justify-between border-b px-4 py-2.5 lg:hidden">
         <Brand />
         <div className="flex items-center gap-1">
+          <NotificationBell items={notifications} unread={unread} />
           <NewProjectButton
             users={users}
             trigger={
@@ -201,6 +248,9 @@ export function AppSidebar({
               <div className="mt-6 flex h-full flex-col gap-4">
                 <OrgSwitcher activeOrg={activeOrg} orgs={orgs} />
                 <NavLinks moduleKeys={moduleKeys} onNavigate={() => setOpen(false)} />
+                {canPreviewAsEmployee && (
+                  <ViewAsToggle previewing={previewingAsEmployee} />
+                )}
                 <div className="mt-auto">
                   <UserCard user={user} />
                 </div>

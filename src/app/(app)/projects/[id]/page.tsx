@@ -139,7 +139,11 @@ export default async function ProjectDetailPage({
                   {okrLinks.map((l) => (
                     <Link
                       key={l.id}
-                      href={`/okr?cycle=${encodeURIComponent(l.objective.cycle)}`}
+                      href={
+                        l.objective.level === "ANNUAL"
+                          ? `/company?year=${encodeURIComponent(l.objective.cycle)}`
+                          : `/company?q=${encodeURIComponent(l.objective.cycle)}`
+                      }
                       className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 hover:bg-violet-100"
                       title="這個專案支援的 OKR 目標"
                     >

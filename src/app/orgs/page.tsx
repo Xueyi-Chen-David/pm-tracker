@@ -1,10 +1,11 @@
 import { Building2, ArrowRight, LogOut } from "lucide-react";
 import type { OrgRole } from "@prisma/client";
 import { requireUser } from "@/server/auth-helpers";
-import { getMyMemberships } from "@/server/org";
+import { getMyMemberships, canManageMembers } from "@/server/org";
 import { signOut } from "@/server/auth";
 import { setActiveOrgAction } from "@/server/actions/organizations";
 import { CreateOrgForm } from "@/components/create-org-form";
+import { RenameOrgDialog } from "@/components/rename-org-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
@@ -43,28 +44,36 @@ export default async function OrgsPage() {
             </CardHeader>
             <CardContent className="space-y-2">
               {memberships.map((m) => (
-                <form
-                  key={m.id}
-                  action={setActiveOrgAction.bind(null, m.organizationId)}
-                >
-                  <button
-                    type="submit"
-                    className="group hover:bg-muted flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors"
+                <div key={m.id} className="flex items-center gap-2">
+                  <form
+                    action={setActiveOrgAction.bind(null, m.organizationId)}
+                    className="min-w-0 flex-1"
                   >
-                    <span className="bg-muted flex h-9 w-9 shrink-0 items-center justify-center rounded-md">
-                      <Building2 className="h-4.5 w-4.5" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">
-                        {m.organization.name}
+                    <button
+                      type="submit"
+                      className="group hover:bg-muted flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors"
+                    >
+                      <span className="bg-muted flex h-9 w-9 shrink-0 items-center justify-center rounded-md">
+                        <Building2 className="h-4.5 w-4.5" />
                       </span>
-                      <span className="text-muted-foreground block text-xs">
-                        {ROLE_LABEL[m.role]}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">
+                          {m.organization.name}
+                        </span>
+                        <span className="text-muted-foreground block text-xs">
+                          {ROLE_LABEL[m.role]}
+                        </span>
                       </span>
-                    </span>
-                    <ArrowRight className="text-muted-foreground h-4 w-4 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
-                  </button>
-                </form>
+                      <ArrowRight className="text-muted-foreground h-4 w-4 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
+                    </button>
+                  </form>
+                  {canManageMembers(m.role) && (
+                    <RenameOrgDialog
+                      orgId={m.organizationId}
+                      currentName={m.organization.name}
+                    />
+                  )}
+                </div>
               ))}
             </CardContent>
           </Card>

@@ -2,11 +2,13 @@
 
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/server/db";
 import { requireUser } from "@/server/auth-helpers";
 import {
   getMyMemberships,
+  canManageMembers,
   ACTIVE_ORG_COOKIE,
   ACTIVE_ORG_COOKIE_OPTS,
 } from "@/server/org";
@@ -53,4 +55,32 @@ export async function createOrganizationAction(
   const store = await cookies();
   store.set(ACTIVE_ORG_COOKIE, org.id, ACTIVE_ORG_COOKIE_OPTS);
   redirect("/dashboard");
+}
+
+export type RenameOrgState = { error?: string } | null;
+
+/** 變更組織名稱：需為該組織的擁有者 / 管理員。 */
+export async function renameOrganizationAction(
+  orgId: string,
+  rawName: string,
+): Promise<RenameOrgState> {
+  const user = await requireUser();
+  const memberships = await getMyMemberships(user.id);
+  const membership = memberships.find((m) => m.organizationId === orgId);
+  if (!membership) return { error: "你不是該組織的成員。" };
+  if (!canManageMembers(membership.role)) {
+    return { error: "需要組織擁有者 / 管理員權限才能變更名稱。" };
+  }
+  const parsed = NameInput.safeParse(rawName);
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "資料格式錯誤" };
+  }
+  if (parsed.data === membership.organization.name) return null; // 沒變更
+  await db.organization.update({
+    where: { id: orgId },
+    data: { name: parsed.data },
+  });
+  revalidatePath("/orgs");
+  revalidatePath("/", "layout"); // 更新側欄 OrgSwitcher 顯示的名稱
+  return null;
 }

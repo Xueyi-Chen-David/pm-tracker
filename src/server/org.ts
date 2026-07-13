@@ -4,10 +4,25 @@ import { redirect } from "next/navigation";
 import type { OrgRole } from "@prisma/client";
 import { db } from "./db";
 import { getCurrentUser, requireUser } from "./auth-helpers";
-import { canSeeModule, firstAllowedHref, type ModuleKey } from "@/lib/modules";
+import {
+  canSeeModule,
+  firstAllowedHref,
+  isAdminRole,
+  type ModuleKey,
+} from "@/lib/modules";
+
+/** 模組可見性用的存取資訊（角色 / 老闆 / 細分權限）。 */
+export type ModuleAccess = {
+  role: OrgRole;
+  isBoss: boolean;
+  allowedModules: string[];
+};
 
 /** 記住「目前組織」的 cookie 名稱。 */
 export const ACTIVE_ORG_COOKIE = "pm_active_org";
+
+/** 「以員工視角預覽」的 cookie 名稱（值＝"employee" 時啟用）。 */
+export const VIEW_AS_COOKIE = "pm_view_as";
 
 export const ACTIVE_ORG_COOKIE_OPTS = {
   httpOnly: true,
@@ -92,16 +107,46 @@ export async function requireActiveOrg(): Promise<ActiveOrgContext> {
   };
 }
 
+/** 是否為管理者 / 老闆（可看管理者專屬頁、可切換員工視角預覽）。 */
+export function isManagerOrBoss(m: {
+  role: OrgRole;
+  isBoss: boolean;
+}): boolean {
+  return isAdminRole(m.role) || m.isBoss;
+}
+
+/** 讀「以員工視角預覽」cookie（是否啟用）。 */
+export async function getViewAsEmployee(): Promise<boolean> {
+  const store = await cookies();
+  return store.get(VIEW_AS_COOKIE)?.value === "employee";
+}
+
+/**
+ * 計算「有效存取」：管理者 / 老闆開啟員工視角預覽時，一律降級成一般員工
+ * （role=MEMBER、非老闆、無額外授權），讓側欄與頁面存取都呈現員工實際看到的樣子。
+ */
+export function effectiveAccess(
+  m: MyMembership,
+  previewEmployee: boolean,
+): ModuleAccess {
+  if (previewEmployee && isManagerOrBoss(m)) {
+    return { role: "MEMBER", isBoss: false, allowedModules: [] };
+  }
+  return { role: m.role, isBoss: m.isBoss, allowedModules: m.allowedModules };
+}
+
 /**
  * 要求登入 + 目前組織 + 該模組可見權限（細分權限，讀 membership）。
+ * 會套用「員工視角預覽」：管理者預覽中造訪管理者專屬頁會被導開（退出預覽即可回來）。
  * 無權限時導向使用者第一個可見模組。每次都讀最新 membership，調整立即生效。
  */
 export async function requireModuleAccess(
   key: ModuleKey,
 ): Promise<ActiveOrgContext> {
   const ctx = await requireActiveOrg();
-  if (!canSeeModule(ctx.membership, key)) {
-    redirect(firstAllowedHref(ctx.membership));
+  const access = effectiveAccess(ctx.membership, await getViewAsEmployee());
+  if (!canSeeModule(access, key)) {
+    redirect(firstAllowedHref(access));
   }
   return ctx;
 }

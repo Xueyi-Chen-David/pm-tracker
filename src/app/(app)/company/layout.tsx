@@ -5,6 +5,6 @@ export default async function Layout({
 }: {
   children: React.ReactNode;
 }) {
-  await requireModuleAccess("okr");
+  await requireModuleAccess("company");
   return children;
 }

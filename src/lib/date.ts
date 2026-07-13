@@ -24,6 +24,17 @@ export function thisWeekStart(): Date {
   return weekStartOf(new Date());
 }
 
+/** 今天的 UTC 午夜（對應 @db.Date，避免時區位移）。 */
+export function todayUtc(): Date {
+  const n = new Date();
+  return new Date(Date.UTC(n.getFullYear(), n.getMonth(), n.getDate()));
+}
+
+/** n 天前的 UTC 午夜（趨勢 / 歷史起點用）。 */
+export function daysAgoUtc(days: number): Date {
+  return new Date(todayUtc().getTime() - days * 24 * 3600 * 1000);
+}
+
 /** 與某週相差 n 週的週一（n 可為負） */
 export function shiftWeek(weekStart: Date | string, n: number): Date {
   return weekStartOf(addWeeks(weekStartOf(weekStart), n));

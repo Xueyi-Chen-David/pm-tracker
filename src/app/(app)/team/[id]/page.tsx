@@ -14,14 +14,14 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { requireActiveOrg, canManageMembers } from "@/server/org";
-import { getMemberProfile } from "@/server/queries";
+import { getMemberProfile, getOrgMemberDirectory } from "@/server/queries";
 import { thisWeekStart, weekLabel } from "@/lib/date";
 import { displayName, displayInitial } from "@/lib/display";
 import { MemberName } from "@/components/member-name";
 import { ProfileForm } from "@/components/profile-form";
 import { MemberDeleteButton } from "@/components/member-delete-button";
 import { MemberEventsPanel } from "@/components/member-events-panel";
-import { HealthDot, HealthBadge, TypeBadge, MemberRoleBadge } from "@/components/badges";
+import { HealthDot, TypeBadge, MemberRoleBadge } from "@/components/badges";
 import { ProgressBar } from "@/components/progress-bar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,6 +36,13 @@ export default async function MemberProfilePage({
   const canManage = canManageMembers(membership.role);
   const m = await getMemberProfile(org.id, id);
   if (!m) notFound();
+
+  // 主管下拉選單（僅管理者需要）。
+  const directory = canManage ? await getOrgMemberDirectory(org.id) : [];
+  const memberOptions = directory.map((d) => ({
+    membershipId: d.membershipId,
+    label: d.jobTitle ? `${displayName(d)}（${d.jobTitle}）` : displayName(d),
+  }));
 
   const week = thisWeekStart();
   const owned = m.ownedProjects;
@@ -69,12 +76,12 @@ export default async function MemberProfilePage({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <MemberName u={m} className="text-2xl font-bold" />
-              {m.isBoss && (
+              {canManage && m.isBoss && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
                   <Crown className="h-3 w-3" /> 老闆
                 </span>
               )}
-              {!m.active && (
+              {canManage && !m.active && (
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
                   停用
                 </span>
@@ -84,6 +91,11 @@ export default async function MemberProfilePage({
               {m.jobTitle ? `${m.jobTitle} · ` : ""}
               {m.email}
             </p>
+            {m.manager && (
+              <p className="text-muted-foreground mt-1 text-xs">
+                上級主管：{displayName(m.manager.user)}
+              </p>
+            )}
             {m.attendance && (
               <p className="text-muted-foreground mt-1 text-xs">
                 出席：{m.attendance}
@@ -101,25 +113,46 @@ export default async function MemberProfilePage({
               <CardTitle>個人 Profile</CardTitle>
             </CardHeader>
             <CardContent>
-              <ProfileForm
-                values={{
-                  id: m.id,
-                  name: m.name,
-                  nickname: m.nickname,
-                  useNickname: m.useNickname,
-                  email: m.email,
-                  jobTitle: m.jobTitle,
-                  attendance: m.attendance,
-                  persona: m.persona,
-                  personality: m.personality,
-                  bio: m.bio,
-                  productivityNote: m.productivityNote,
-                  isBoss: m.isBoss,
-                  active: m.active,
-                  allowedModules: m.allowedModules,
-                  trackAttendance: m.trackAttendance,
-                }}
-              />
+              {canManage ? (
+                <ProfileForm
+                  values={{
+                    id: m.id,
+                    membershipId: m.membershipId,
+                    name: m.name,
+                    nickname: m.nickname,
+                    useNickname: m.useNickname,
+                    email: m.email,
+                    jobTitle: m.jobTitle,
+                    department: m.department,
+                    attendance: m.attendance,
+                    bio: m.bio,
+                    isBoss: m.isBoss,
+                    active: m.active,
+                    allowedModules: m.allowedModules,
+                    trackAttendance: m.trackAttendance,
+                    managerId: m.managerId,
+                  }}
+                  memberOptions={memberOptions}
+                  departments={Array.from(
+                    new Set(
+                      directory
+                        .map((d) => d.department?.trim())
+                        .filter(Boolean) as string[],
+                    ),
+                  ).sort((a, b) => a.localeCompare(b, "zh-Hant"))}
+                />
+              ) : (
+                <dl className="space-y-2.5 text-sm">
+                  <ReadOnlyRow label="職稱" value={m.jobTitle} />
+                  <ReadOnlyRow label="Email" value={m.email} />
+                  <ReadOnlyRow label="出席情況" value={m.attendance} />
+                  <ReadOnlyRow
+                    label="上級主管"
+                    value={m.manager ? displayName(m.manager.user) : null}
+                  />
+                  <ReadOnlyRow label="簡介 / 備註" value={m.bio} />
+                </dl>
+              )}
             </CardContent>
           </Card>
 
@@ -249,33 +282,6 @@ export default async function MemberProfilePage({
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>近期週報活動</CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {m.weeklyUpdates.length === 0 ? (
-                <p className="text-muted-foreground px-4 pb-4 text-sm">尚無週報紀錄</p>
-              ) : (
-                <div className="divide-y">
-                  {m.weeklyUpdates.map((u) => (
-                    <Link
-                      key={u.id}
-                      href={`/projects/${u.project.id}`}
-                      className="hover:bg-muted/40 flex items-center gap-2 px-4 py-2 text-sm"
-                    >
-                      <span className="text-muted-foreground w-24 shrink-0 text-xs">
-                        {weekLabel(u.weekStart)}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate">{u.project.name}</span>
-                      <HealthBadge health={u.health} />
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
           {m.memberships.length > 0 && (
             <Card>
               <CardHeader>
@@ -323,6 +329,21 @@ export default async function MemberProfilePage({
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ReadOnlyRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string | null | undefined;
+}) {
+  return (
+    <div className="flex gap-3">
+      <dt className="text-muted-foreground w-24 shrink-0">{label}</dt>
+      <dd className="min-w-0 flex-1 break-words">{value?.trim() || "—"}</dd>
     </div>
   );
 }

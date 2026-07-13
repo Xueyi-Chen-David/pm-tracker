@@ -32,12 +32,14 @@ export function ObjectiveDialog({
   members,
   cycles,
   defaultCycle,
+  level,
   objective,
 }: {
   trigger: React.ReactElement;
   members: OwnerLite[];
   cycles: string[];
   defaultCycle: string;
+  level: "ANNUAL" | "QUARTERLY";
   objective?: ObjectiveEdit;
 }) {
   const router = useRouter();
@@ -45,19 +47,24 @@ export function ObjectiveDialog({
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const editing = !!objective;
+  const isAnnual = level === "ANNUAL";
+  const cycleLabel = isAnnual ? "年度" : "季度";
+  const cyclePlaceholder = isAnnual ? "2026" : "2026 Q3";
+  const listId = `okr-cycles-${level}`;
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const input = {
       title: String(fd.get("title") ?? "").trim(),
+      level,
       cycle: String(fd.get("cycle") ?? "").trim(),
       description: String(fd.get("description") ?? "").trim() || undefined,
       targetDate: String(fd.get("targetDate") ?? "") || undefined,
       ownerId: String(fd.get("ownerId") ?? "") || undefined,
     };
     if (!input.title) return setError("請輸入目標名稱");
-    if (!input.cycle) return setError("請選擇季別");
+    if (!input.cycle) return setError(`請輸入${cycleLabel}`);
     start(async () => {
       try {
         if (editing) await updateObjective(objective.id, input);
@@ -87,9 +94,12 @@ export function ObjectiveDialog({
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{editing ? "編輯目標" : "新增目標"}</DialogTitle>
+            <DialogTitle>
+              {editing ? "編輯" : "新增"}
+              {cycleLabel}目標
+            </DialogTitle>
             <DialogDescription>
-              目標（Objective）依季別分組，底下再加 Key Result。
+              {cycleLabel} OKR：目標（Objective）底下再加 Key Result，KR 可連專案即時反映進度。
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-4">
@@ -105,16 +115,16 @@ export function ObjectiveDialog({
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <Label htmlFor="o-cycle">季別</Label>
+                <Label htmlFor="o-cycle">{cycleLabel}</Label>
                 <Input
                   id="o-cycle"
                   name="cycle"
-                  list="okr-cycles"
+                  list={listId}
                   required
                   defaultValue={objective?.cycle ?? defaultCycle}
-                  placeholder="2026 Q3"
+                  placeholder={cyclePlaceholder}
                 />
-                <datalist id="okr-cycles">
+                <datalist id={listId}>
                   {cycles.map((c) => (
                     <option key={c} value={c} />
                   ))}

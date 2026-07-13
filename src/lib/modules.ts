@@ -2,15 +2,20 @@
  * 應用模組（＝側欄各頁）與細分權限的單一真相來源。
  *
  * 權限語意：
- * - `User.allowedModules` 為空陣列 → 可見「全部」模組（維持既有預設行為，沒設定＝全開）。
- * - 非空 → 只可見列出的 key。
- * - `isBoss` 的成員一律可見全部（不受 allowedModules 限制）。
+ * - `alwaysVisible` 模組（每日報告 / 個人資料）：一律可見。
+ * - `adminOnly` 模組（出席狀況 / 團隊）：預設**只有管理者(OWNER/ADMIN)或老闆**可見；
+ *   其他成員唯有被「加選授權」（key 列入 allowedModules）才看得到。
+ * - 一般模組：`allowedModules` 的「一般部分」為空 → 可見全部一般模組（預設全開）；
+ *   非空 → 只可見列出的一般模組。管理者 / 老闆一律可見全部。
  */
+import type { OrgRole } from "@prisma/client";
 
 export type ModuleKey =
   | "dashboard"
-  | "okr"
+  | "daily"
+  | "me"
   | "projects"
+  | "company"
   | "timeline"
   | "team"
   | "attendance"
@@ -21,37 +26,76 @@ export type AppModule = {
   key: ModuleKey;
   label: string;
   href: string;
+  /** 一律可見：不受 allowedModules 限制，也不列入權限勾選（如每個人都要寫的每日報告 / 個人資料）。 */
+  alwaysVisible?: boolean;
+  /** 管理者專屬：預設只有 OWNER/ADMIN/老闆可見；其他人需被額外授權（key 列入 allowedModules）。 */
+  adminOnly?: boolean;
 };
 
 /** 顯示順序＝側欄順序。firstAllowedHref 也依此順序挑第一個可見頁。 */
 export const MODULES: readonly AppModule[] = [
   { key: "dashboard", label: "總覽", href: "/dashboard" },
-  { key: "okr", label: "OKR / 目標", href: "/okr" },
+  { key: "daily", label: "每日報告", href: "/daily", alwaysVisible: true },
+  { key: "me", label: "個人資料", href: "/me", alwaysVisible: true },
   { key: "projects", label: "專案與任務", href: "/projects" },
+  { key: "company", label: "公司營運", href: "/company" },
   { key: "timeline", label: "時程藍圖", href: "/timeline" },
-  { key: "team", label: "團隊", href: "/team" },
-  { key: "attendance", label: "出席狀況", href: "/attendance" },
+  { key: "team", label: "團隊", href: "/team", adminOnly: true },
+  { key: "attendance", label: "出席狀況", href: "/attendance", adminOnly: true },
   { key: "meetings", label: "會議記錄", href: "/meetings" },
   { key: "report", label: "週報", href: "/report" },
 ] as const;
 
 export const MODULE_KEYS: readonly ModuleKey[] = MODULES.map((m) => m.key);
 
+/** 可被細分權限（allowedModules）控制的模組——排除一律可見的。 */
+export const GATED_MODULES: readonly AppModule[] = MODULES.filter(
+  (m) => !m.alwaysVisible,
+);
+
+/** 一般（非管理者專屬）的可控模組——用「全部 / 白名單」語意。 */
+export const GATED_NORMAL_MODULES: readonly AppModule[] = GATED_MODULES.filter(
+  (m) => !m.adminOnly,
+);
+
+/** 管理者專屬模組——用「額外加選授權」語意（獨立於一般白名單）。 */
+export const GATED_ADMIN_MODULES: readonly AppModule[] = GATED_MODULES.filter(
+  (m) => m.adminOnly,
+);
+
+const MODULE_BY_KEY = new Map(MODULES.map((m) => [m.key, m]));
+const ADMIN_ONLY_KEYS = new Set<string>(GATED_ADMIN_MODULES.map((m) => m.key));
+
 export function isModuleKey(v: string): v is ModuleKey {
   return (MODULE_KEYS as readonly string[]).includes(v);
+}
+
+/** 是否為組織管理者（擁有者 / 管理員）。 */
+export function isAdminRole(role?: OrgRole | null): boolean {
+  return role === "OWNER" || role === "ADMIN";
 }
 
 type AccessInput = {
   isBoss?: boolean | null;
   allowedModules?: string[] | null;
+  role?: OrgRole | null;
 };
 
 /** 該成員能否看到某模組。 */
 export function canSeeModule(user: AccessInput, key: ModuleKey): boolean {
-  if (user.isBoss) return true;
+  const mod = MODULE_BY_KEY.get(key);
+  if (mod?.alwaysVisible) return true; // 一律可見
+  if (user.isBoss) return true; // 老闆一律全開
+  if (isAdminRole(user.role)) return true; // 管理者一律全開
   const allowed = user.allowedModules ?? [];
-  if (allowed.length === 0) return true; // 空＝全部可見
-  return allowed.includes(key);
+  if (mod?.adminOnly) {
+    // 管理者專屬：非管理者唯有被明確加選授權才看得到。
+    return allowed.includes(key);
+  }
+  // 一般模組：只看 allowedModules 的「一般部分」（排除 adminOnly 授權，避免加選授權後反而擋掉其他頁）。
+  const normalAllowed = allowed.filter((k) => !ADMIN_ONLY_KEYS.has(k));
+  if (normalAllowed.length === 0) return true; // 空＝全部一般模組可見
+  return normalAllowed.includes(key);
 }
 
 /** 該成員實際可見的模組清單（依 MODULES 順序）。 */

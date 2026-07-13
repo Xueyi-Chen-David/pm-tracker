@@ -1,0 +1,101 @@
+/*
+ * 純 CSS 由上而下的組織樹連接線（無外部套件）。
+ * 經典 inline-block + ::before/::after 邊框畫連接線的作法；寬時可水平捲動。
+ * 線色用全域 --border（.dark 會覆寫，自動跟深色模式）。
+ */
+
+.scroll {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.tree {
+  --oc-line: var(--border, #d4d4d8);
+  display: inline-block;
+  min-width: 100%;
+  padding: 6px 2px;
+  text-align: center;
+}
+
+.tree ul {
+  position: relative;
+  padding: 1.3em 0 0;
+  margin: 0;
+  list-style: none;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.tree li {
+  position: relative;
+  display: inline-block;
+  padding: 1.3em 0.5em 0;
+  vertical-align: top;
+  text-align: center;
+}
+
+/* 每個節點上方的兩段水平連接線 */
+.tree li::before,
+.tree li::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 50%;
+  width: 50%;
+  height: 1.3em;
+  border-top: 2px solid var(--oc-line);
+}
+.tree li::after {
+  right: auto;
+  left: 50%;
+  border-left: 2px solid var(--oc-line);
+}
+
+/* 獨生子女：不畫連接線、上方不留間距 */
+.tree li:only-child::before,
+.tree li:only-child::after {
+  display: none;
+}
+.tree li:only-child {
+  padding-top: 0;
+}
+
+/* 兩端修飾：最左不畫左段、最右不畫右段，並修圓角 */
+.tree li:first-child::before,
+.tree li:last-child::after {
+  border: 0 none;
+}
+.tree li:last-child::before {
+  border-right: 2px solid var(--oc-line);
+  border-radius: 0 6px 0 0;
+}
+.tree li:first-child::after {
+  border-radius: 6px 0 0 0;
+}
+
+/* 父節點往下到子列的那段垂直線 */
+.tree ul ul::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 0;
+  height: 1.3em;
+  border-left: 2px solid var(--oc-line);
+}
+
+/* 最上層（無主管者）：並排但不畫出通往虛擬父節點的線 */
+.tree > ul {
+  padding-top: 0;
+}
+.tree > ul > li {
+  padding-top: 0;
+}
+.tree > ul > li::before,
+.tree > ul > li::after {
+  display: none;
+}
+
+.node {
+  display: inline-block;
+}

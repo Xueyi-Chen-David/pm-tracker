@@ -3,8 +3,10 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
-import { requireActiveOrgWithRole } from "@/server/org";
-import { MODULE_KEYS } from "@/lib/modules";
+import { requireActiveOrg, requireActiveOrgWithRole } from "@/server/org";
+import { getMembershipGraph } from "@/server/queries";
+import { wouldCycle } from "@/server/hierarchy";
+import { GATED_NORMAL_MODULES, GATED_ADMIN_MODULES } from "@/lib/modules";
 
 export type TeamActionState = { error?: string; ok?: boolean } | null;
 
@@ -62,6 +64,72 @@ export async function createWorkspaceMemberAction(
   return { ok: true };
 }
 
+const MyProfileInput = z.object({
+  name: z.string().trim().max(120).optional(),
+  nickname: z.string().trim().max(120).optional(),
+  useNickname: z.boolean().optional(),
+  email: z.string().trim().email("Email 格式不正確").optional(),
+  bio: z.string().trim().max(4000).optional(),
+});
+
+/**
+ * 本人編輯自己的個人資料（任何在職成員皆可）。只能改身分顯示欄位與簡介；
+ * 角色 / 權限 / 職稱 / 老闆 / 上級主管等仍只有管理者能改（於團隊頁 profile）。
+ */
+export async function updateMyProfileAction(
+  _prev: TeamActionState,
+  formData: FormData,
+): Promise<TeamActionState> {
+  const { user, org } = await requireActiveOrg();
+  const parsed = MyProfileInput.safeParse({
+    name: formData.get("name") || undefined,
+    nickname: formData.get("nickname") || undefined,
+    useNickname: formData.get("useNickname") === "on",
+    email: formData.get("email") || undefined,
+    bio: formData.get("bio") || undefined,
+  });
+  if (!parsed.success) {
+    return { error: parsed.error.issues[0]?.message ?? "資料格式錯誤" };
+  }
+  const d = parsed.data;
+  const lowerEmail = d.email ? d.email.toLowerCase() : undefined;
+
+  const membership = await db.organizationMember.findUnique({
+    where: { organizationId_userId: { organizationId: org.id, userId: user.id } },
+    select: { id: true },
+  });
+
+  try {
+    await db.$transaction([
+      db.user.update({
+        where: { id: user.id },
+        data: {
+          name: d.name ?? null,
+          nickname: d.nickname || null,
+          useNickname: d.useNickname ?? false,
+          email: lowerEmail,
+        },
+      }),
+      ...(membership
+        ? [
+            db.organizationMember.update({
+              where: { id: membership.id },
+              data: { email: lowerEmail, bio: d.bio || null },
+            }),
+          ]
+        : []),
+    ]);
+  } catch (e) {
+    if ((e as { code?: string })?.code === "P2002") {
+      return { error: "此 Email 已被其他成員使用。" };
+    }
+    throw e;
+  }
+  revalidatePath("/me");
+  revalidatePath("/team");
+  return { ok: true };
+}
+
 const ProfileInput = z.object({
   id: z.string().min(1), // User id
   name: z.string().trim().max(120).optional(),
@@ -69,13 +137,12 @@ const ProfileInput = z.object({
   useNickname: z.boolean().optional(),
   email: z.string().trim().email("Email 格式不正確").optional(),
   jobTitle: z.string().trim().max(120).optional(),
+  department: z.string().trim().max(120).optional(),
   attendance: z.string().trim().max(200).optional(),
-  persona: z.string().trim().max(4000).optional(),
-  personality: z.string().trim().max(4000).optional(),
   bio: z.string().trim().max(4000).optional(),
-  productivityNote: z.string().trim().max(4000).optional(),
   isBoss: z.boolean().optional(),
   active: z.boolean().optional(),
+  managerId: z.string().optional(), // 上級主管的 membership id（空＝清除）
 });
 
 /** 更新成員 profile：身分欄位寫 User，組織內欄位寫 membership。需擁有者 / 管理員。 */
@@ -91,13 +158,12 @@ export async function updateProfileAction(
     useNickname: formData.get("useNickname") === "on",
     email: formData.get("email") || undefined,
     jobTitle: formData.get("jobTitle") || undefined,
+    department: formData.get("department") || undefined,
     attendance: formData.get("attendance") || undefined,
-    persona: formData.get("persona") || undefined,
-    personality: formData.get("personality") || undefined,
     bio: formData.get("bio") || undefined,
-    productivityNote: formData.get("productivityNote") || undefined,
     isBoss: formData.get("isBoss") === "on",
     active: formData.get("active") === "on",
+    managerId: formData.get("managerId") || undefined,
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "資料格式錯誤" };
@@ -111,11 +177,34 @@ export async function updateProfileAction(
   });
   if (!membership) return { error: "該成員不屬於目前組織。" };
 
-  // 細分權限（可見模組）：勾「可存取全部」→ 空陣列（＝全開）；否則收集勾選的模組 key。
+  // 上級主管（membership id）：驗證同組織、非自己、不成循環。空＝清除。
+  let managerId: string | null = null;
+  if (d.managerId) {
+    if (d.managerId === membership.id) {
+      return { error: "不能把自己設為自己的主管。" };
+    }
+    const graph = await getMembershipGraph(org.id);
+    const target = graph.find((m) => m.id === d.managerId);
+    if (!target) return { error: "指定的主管不在目前組織。" };
+    if (wouldCycle(graph, membership.id, d.managerId)) {
+      return { error: "此指派會造成主管關係循環。" };
+    }
+    managerId = d.managerId;
+  }
+
+  // 細分權限（可見模組）：
+  // - 一般頁面：勾「可存取全部一般頁面」→ 空（＝全開）；否則收集勾選的一般 key（白名單）。
+  // - 管理者專屬頁（出席 / 團隊）：獨立「額外授權」，勾了就把 key 加入（不影響一般頁面可見性）。
   const allModules = formData.get("allModules") === "on";
-  const allowedModules = allModules
+  const normalPart = allModules
     ? []
-    : MODULE_KEYS.filter((k) => formData.get(`mod_${k}`) === "on");
+    : GATED_NORMAL_MODULES.map((m) => m.key).filter(
+        (k) => formData.get(`mod_${k}`) === "on",
+      );
+  const adminGrants = GATED_ADMIN_MODULES.map((m) => m.key).filter(
+    (k) => formData.get(`mod_${k}`) === "on",
+  );
+  const allowedModules = [...normalPart, ...adminGrants];
   const trackAttendance = formData.get("trackAttendance") === "on";
   const lowerEmail = d.email ? d.email.toLowerCase() : undefined;
 
@@ -137,15 +226,14 @@ export async function updateProfileAction(
         data: {
           email: lowerEmail, // 與 User email 同步
           jobTitle: d.jobTitle || null,
+          department: d.department || null,
           attendance: d.attendance || null,
-          persona: d.persona || null,
-          personality: d.personality || null,
           bio: d.bio || null,
-          productivityNote: d.productivityNote || null,
           isBoss: d.isBoss ?? false,
           active: d.active ?? true,
           allowedModules,
           trackAttendance,
+          managerId,
         },
       }),
     ]);
@@ -158,7 +246,97 @@ export async function updateProfileAction(
   revalidatePath("/team");
   revalidatePath(`/team/${d.id}`);
   revalidatePath("/attendance");
+  revalidatePath("/daily");
   return { ok: true };
+}
+
+/**
+ * 設定 / 取消某成員為「管理者」（ADMIN）。需擁有者 / 管理員。
+ * - OWNER 一律是管理者，不可在此變更。
+ * - 組織至少要保留一位管理者，降級最後一位會被擋下。
+ */
+export async function setMemberManagerRole(userId: string, makeManager: boolean) {
+  const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
+  const target = await db.organizationMember.findUnique({
+    where: { organizationId_userId: { organizationId: org.id, userId } },
+    select: { id: true, role: true },
+  });
+  if (!target) throw new Error("該成員不屬於目前組織。");
+  if (target.role === "OWNER") {
+    throw new Error("擁有者一律是管理者，無法在此變更。");
+  }
+
+  if (makeManager) {
+    if (target.role === "ADMIN") return;
+    await db.organizationMember.update({
+      where: { id: target.id },
+      data: { role: "ADMIN" },
+    });
+  } else {
+    if (target.role !== "ADMIN") return;
+    const managerCount = await db.organizationMember.count({
+      where: { organizationId: org.id, role: { in: ["OWNER", "ADMIN"] } },
+    });
+    if (managerCount <= 1) throw new Error("組織至少要有一位管理者。");
+    await db.organizationMember.update({
+      where: { id: target.id },
+      data: { role: "MEMBER" },
+    });
+  }
+  revalidatePath("/team");
+  revalidatePath(`/team/${userId}`);
+}
+
+/**
+ * 就地設定某成員的直屬主管（組織架構頁用）。需擁有者 / 管理員。
+ * managerMembershipId 為空＝清除；驗證同組織、非自己、不成循環。
+ */
+export async function setMemberManager(
+  userId: string,
+  managerMembershipId: string | null,
+) {
+  const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
+  const membership = await db.organizationMember.findUnique({
+    where: { organizationId_userId: { organizationId: org.id, userId } },
+    select: { id: true },
+  });
+  if (!membership) throw new Error("該成員不屬於目前組織。");
+
+  let managerId: string | null = null;
+  if (managerMembershipId) {
+    if (managerMembershipId === membership.id) {
+      throw new Error("不能把自己設為自己的主管。");
+    }
+    const graph = await getMembershipGraph(org.id);
+    if (!graph.find((m) => m.id === managerMembershipId)) {
+      throw new Error("指定的主管不在目前組織。");
+    }
+    if (wouldCycle(graph, membership.id, managerMembershipId)) {
+      throw new Error("此指派會造成主管關係循環。");
+    }
+    managerId = managerMembershipId;
+  }
+
+  await db.organizationMember.update({
+    where: { id: membership.id },
+    data: { managerId },
+  });
+  revalidatePath("/team");
+  revalidatePath(`/team/${userId}`);
+  revalidatePath("/daily");
+}
+
+/** 就地設定某成員的部門（組織架構頁用）。空字串＝清除。需擁有者 / 管理員。 */
+export async function setMemberDepartment(userId: string, department: string) {
+  const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
+  const dept = department.trim().slice(0, 120);
+  const res = await db.organizationMember.updateMany({
+    where: { organizationId: org.id, userId },
+    data: { department: dept || null },
+  });
+  if (res.count === 0) throw new Error("該成員不屬於目前組織。");
+  revalidatePath("/team");
+  revalidatePath(`/team/${userId}`);
 }
 
 /** 設定成員在本組織是否在職 / 啟用。需擁有者 / 管理員。 */

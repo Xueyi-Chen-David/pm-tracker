@@ -14,14 +14,15 @@ function toUtcDate(v?: string | null): Date | null {
 }
 
 function revalidate() {
-  revalidatePath("/okr");
+  revalidatePath("/company");
 }
 
 // ── Objective ──────────────────────────────────
 
 const ObjectiveInput = z.object({
   title: z.string().trim().min(1, "請輸入目標名稱").max(200),
-  cycle: z.string().trim().min(1, "請選擇季別").max(40),
+  level: z.enum(["ANNUAL", "QUARTERLY"]).default("QUARTERLY"),
+  cycle: z.string().trim().min(1, "請選擇週期").max(40),
   description: z.string().trim().max(4000).optional(),
   targetDate: z.string().optional(),
   ownerId: z.string().optional(),
@@ -38,6 +39,7 @@ export async function createObjective(input: z.input<typeof ObjectiveInput>) {
     data: {
       organizationId: org.id,
       title: d.title,
+      level: d.level,
       cycle: d.cycle,
       description: d.description || null,
       targetDate: toUtcDate(d.targetDate),
@@ -50,6 +52,7 @@ export async function createObjective(input: z.input<typeof ObjectiveInput>) {
 
 const ObjectivePatch = z.object({
   title: z.string().trim().min(1).max(200).optional(),
+  level: z.enum(["ANNUAL", "QUARTERLY"]).optional(),
   cycle: z.string().trim().min(1).max(40).optional(),
   description: z.string().trim().max(4000).nullable().optional(),
   targetDate: z.string().nullable().optional(),
@@ -67,6 +70,7 @@ export async function updateObjective(
     where: { id, organizationId: org.id },
     data: {
       ...(p.title !== undefined ? { title: p.title } : {}),
+      ...(p.level !== undefined ? { level: p.level } : {}),
       ...(p.cycle !== undefined ? { cycle: p.cycle } : {}),
       ...(p.description !== undefined ? { description: p.description || null } : {}),
       ...(p.targetDate !== undefined ? { targetDate: toUtcDate(p.targetDate) } : {}),

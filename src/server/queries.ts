@@ -1,5 +1,5 @@
 import { cache } from "react";
-import type { ProjectStatus } from "@prisma/client";
+import type { OkrLevel, ProjectStatus } from "@prisma/client";
 import { db } from "./db";
 import { thisWeekStart, weekStartOf } from "@/lib/date";
 
@@ -157,7 +157,9 @@ export async function getOrgMembers(orgId: string) {
     select: {
       isBoss: true,
       active: true,
+      role: true,
       jobTitle: true,
+      department: true,
       attendance: true,
       user: { select: userIdentitySelect },
     },
@@ -187,7 +189,9 @@ export async function getOrgMembers(orgId: string) {
     ...m.user,
     isBoss: m.isBoss,
     active: m.active,
+    role: m.role,
     jobTitle: m.jobTitle,
+    department: m.department,
     attendance: m.attendance,
     _count: {
       ownedProjects: ownedMap.get(m.user.id) ?? 0,
@@ -247,16 +251,19 @@ export async function getMemberProfile(orgId: string, userId: string) {
   const membership = await db.organizationMember.findUnique({
     where: { organizationId_userId: { organizationId: orgId, userId } },
     select: {
+      id: true,
       jobTitle: true,
+      department: true,
       isBoss: true,
       active: true,
       attendance: true,
-      persona: true,
-      personality: true,
       bio: true,
-      productivityNote: true,
       allowedModules: true,
       trackAttendance: true,
+      managerId: true,
+      manager: {
+        select: { userId: true, user: { select: userIdentitySelect } },
+      },
     },
   });
   if (!membership) return null;
@@ -312,7 +319,9 @@ export async function getMemberProfile(orgId: string, userId: string) {
     },
   });
   if (!user) return null;
-  return { ...user, ...membership };
+  // 註：membership.id 是「成員關係 id」，不可蓋掉 user.id（頁面各處以 user.id 為準）。
+  const { id: membershipId, ...membershipRest } = membership;
+  return { ...user, ...membershipRest, id: user.id, membershipId };
 }
 
 export type MemberProfile = NonNullable<
@@ -340,6 +349,25 @@ export async function getProjectsOverview(orgId: string) {
 
 export type ProjectOverview = Awaited<
   ReturnType<typeof getProjectsOverview>
+>[number];
+
+/** 合併「專案與任務」頁用：本組織未封存專案 + 底下任務（含任務負責人）。 */
+export async function getProjectsWithTasks(orgId: string) {
+  return db.project.findMany({
+    where: { archived: false, organizationId: orgId },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    include: {
+      owner: { select: userIdentitySelect },
+      tasks: {
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        include: { owners: { select: userIdentitySelect } },
+      },
+    },
+  });
+}
+
+export type ProjectWithTasks = Awaited<
+  ReturnType<typeof getProjectsWithTasks>
 >[number];
 
 /** 單一專案完整資料（限本組織；不屬本組織回 null）。 */
@@ -458,10 +486,10 @@ export async function getMeetingsForWeek(orgId: string, weekStart: Date) {
 // OKR（org-scoped）
 // ─────────────────────────────────────────────
 
-/** 本組織所有出現過的季別（cycle），最新在前——給季別選單。 */
-export async function getOkrCycles(orgId: string) {
+/** 某層級（年度/季度）出現過的週期(cycle)，最新在前——給週期選單。 */
+export async function getOkrCycles(orgId: string, level: OkrLevel) {
   const rows = await db.objective.findMany({
-    where: { organizationId: orgId },
+    where: { organizationId: orgId, level },
     distinct: ["cycle"],
     select: { cycle: true },
     orderBy: { cycle: "desc" },
@@ -469,10 +497,14 @@ export async function getOkrCycles(orgId: string) {
   return rows.map((r) => r.cycle);
 }
 
-/** 某季別的目標 + KR（含負責人、連結專案的當下快照、目標負責人）。 */
-export async function getObjectives(orgId: string, cycle: string) {
+/** 某層級 + 週期的目標 + KR（含負責人、連結專案的當下快照、目標負責人）。 */
+export async function getObjectives(
+  orgId: string,
+  level: OkrLevel,
+  cycle: string,
+) {
   return db.objective.findMany({
-    where: { organizationId: orgId, cycle, archived: false },
+    where: { organizationId: orgId, level, cycle, archived: false },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     include: {
       owner: { select: userIdentitySelect },
@@ -498,6 +530,44 @@ export async function getObjectives(orgId: string, cycle: string) {
 export type ObjectiveWithKrs = Awaited<ReturnType<typeof getObjectives>>[number];
 export type KeyResultRow = ObjectiveWithKrs["keyResults"][number];
 
+/**
+ * 某層級「所有週期」的目標 + KR（年度 OKR 用：一次取回全部年份，於頁面依 cycle 分組）。
+ * 回傳結構與 getObjectives 相同，可共用 toView。
+ */
+export async function getObjectivesByLevel(orgId: string, level: OkrLevel) {
+  return db.objective.findMany({
+    where: { organizationId: orgId, level, archived: false },
+    orderBy: [{ cycle: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
+    include: {
+      owner: { select: userIdentitySelect },
+      keyResults: {
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        include: {
+          owners: { select: userIdentitySelect },
+          project: {
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              health: true,
+              progress: true,
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
+/** 公司營運頁：組織願景（Vision）文字。 */
+export async function getOrgVision(orgId: string) {
+  const o = await db.organization.findUnique({
+    where: { id: orgId },
+    select: { vision: true },
+  });
+  return o?.vision ?? null;
+}
+
 /** KR→專案選單用：本組織未封存專案的精簡清單（含當下狀態）。 */
 export async function getProjectsLite(orgId: string) {
   return db.project.findMany({
@@ -520,7 +590,114 @@ export async function getKrLinksForProject(orgId: string, projectId: string) {
     select: {
       id: true,
       title: true,
-      objective: { select: { id: true, title: true, cycle: true } },
+      objective: { select: { id: true, title: true, cycle: true, level: true } },
     },
+  });
+}
+
+// ─────────────────────────────────────────────
+// 組織架構 / 成員名錄
+// ─────────────────────────────────────────────
+
+/** 組織架構運算用：全體成員的 (membership id, userId, managerId)。 */
+export async function getMembershipGraph(orgId: string) {
+  return db.organizationMember.findMany({
+    where: { organizationId: orgId },
+    select: { id: true, userId: true, managerId: true },
+  });
+}
+
+/** 成員名錄（主管下拉、組織架構顯示用）：membership id + 身分 + 職稱 + 主管。 */
+export async function getOrgMemberDirectory(orgId: string) {
+  const members = await db.organizationMember.findMany({
+    where: { organizationId: orgId },
+    orderBy: [{ isBoss: "desc" }, { active: "desc" }, { user: { name: "asc" } }],
+    select: {
+      id: true,
+      managerId: true,
+      role: true,
+      isBoss: true,
+      active: true,
+      jobTitle: true,
+      department: true,
+      user: { select: userIdentitySelect },
+    },
+  });
+  // 註：展開後 id＝userId（給連結用），membershipId＝成員關係 id（主管欄位的值）。
+  return members.map((m) => ({
+    ...m.user,
+    membershipId: m.id,
+    managerId: m.managerId,
+    role: m.role,
+    isBoss: m.isBoss,
+    active: m.active,
+    jobTitle: m.jobTitle,
+    department: m.department,
+  }));
+}
+
+export type OrgMemberDirectoryEntry = Awaited<
+  ReturnType<typeof getOrgMemberDirectory>
+>[number];
+
+// ─────────────────────────────────────────────
+// 每日報告 / 通知
+// ─────────────────────────────────────────────
+
+/** 某人某日的每日報告（可能不存在）。 */
+export async function getDailyReport(orgId: string, userId: string, date: Date) {
+  return db.dailyReport.findUnique({
+    where: {
+      organizationId_userId_date: { organizationId: orgId, userId, date },
+    },
+  });
+}
+
+const dailyReportInclude = {
+  user: { select: userIdentitySelect },
+  items: { orderBy: { sortOrder: "asc" as const } },
+  comments: {
+    orderBy: { createdAt: "asc" as const },
+    include: { author: { select: userIdentitySelect } },
+  },
+} as const;
+
+/** 指定使用者集合、自某日起的每日報告（本人歷史 / 主管檢視共用），最新在前。 */
+export async function getDailyReportsForUsers(
+  orgId: string,
+  userIds: string[],
+  since: Date,
+) {
+  if (userIds.length === 0) return [];
+  return db.dailyReport.findMany({
+    where: {
+      organizationId: orgId,
+      userId: { in: userIds },
+      date: { gte: since },
+    },
+    orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+    include: dailyReportInclude,
+  });
+}
+
+export type DailyReportRow = Awaited<
+  ReturnType<typeof getDailyReportsForUsers>
+>[number];
+
+/** 目前組織、目前使用者的通知（最新在前）。 */
+export async function getNotifications(orgId: string, userId: string, take = 20) {
+  return db.notification.findMany({
+    where: { organizationId: orgId, userId },
+    orderBy: { createdAt: "desc" },
+    take,
+  });
+}
+
+export type NotificationRow = Awaited<ReturnType<typeof getNotifications>>[number];
+
+/** 目前組織、目前使用者的未讀通知數。 */
+export async function getUnreadNotificationCount(orgId: string, userId: string) {
+  return db.notification.count({
+    where: { organizationId: orgId, userId, read: false },
   });
 }

@@ -41,12 +41,14 @@ export function ObjectiveCard({
   members,
   projects,
   cycles,
+  level,
 }: {
   objective: ObjectiveView;
   index: number;
   members: OwnerLite[];
   projects: ProjectLite[];
   cycles: string[];
+  level: "ANNUAL" | "QUARTERLY";
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(true);
@@ -132,6 +134,7 @@ export function ObjectiveCard({
             members={members}
             cycles={cycles}
             defaultCycle={objective.cycle}
+            level={level}
             objective={{
               id: objective.id,
               title: objective.title,

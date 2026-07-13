@@ -1,5 +1,7 @@
-import { requireActiveOrg } from "@/server/org";
+import { requireActiveOrg, canManageMembers } from "@/server/org";
+import { db } from "@/server/db";
 import { getAttendanceMonth, getTrackableMembers } from "@/server/queries";
+import { parseGeofences } from "@/lib/checkin";
 import { PageHeader } from "@/components/page-header";
 import {
   AttendanceGrid,
@@ -8,6 +10,7 @@ import {
 } from "@/components/attendance-grid";
 import { AttendanceMonthNav } from "@/components/attendance-month-nav";
 import { AttendanceTrackManager } from "@/components/attendance-track-manager";
+import { CheckInSettings } from "@/components/check-in-settings";
 
 export const metadata = { title: "出席狀況 · Project Pulse" };
 
@@ -34,7 +37,8 @@ export default async function AttendancePage({
 }: {
   searchParams: Promise<{ month?: string }>;
 }) {
-  const { org } = await requireActiveOrg();
+  const { org, membership } = await requireActiveOrg();
+  const canManage = canManageMembers(membership.role);
   const { month: monthParam } = await searchParams;
 
   const now = new Date();
@@ -58,9 +62,19 @@ export default async function AttendancePage({
     };
   });
 
-  const [rows, trackable] = await Promise.all([
+  const [rows, trackable, orgConfig] = await Promise.all([
     getAttendanceMonth(org.id, start, end),
     getTrackableMembers(org.id),
+    canManage
+      ? db.organization.findUnique({
+          where: { id: org.id },
+          select: {
+            checkInEnabled: true,
+            checkInAllowedIps: true,
+            checkInGeofences: true,
+          },
+        })
+      : Promise.resolve(null),
   ]);
 
   const members: GridMember[] = rows.map((m) => {
@@ -91,6 +105,13 @@ export default async function AttendancePage({
           month={ym(year, month)}
           thisMonth={ym(thisMonth.year, thisMonth.month)}
         />
+        {canManage && orgConfig && (
+          <CheckInSettings
+            enabled={orgConfig.checkInEnabled}
+            allowedIps={orgConfig.checkInAllowedIps}
+            geofences={parseGeofences(orgConfig.checkInGeofences)}
+          />
+        )}
         <AttendanceTrackManager members={trackable} />
       </PageHeader>
 

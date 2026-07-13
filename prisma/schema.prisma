@@ -41,6 +41,12 @@ model User {
   attendanceRecords AttendanceRecord[]
   objectivesOwned Objective[] @relation("ObjectiveOwner")
   keyResultsOwned KeyResult[] @relation("KrOwners")
+  tasksOwned      Task[]      @relation("TaskOwners")
+
+  dailyReports        DailyReport[]
+  dailyReportComments DailyReportComment[]
+  notifications       Notification[]
+  checkIns            CheckIn[]
 }
 
 model Account {
@@ -94,6 +100,18 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // 公司營運頁：組織願景（Vision）。策略層 OKR（年度 / 季度 Objective）掛在下面。
+  vision String? @db.Text
+
+  // 每日報告：上級的上級（直屬主管以上的整條鏈）是否也看得到下屬日報。
+  // false＝只有直屬主管看得到；true＝整條上級鏈都看得到。由管理者設定。
+  dailyReportChainVisible Boolean @default(false)
+
+  // 打卡限制設定（管理者設定）。啟用後，員工需符合「允許 IP」或「地理圍欄」任一才算有效打卡。
+  checkInEnabled    Boolean  @default(false)
+  checkInAllowedIps String[] @default([]) // 允許的 IP / CIDR 網段（任一符合即通過）
+  checkInGeofences  Json? // [{ label, lat, lng, radiusM }]（任一範圍內即通過）
+
   members           OrganizationMember[]
   projects          Project[]
   projectViews      ProjectView[]
@@ -103,6 +121,9 @@ model Organization {
   attendanceRecords AttendanceRecord[]
   memberEvents      MemberEvent[]
   objectives        Objective[]
+  dailyReports      DailyReport[]
+  notifications     Notification[]
+  checkIns          CheckIn[]
 }
 
 /**
@@ -120,16 +141,19 @@ model OrganizationMember {
   role           OrgRole      @default(MEMBER)
 
   // ── 從 User 搬過來的「組織內」欄位 ──
-  jobTitle         String? // 職稱（顯示用）
-  isBoss           Boolean  @default(false) // 老闆：週報「需要決策」收件對象
-  active           Boolean  @default(true) // 是否在職 / 啟用（於此組織）
-  allowedModules   String[] @default([]) // 細分權限：空陣列＝可見全部；非空＝只可見列出的模組
-  trackAttendance  Boolean  @default(false) // 是否納入出席月曆追蹤
-  persona          String?  @db.Text // 角色定位 / persona
-  personality      String?  @db.Text // 個性特質
-  bio              String?  @db.Text // 簡介 / 備註
-  attendance       String? // 出席情況（自由文字）
-  productivityNote String?  @db.Text // 生產力 / 績效備註
+  jobTitle        String? // 職稱（顯示用）
+  department      String? // 部門（顯示 / 分組用；組織架構頁可就地設定）
+  isBoss          Boolean  @default(false) // 老闆：週報「需要決策」收件對象
+  active          Boolean  @default(true) // 是否在職 / 啟用（於此組織）
+  allowedModules  String[] @default([]) // 細分權限：空陣列＝可見全部；非空＝只可見列出的模組
+  trackAttendance Boolean  @default(false) // 是否納入出席月曆追蹤
+  bio             String?  @db.Text // 簡介 / 備註
+  attendance      String? // 出席情況（自由文字）
+
+  // 組織架構：上級主管（指向同組織的另一位成員）。主管可看下屬的每日報告。
+  managerId String?
+  manager   OrganizationMember?  @relation("MemberManager", fields: [managerId], references: [id], onDelete: SetNull)
+  reports   OrganizationMember[] @relation("MemberManager")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -137,6 +161,7 @@ model OrganizationMember {
   @@unique([organizationId, userId])
   @@index([organizationId])
   @@index([userId])
+  @@index([managerId])
 }
 
 // ─────────────────────────────────────────────
@@ -218,6 +243,7 @@ model Project {
   milestones    Milestone[]
   activities    Activity[]
   keyResults    KeyResult[]     @relation("KrProject")
+  tasks         Task[]          @relation("ProjectTask")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -465,12 +491,19 @@ enum KrStatus {
   CANCELLED // 取消
 }
 
-/// 目標（Objective）。依組織 + 季別(cycle) 分組，底下掛多條 KeyResult。
+// 策略層 OKR 的層級：年度 / 季度（公司營運頁分兩區呈現）。
+enum OkrLevel {
+  ANNUAL // 年度 OKR（cycle＝年份，如 "2026"）
+  QUARTERLY // 季度 OKR（cycle＝季別，如 "2026 Q3"）
+}
+
+/// 目標（Objective）＝公司營運頁的策略層 OKR。依組織 + 層級(level) + 週期(cycle) 分組，底下掛多條 KeyResult。
 model Objective {
   id          String    @id @default(cuid())
   title       String
   description String?   @db.Text
-  cycle       String // 季別，如 "2026 Q3"
+  level       OkrLevel  @default(QUARTERLY) // 年度 / 季度
+  cycle       String // 週期：年度＝年份 "2026"；季度＝"2026 Q3"
   targetDate  DateTime? @db.Date // 目標日期（7/10、8月底…）
   sortOrder   Int       @default(0)
   archived    Boolean   @default(false)
@@ -518,4 +551,127 @@ model KeyResult {
 
   @@index([objectiveId])
   @@index([projectId])
+}
+
+/// 任務（Task）＝合併「專案與任務」頁裡，掛在某專案卡片下的一列。
+/// 專案卡片的彙總進度/健康度由底下任務即時算出並回寫到 Project（供時程/週報/連動 KR 共用）。
+model Task {
+  id        String  @id @default(cuid())
+  projectId String
+  project   Project @relation("ProjectTask", fields: [projectId], references: [id], onDelete: Cascade)
+  title     String
+
+  status   KrStatus @default(NOT_STARTED)
+  health   Health   @default(GREEN)
+  progress Int      @default(0) // 0-100
+  note     String?  @db.Text // 這週目標 / 備註
+  dueDate  DateTime? @db.Date
+
+  owners     User[]  @relation("TaskOwners") // 多負責人（組織成員）
+  ownerLabel String? // 外部非成員自由文字
+
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([projectId])
+}
+
+// ─────────────────────────────────────────────
+// 每日報告（Daily report）— 每人每日一筆，量化自評 + 短備註。
+// 只有作者本人與其上級主管（依組織設定決定是否含更上層）看得到。
+// ─────────────────────────────────────────────
+
+model DailyReport {
+  id     String   @id @default(cuid())
+  date   DateTime @db.Date // 報告日（UTC 午夜；每人每日唯一）
+  score  Int      @default(0) // 自評完成度 0–100（量化）
+  note   String? // 今日重點（≤50 字，於 action 驗證）
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  comments DailyReportComment[]
+  items    DailyReportItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, userId, date])
+  @@index([organizationId, date])
+  @@index([userId, date])
+}
+
+/// 每日報告底下的工作項目（陳宗賢式：計畫 vs 實績量化）。
+/// 每項有目標數量與實際完成數量，達成率＝實際/目標；日報 score 由各項達成率平均得出。
+model DailyReportItem {
+  id       String      @id @default(cuid())
+  reportId String
+  report   DailyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+
+  title  String // 任務 / 工作項目
+  unit   String? // 單位（件 / 通 / % …），選填
+  target Float   @default(0) // 目標數量（分母）
+  actual Float   @default(0) // 實際完成數量（分子）
+
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([reportId])
+}
+
+/// 每日報告的留言（主管回饋）。新增後會通知報告作者。
+model DailyReportComment {
+  id       String      @id @default(cuid())
+  reportId String
+  report   DailyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  authorId String
+  author   User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body     String      @db.Text
+  createdAt DateTime   @default(now())
+
+  @@index([reportId])
+}
+
+/// 站內通知（例：主管回饋你的每日報告）。read=已讀。
+model Notification {
+  id      String  @id @default(cuid())
+  userId  String // 收件者
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type    String // 例：daily_comment
+  title   String
+  body    String? @db.Text
+  link    String? // 點擊前往的頁面
+  read    Boolean @default(false)
+  createdAt DateTime @default(now())
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+  @@index([organizationId])
+}
+
+/// 打卡紀錄（上班 / 下班）。valid=通過 IP / 地理圍欄驗證。有效上班打卡會標記當日出席。
+model CheckIn {
+  id     String   @id @default(cuid())
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date   DateTime @db.Date // 打卡日（供每日聚合）
+  at     DateTime @default(now()) // 實際打卡時間
+  kind   String // "in"（上班）/ "out"（下班）
+  method String? // 通過方式："ip" / "gps"（valid=false 時為 null）
+  valid  Boolean  @default(false)
+  ip     String?
+  lat    Float?
+  lng    Float?
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, date])
+  @@index([userId, date])
 }
