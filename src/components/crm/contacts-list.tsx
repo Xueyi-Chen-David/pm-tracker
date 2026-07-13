@@ -43,7 +43,7 @@ export function ContactsList({
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="搜尋姓名 / 公司 / Email / 電話…"
+          placeholder="搜尋公司 / 姓名 / Email / 電話…"
           className="border-input h-9 w-full rounded-md border bg-transparent pr-3 pl-8 text-sm outline-none focus:border-ring"
         />
       </div>
@@ -51,7 +51,7 @@ export function ContactsList({
       <div className="bg-card overflow-x-auto rounded-xl border">
         <div className="min-w-[720px]">
           <div className="text-muted-foreground bg-muted/50 flex items-center gap-3 border-b px-3 py-2 text-xs font-medium">
-            <div className="w-56 shrink-0">姓名 / 公司</div>
+            <div className="w-56 shrink-0">公司 / 姓名</div>
             <div className="w-28 shrink-0">職稱</div>
             <div className="flex-1">聯絡方式</div>
             <div className="w-14 shrink-0 text-center">商機</div>
@@ -64,12 +64,21 @@ export function ContactsList({
                 key={c.id}
                 className="hover:bg-muted/40 flex items-center gap-3 px-3 py-2 text-sm"
               >
-                <div className="w-56 shrink-0 min-w-0">
-                  <div className="truncate font-medium">{c.name}</div>
-                  {c.company && (
-                    <div className="text-muted-foreground inline-flex items-center gap-1 truncate text-xs">
-                      <Building2 className="h-3 w-3 shrink-0" /> {c.company}
-                    </div>
+                <div className="w-56 min-w-0 shrink-0">
+                  {c.company ? (
+                    <>
+                      <div className="flex min-w-0 items-center gap-1 font-semibold">
+                        <Building2 className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">{c.company}</span>
+                      </div>
+                      {c.name && (
+                        <div className="text-muted-foreground truncate text-xs">
+                          {c.name}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="truncate font-semibold">{c.name || "—"}</div>
                   )}
                 </div>
                 <div className="text-muted-foreground w-28 shrink-0 truncate">
