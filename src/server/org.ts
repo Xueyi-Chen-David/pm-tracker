@@ -166,3 +166,20 @@ export async function requireActiveOrgWithRole(
 export function canManageMembers(role: OrgRole): boolean {
   return role === "OWNER" || role === "ADMIN";
 }
+
+/**
+ * requireActiveOrg + UI 用的「有效可管理」。
+ * - `canManage`：真實為管理者(OWNER/ADMIN)**且未**處於員工視角預覽。
+ * - `previewing`：管理者正以員工視角預覽中。
+ * 用於「頁面該不該顯示管理者專屬 UI」；伺服器端各 action 仍以真實角色驗證權限，
+ * 預覽只影響呈現，不會真的放大或縮小實際權限。
+ */
+export async function requireManageContext(): Promise<
+  ActiveOrgContext & { canManage: boolean; previewing: boolean }
+> {
+  const ctx = await requireActiveOrg();
+  const previewing =
+    (await getViewAsEmployee()) && isManagerOrBoss(ctx.membership);
+  const canManage = !previewing && canManageMembers(ctx.membership.role);
+  return { ...ctx, canManage, previewing };
+}

@@ -1,4 +1,4 @@
-import { requireActiveOrg, canManageMembers } from "@/server/org";
+import { requireManageContext } from "@/server/org";
 import { db } from "@/server/db";
 import { getAttendanceMonth, getTrackableMembers } from "@/server/queries";
 import { parseGeofences } from "@/lib/checkin";
@@ -38,8 +38,7 @@ export default async function AttendancePage({
 }: {
   searchParams: Promise<{ month?: string }>;
 }) {
-  const { org, membership } = await requireActiveOrg();
-  const canManage = canManageMembers(membership.role);
+  const { org, user, canManage } = await requireManageContext();
   const { month: monthParam } = await searchParams;
 
   const now = new Date();
@@ -65,7 +64,7 @@ export default async function AttendancePage({
 
   const [rows, trackable, orgConfig, firstCheckIn] = await Promise.all([
     getAttendanceMonth(org.id, start, end),
-    getTrackableMembers(org.id),
+    canManage ? getTrackableMembers(org.id) : Promise.resolve([]),
     db.organization.findUnique({
       where: { id: org.id },
       select: {
@@ -137,7 +136,7 @@ export default async function AttendancePage({
             geofences={parseGeofences(orgConfig.checkInGeofences)}
           />
         )}
-        <AttendanceTrackManager members={trackable} />
+        {canManage && <AttendanceTrackManager members={trackable} />}
       </PageHeader>
 
       <div className="text-muted-foreground flex flex-wrap items-center gap-4 text-xs">
@@ -172,7 +171,12 @@ export default async function AttendancePage({
           點右上「追蹤成員」勾選要記錄出席的人。
         </div>
       ) : (
-        <AttendanceGrid members={members} days={days} />
+        <AttendanceGrid
+          members={members}
+          days={days}
+          viewerUserId={user.id}
+          canManage={canManage}
+        />
       )}
     </div>
   );

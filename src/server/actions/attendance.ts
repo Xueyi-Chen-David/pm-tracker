@@ -3,7 +3,11 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
-import { requireActiveOrg } from "@/server/org";
+import {
+  requireActiveOrg,
+  requireActiveOrgWithRole,
+  canManageMembers,
+} from "@/server/org";
 
 /** yyyy-mm-dd → UTC 午夜（對應 @db.Date，避免時區位移）。 */
 function toUtcDate(v: string): Date {
@@ -31,9 +35,13 @@ const SetInput = z.object({
 
 /** 設定某人某天的出席狀態（出席 / 缺席 / 在外工作 / 清除）。每人每日一筆（限本組織）。 */
 export async function setAttendance(input: z.input<typeof SetInput>) {
-  const { user: me, org } = await requireActiveOrg();
+  const { user: me, org, membership } = await requireActiveOrg();
   const d = SetInput.parse(input);
   await assertOrgMember(org.id, d.userId);
+  // 只能改自己的出席；管理者(OWNER/ADMIN)才能改他人。
+  if (d.userId !== me.id && !canManageMembers(membership.role)) {
+    throw new Error("只能修改自己的出席紀錄；管理者才能修改他人。");
+  }
   const date = toUtcDate(d.date);
 
   if (d.status === "clear") {
@@ -71,9 +79,9 @@ export async function setAttendance(input: z.input<typeof SetInput>) {
   revalidatePath("/attendance");
 }
 
-/** 設定某成員是否納入出席追蹤（月曆是否顯示他；限本組織）。 */
+/** 設定某成員是否納入出席追蹤（月曆是否顯示他；限本組織、管理者限定）。 */
 export async function setTrackAttendance(userId: string, on: boolean) {
-  const { org } = await requireActiveOrg();
+  const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
   await assertOrgMember(org.id, userId);
   await db.organizationMember.update({
     where: { organizationId_userId: { organizationId: org.id, userId } },

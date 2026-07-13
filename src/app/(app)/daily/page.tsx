@@ -1,6 +1,6 @@
 import { format } from "date-fns";
 import { ClipboardList, Fingerprint, Users2, History, Check } from "lucide-react";
-import { requireActiveOrg, canManageMembers } from "@/server/org";
+import { requireManageContext } from "@/server/org";
 import { db } from "@/server/db";
 import {
   getDailyReportsForUsers,
@@ -21,8 +21,8 @@ import { DailyVisibilityToggle } from "@/components/daily-visibility-toggle";
 export const metadata = { title: "每日報告 · Project Pulse" };
 
 export default async function DailyPage() {
-  const { user, org, membership } = await requireActiveOrg();
-  const isManager = canManageMembers(membership.role);
+  const { user, org, membership, canManage } = await requireManageContext();
+  const isManager = canManage; // 員工視角預覽時降為非管理者
 
   const today = todayUtc();
   const since = daysAgoUtc(13); // 近 14 天

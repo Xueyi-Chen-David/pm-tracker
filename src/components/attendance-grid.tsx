@@ -43,9 +43,15 @@ const WEEKDAY_LABEL = ["日", "一", "二", "三", "四", "五", "六"];
 export function AttendanceGrid({
   members,
   days,
+  viewerUserId,
+  canManage,
 }: {
   members: GridMember[];
   days: GridDay[];
+  /** 目前檢視者的 userId：非管理者只能編輯自己的列。 */
+  viewerUserId: string;
+  /** 管理者可編輯所有人；否則只有自己那列可編輯。 */
+  canManage: boolean;
 }) {
   // 每日在勤人數（頁尾）＝出席，含在外工作（出差 / 在家工作），依伺服器資料計算。
   const dayPresent = days.map(
@@ -115,6 +121,7 @@ export function AttendanceGrid({
                       dateStr={d.dateStr}
                       label={d.label}
                       mark={m.marks[d.dateStr]}
+                      editable={canManage || m.id === viewerUserId}
                     />
                   </td>
                 ))}
@@ -155,22 +162,57 @@ export function AttendanceGrid({
   );
 }
 
+/** 唯讀格：只顯示狀態圈叉，不可點（別人的列、且自己非管理者）。 */
+function StaticCell({ label, mark }: { label: string; mark?: Mark }) {
+  const isOffsite = mark?.offsite === true;
+  const isPresent = !isOffsite && mark?.present === true;
+  const isAbsent = !isOffsite && mark?.present === false;
+  return (
+    <div
+      title={`${label}${(isAbsent || isOffsite) && mark?.reason ? ` · ${mark.reason}` : ""}`}
+      className={cn(
+        "mx-auto flex h-7 w-7 items-center justify-center rounded-md border text-xs",
+        isPresent && "border-emerald-300 bg-emerald-100 text-emerald-700",
+        isAbsent && "border-rose-300 bg-rose-100 text-rose-700",
+        isOffsite && "rounded-full border-sky-400 bg-sky-100 text-sky-700",
+        !isPresent && !isAbsent && !isOffsite && "border-transparent",
+      )}
+    >
+      {isOffsite ? (
+        <Circle className="h-3.5 w-3.5" />
+      ) : isPresent ? (
+        <Check className="h-4 w-4" />
+      ) : isAbsent ? (
+        <X className="h-4 w-4" />
+      ) : (
+        <span className="text-muted-foreground/30" aria-hidden>
+          ·
+        </span>
+      )}
+    </div>
+  );
+}
+
 function AttendanceCell({
   userId,
   dateStr,
   label,
   mark,
+  editable,
 }: {
   userId: string;
   dateStr: string;
   label: string;
   mark?: Mark;
+  editable: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
   const [state, setState] = useState<Mark | null>(mark ?? null);
   const [reason, setReason] = useState(mark?.reason ?? "");
+
+  if (!editable) return <StaticCell label={label} mark={mark} />;
 
   // status=offsite 時（出差 / 在家工作）用 offsiteReason 帶入類型文字。
   function apply(

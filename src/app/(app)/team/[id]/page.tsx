@@ -13,12 +13,13 @@ import {
   ListChecks,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { requireActiveOrg, canManageMembers } from "@/server/org";
+import { requireManageContext } from "@/server/org";
 import { getMemberProfile, getOrgMemberDirectory } from "@/server/queries";
 import { thisWeekStart, weekLabel } from "@/lib/date";
 import { displayName, displayInitial } from "@/lib/display";
 import { MemberName } from "@/components/member-name";
 import { ProfileForm } from "@/components/profile-form";
+import { MyProfileForm } from "@/components/my-profile-form";
 import { MemberDeleteButton } from "@/components/member-delete-button";
 import { MemberEventsPanel } from "@/components/member-events-panel";
 import { HealthDot, TypeBadge, MemberRoleBadge } from "@/components/badges";
@@ -32,10 +33,10 @@ export default async function MemberProfilePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const { org, membership } = await requireActiveOrg();
-  const canManage = canManageMembers(membership.role);
+  const { org, user, canManage } = await requireManageContext();
   const m = await getMemberProfile(org.id, id);
   if (!m) notFound();
+  const isSelf = m.id === user.id; // m.id ＝ userId
 
   // 主管下拉選單（僅管理者需要）。
   const directory = canManage ? await getOrgMemberDirectory(org.id) : [];
@@ -76,12 +77,12 @@ export default async function MemberProfilePage({
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <MemberName u={m} className="text-2xl font-bold" />
-              {canManage && m.isBoss && (
+              {(canManage || isSelf) && m.isBoss && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
                   <Crown className="h-3 w-3" /> 老闆
                 </span>
               )}
-              {canManage && !m.active && (
+              {(canManage || isSelf) && !m.active && (
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">
                   停用
                 </span>
@@ -110,7 +111,7 @@ export default async function MemberProfilePage({
         <div className="space-y-5">
           <Card>
             <CardHeader>
-              <CardTitle>個人 Profile</CardTitle>
+              <CardTitle>{isSelf && !canManage ? "我的資料" : "個人 Profile"}</CardTitle>
             </CardHeader>
             <CardContent>
               {canManage ? (
@@ -140,6 +141,17 @@ export default async function MemberProfilePage({
                         .filter(Boolean) as string[],
                     ),
                   ).sort((a, b) => a.localeCompare(b, "zh-Hant"))}
+                />
+              ) : isSelf ? (
+                // 本人（非管理者）：可自行編輯姓名 / 綽號 / Email / 簡介。
+                <MyProfileForm
+                  values={{
+                    name: m.name,
+                    nickname: m.nickname,
+                    useNickname: m.useNickname,
+                    email: m.email,
+                    bio: m.bio,
+                  }}
                 />
               ) : (
                 <dl className="space-y-2.5 text-sm">
@@ -311,7 +323,7 @@ export default async function MemberProfilePage({
         </div>
       </div>
 
-      {canManage && (
+      {canManage && !isSelf && (
         <div className="rounded-xl border border-red-200 bg-red-50/40 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>

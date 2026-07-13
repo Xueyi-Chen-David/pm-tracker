@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Crown, FolderKanban, Users2, FileText } from "lucide-react";
-import { requireActiveOrg, canManageMembers } from "@/server/org";
+import { requireManageContext } from "@/server/org";
 import { getOrgMembers, getOrgMemberDirectory } from "@/server/queries";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
@@ -23,8 +23,7 @@ export default async function TeamPage({
 }: {
   searchParams: Promise<{ view?: string; tab?: string }>;
 }) {
-  const { org, membership } = await requireActiveOrg();
-  const canManage = canManageMembers(membership.role);
+  const { org, canManage } = await requireManageContext();
   const { view: viewParam, tab: tabParam } = await searchParams;
   const view = viewParam === "card" ? "card" : "list";
   const tab = tabParam === "org" ? "org" : "members";
