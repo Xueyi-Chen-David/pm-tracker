@@ -41,7 +41,7 @@ export function MembersListTable({
                   href={`/team/${m.id}`}
                   className="flex w-60 shrink-0 items-center gap-2.5"
                 >
-                  <Avatar className="h-8 w-8 shrink-0">
+                  <Avatar className="h-8 w-8 shrink-0" title={displayName(m)}>
                     {m.image && <AvatarImage src={m.image} alt="" />}
                     <AvatarFallback className="text-xs">{initials}</AvatarFallback>
                   </Avatar>

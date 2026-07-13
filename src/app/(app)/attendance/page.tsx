@@ -96,7 +96,12 @@ export default async function AttendancePage({
     const marks: GridMember["marks"] = {};
     for (const r of m.attendanceRecords) {
       const ds = r.date.toISOString().slice(0, 10);
-      marks[ds] = { present: r.present, reason: r.reason, offsite: r.offsite };
+      marks[ds] = {
+        present: r.present,
+        reason: r.reason,
+        offsite: r.offsite,
+        holiday: r.holiday,
+      };
     }
     if (autoAbsentEnabled) {
       for (const d of days) {
@@ -104,7 +109,12 @@ export default async function AttendancePage({
         if (d.dateStr >= todayStr) continue; // 今天與未來先不動（還可補打卡）
         if (anchorStr && d.dateStr < anchorStr) continue; // 打卡導入前不追溯
         if (marks[d.dateStr]) continue; // 已有紀錄者一律優先
-        marks[d.dateStr] = { present: false, reason: "未打卡", offsite: false };
+        marks[d.dateStr] = {
+          present: false,
+          reason: "未打卡",
+          offsite: false,
+          holiday: false,
+        };
       }
     }
     return {
@@ -158,8 +168,15 @@ export default async function AttendancePage({
           </span>
           未記錄
         </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-slate-200 bg-slate-100 text-[9px] text-slate-500">
+            休
+          </span>
+          放假 / 休假
+        </span>
         <span>
           · 點格子登記；請假 / 出差 / 在家工作 由團隊成員頁的事件自動帶入
+          ；週末預設放假、平日可點格子設為休假，皆不列入缺席統計
           {checkInEnabled &&
             "；開啟打卡後，平日未打卡者於次日起自動標記缺席"}
         </span>

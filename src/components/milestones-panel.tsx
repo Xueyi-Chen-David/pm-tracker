@@ -83,16 +83,67 @@ export function MilestonesPanel({
               key={m.id}
               className="hover:bg-muted/40 flex flex-wrap items-center gap-2 rounded-lg px-1.5 py-1.5"
             >
-              <span
-                className={cn(
-                  "flex min-w-0 flex-1 items-center gap-1.5 text-sm",
-                  done && "text-muted-foreground line-through",
+              <span className="flex min-w-0 flex-1 items-center gap-1.5 text-sm">
+                {canEdit ? (
+                  <button
+                    type="button"
+                    disabled={pending}
+                    title={m.isGoal ? "取消目標（改為一般里程碑）" : "設為目標"}
+                    onClick={() =>
+                      run(
+                        () =>
+                          updateMilestone({
+                            id: m.id,
+                            projectId,
+                            isGoal: !m.isGoal,
+                          }),
+                        m.isGoal ? "已改為一般里程碑" : "已設為目標",
+                      )
+                    }
+                    className="shrink-0"
+                  >
+                    <Star
+                      className={cn(
+                        "h-3.5 w-3.5",
+                        m.isGoal
+                          ? "fill-amber-400 text-amber-400"
+                          : "text-muted-foreground/40",
+                      )}
+                    />
+                  </button>
+                ) : (
+                  m.isGoal && (
+                    <Star className="h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-400" />
+                  )
                 )}
-              >
-                {m.isGoal && (
-                  <Star className="h-3.5 w-3.5 shrink-0 fill-amber-400 text-amber-400" />
+                {canEdit ? (
+                  <input
+                    defaultValue={m.title}
+                    disabled={pending}
+                    onBlur={(e) => {
+                      const v = e.currentTarget.value.trim();
+                      if (v && v !== m.title)
+                        run(
+                          () =>
+                            updateMilestone({ id: m.id, projectId, title: v }),
+                          "已更新名稱",
+                        );
+                    }}
+                    className={cn(
+                      "hover:bg-muted/50 focus:bg-muted/50 min-w-0 flex-1 rounded-md bg-transparent px-1 py-0.5 outline-none",
+                      done && "text-muted-foreground line-through",
+                    )}
+                  />
+                ) : (
+                  <span
+                    className={cn(
+                      "truncate",
+                      done && "text-muted-foreground line-through",
+                    )}
+                  >
+                    {m.title}
+                  </span>
                 )}
-                <span className="truncate">{m.title}</span>
               </span>
 
               {canEdit ? (

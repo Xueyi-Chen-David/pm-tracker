@@ -28,3 +28,13 @@ export type DealView = {
   note: string | null;
   activityCount: number;
 };
+
+export type EventView = {
+  id: string;
+  date: string; // yyyy-mm-dd
+  type: string;
+  title: string;
+  notes: string | null;
+  link: string | null;
+  contact: ContactLite | null;
+};

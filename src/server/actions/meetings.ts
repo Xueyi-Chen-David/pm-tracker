@@ -11,6 +11,7 @@ const MeetingInput = z.object({
   title: z.string().trim().min(1, "請輸入會議主題").max(200),
   attendeeIds: z.array(z.string()).default([]),
   attendees: z.string().trim().max(2000).optional(),
+  link: z.string().trim().max(2000).optional(), // 會議連結（Meet / 文件…）
   notes: z.string().trim().max(8000).optional(),
 });
 
@@ -30,6 +31,7 @@ function parse(formData: FormData) {
     title: formData.get("title"),
     attendeeIds: formData.getAll("attendeeIds").map(String),
     attendees: formData.get("attendees") || undefined,
+    link: formData.get("link") || undefined,
     notes: formData.get("notes") || undefined,
   });
 }
@@ -52,6 +54,7 @@ export async function createMeetingAction(
       title: d.title,
       attendeeIds: d.attendeeIds,
       attendees: d.attendees || null,
+      link: d.link || null,
       notes: d.notes || null,
       createdById: user.id,
     },
@@ -81,6 +84,7 @@ export async function updateMeetingAction(
       title: d.title,
       attendeeIds: d.attendeeIds,
       attendees: d.attendees || null,
+      link: d.link || null,
       notes: d.notes || null,
     },
   });

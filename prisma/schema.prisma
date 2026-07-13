@@ -129,10 +129,13 @@ model Organization {
   checkIns          CheckIn[]
   trainingCourses     TrainingCourse[]
   trainingAssignments TrainingAssignment[]
+  trainingDocFolders  TrainingDocFolder[]
+  trainingDocPages    TrainingDocPage[]
   crmContacts         CrmContact[]
   crmDeals            CrmDeal[]
   dealStages          DealStage[]
   dealStageChanges    DealStageChange[]
+  crmEvents           CrmEvent[]
 }
 
 /**
@@ -250,6 +253,7 @@ model Project {
   members       ProjectMember[]
   weeklyUpdates WeeklyUpdate[]
   milestones    Milestone[]
+  releases      ProjectRelease[]
   activities    Activity[]
   keyResults    KeyResult[]     @relation("KrProject")
   tasks         Task[]          @relation("ProjectTask")
@@ -320,6 +324,34 @@ model WeeklyTask {
   @@index([weeklyUpdateId])
 }
 
+// 版本發布狀態（changelog）：規劃中 / 已發布。
+enum ReleaseStatus {
+  PLANNED // 規劃中 / 未發布
+  RELEASED // 已發布
+}
+
+/**
+ * 專案版本發布紀錄（changelog）。依 Keep a Changelog + SemVer 慣例：每筆一個版本號、
+ * 發布日期、狀態與變更說明（notes 支援 Markdown）。最新版本顯示在專案摘要 Hero。
+ */
+model ProjectRelease {
+  id        String        @id @default(cuid())
+  projectId String
+  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  version   String // 版本號，如 v1.2.0
+  title     String? // 摘要標題（選填）
+  notes     String?       @db.Text // 變更說明（Markdown）
+  status    ReleaseStatus @default(RELEASED)
+  releasedAt DateTime?    @db.Date // 發布日（規劃中可空）
+
+  sortOrder   Int      @default(0)
+  createdById String? // 建立者（顯示用，不設關聯）
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([projectId])
+}
+
 model Milestone {
   id        String          @id @default(cuid())
   projectId String
@@ -351,6 +383,7 @@ enum ActivityKind {
   MILESTONE // 里程碑變更
   MEMBER // 成員變更
   WEEKLY // 週報變更
+  RELEASE // 版本發布變更
   ARCHIVE // 封存 / 取消封存
   NOTE // 使用者手動備註
 }
@@ -432,6 +465,7 @@ model Meeting {
   title       String
   attendeeIds String[] // 與會成員（User id；「全體」＝全部成員）
   attendees   String?  @db.Text // 其他與會者（非系統成員，自由文字）
+  link        String?  @db.Text // 會議連結（Google Meet / 會議文件…；可能很長）
   notes       String?  @db.Text // 會議記錄 / 決議
   createdById String?
   createdAt   DateTime @default(now())
@@ -454,6 +488,7 @@ model AttendanceRecord {
   present     Boolean  @default(true) // true=出席 / false=缺席（offsite 時 present 不看，另以圈圈呈現）
   reason      String? // 事由（請假 / 出差 / 在家工作…；選填）
   offsite     Boolean  @default(false) // 出差 / 在家工作（在外工作）：出席月曆顯示為圈圈
+  holiday     Boolean  @default(false) // 休假 / 放假：既不算出席也不算缺席（週末預設放假不寫入，這是人工指定的休）
   auto        Boolean  @default(false) // 由成員事件自動產生（vs 人工登記）；人工編輯會清為 false
   createdById String? // 登記者
   createdAt   DateTime @default(now())
@@ -574,7 +609,8 @@ model Task {
   health   Health   @default(GREEN)
   progress Int      @default(0) // 0-100
   note     String?  @db.Text // 這週目標 / 備註
-  dueDate  DateTime? @db.Date
+  startDate DateTime? @db.Date // 開始日
+  dueDate   DateTime? @db.Date // 結束 / 到期日
 
   owners     User[]  @relation("TaskOwners") // 多負責人（組織成員）
   ownerLabel String? // 外部非成員自由文字
@@ -756,6 +792,63 @@ model TrainingAssignment {
 }
 
 // ─────────────────────────────────────────────
+// 員工教育訓練文件庫（Training Docs）— 巢狀資料夾 + markdown 文件。
+// 取代原本的「課程指派 / 完成追蹤」，改成內部知識庫 / wiki 形式：
+// 資料夾可多層巢狀（parentId 自參照），最底層是可用 markdown 編輯的文件（TrainingDocPage）。
+// 資料夾 / 文件皆可自由新增命名。管理者(OWNER/ADMIN)編輯，組織成員皆可讀 + 搜尋。
+// ─────────────────────────────────────────────
+
+/// 文件資料夾（可多層巢狀）。刪除資料夾會連同子資料夾與其中文件一併移除（DB 層級聯串）。
+model TrainingDocFolder {
+  id             String  @id @default(cuid())
+  name           String
+  sortOrder      Int     @default(0)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // 自參照樹狀結構：parentId 為 null＝根層資料夾。
+  parentId String?
+  parent   TrainingDocFolder?  @relation("DocFolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children TrainingDocFolder[] @relation("DocFolderTree")
+
+  pages TrainingDocPage[]
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([parentId])
+}
+
+/// 文件（樹葉節點）：內容以 markdown 純文字儲存。folderId 為 null＝放在根層。
+model TrainingDocPage {
+  id             String  @id @default(cuid())
+  title          String
+  content        String  @default("") @db.Text // markdown 原文
+  sortOrder      Int     @default(0)
+
+  // 可見性：ALL＝所有人可見（預設）；RESTRICTED＝僅 allowedUserIds 內的人可見。
+  // 管理者(OWNER/ADMIN/老闆)一律可見，不受此限制。
+  visibility     String   @default("ALL")
+  allowedUserIds String[] @default([]) // RESTRICTED 時的白名單（user id）
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  folderId String?
+  folder   TrainingDocFolder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+  createdById String?
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([folderId])
+}
+
+// ─────────────────────────────────────────────
 // CRM（客戶關係管理）：聯絡人 + 商機銷售管線 + 活動時間軸
 // 業界慣例：以「管線階段(stage)」推進商機；成交/流失後離開管線。org-scoped。
 // ─────────────────────────────────────────────
@@ -783,7 +876,8 @@ model CrmContact {
   owner       User?   @relation("CrmContactOwner", fields: [ownerId], references: [id])
   createdById String?
 
-  deals CrmDeal[]
+  deals  CrmDeal[]
+  events CrmEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -879,4 +973,30 @@ model CrmActivity {
   createdAt   DateTime @default(now())
 
   @@index([dealId])
+}
+
+/// CRM 活動紀錄（org-scoped，獨立於商機）：以類似會議記錄的方式記錄拜訪 / 電話 /
+/// 活動 / Email 等，含日期、類型、主題、內容與可選連結。
+model CrmEvent {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  date  DateTime @db.Date
+  type  String   @default("活動") // 拜訪 / 電話 / 活動 / Email / 會議 / 其他
+  title String
+  notes String?  @db.Text
+  link  String?  @db.Text // 可選連結（可能很長）
+
+  // 可選：關聯到某個客戶（聯絡人）。
+  contactId String?
+  contact   CrmContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([date])
+  @@index([contactId])
 }

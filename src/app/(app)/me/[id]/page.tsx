@@ -16,14 +16,14 @@ import { cn } from "@/lib/utils";
 import { db } from "@/server/db";
 import { requireManageContext } from "@/server/org";
 import { getMemberProfile, getOrgMemberDirectory } from "@/server/queries";
-import { thisWeekStart, weekLabel } from "@/lib/date";
+import { fmtDateShort } from "@/lib/date";
 import { displayName, displayInitial } from "@/lib/display";
 import { MemberName } from "@/components/member-name";
 import { ProfileForm } from "@/components/profile-form";
 import { MyProfileForm } from "@/components/my-profile-form";
 import { MemberDeleteButton } from "@/components/member-delete-button";
 import { MemberEventsPanel } from "@/components/member-events-panel";
-import { HealthDot, TypeBadge, MemberRoleBadge } from "@/components/badges";
+import { HealthDot, TypeBadge } from "@/components/badges";
 import { ProgressBar } from "@/components/progress-bar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -46,19 +46,46 @@ export default async function MemberProfilePage({
     label: d.jobTitle ? `${displayName(d)}（${d.jobTitle}）` : displayName(d),
   }));
 
-  const week = thisWeekStart();
-  const owned = m.ownedProjects;
-  const updatedOwned = owned.filter(
-    (p) => p.weeklyUpdates[0]?.weekStart.getTime() === week.getTime(),
-  ).length;
+  // 參與的專案：負責 + 參與合成單一清單（負責的 tag「負責」），排除封存 / 暫停。
+  const ownedList = m.ownedProjects
+    .filter((p) => p.status !== "ON_HOLD")
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      type: p.type,
+      health: p.health,
+      progress: p.progress,
+      isOwner: true,
+    }));
+  const ownedIds = new Set(ownedList.map((p) => p.id));
+  const memberList = m.memberships
+    .filter(
+      (mm) =>
+        !mm.project.archived &&
+        mm.project.status !== "ON_HOLD" &&
+        !ownedIds.has(mm.project.id),
+    )
+    .map((mm) => ({
+      id: mm.project.id,
+      name: mm.project.name,
+      type: mm.project.type,
+      health: mm.project.health,
+      progress: mm.project.progress,
+      isOwner: false,
+    }));
+  const participating = [...ownedList, ...memberList].sort(
+    (a, b) =>
+      Number(b.isOwner) - Number(a.isOwner) ||
+      a.name.localeCompare(b.name, "zh-Hant"),
+  );
+  const ownedCount = ownedList.length;
   const initials = displayInitial(m);
 
-  // 被指派的任務（跨各專案週報），最近的週在前
-  const assignedTasks = [...m.weeklyTasks].sort(
-    (a, b) =>
-      b.weeklyUpdate.weekStart.getTime() - a.weeklyUpdate.weekStart.getTime(),
-  );
-  const openTaskCount = assignedTasks.filter((t) => !t.done).length;
+  // 被指派的任務：以「專案與任務」頁的真實 Task 為唯一來源。
+  const assignedTasks = m.tasksOwned;
+  const openTaskCount = assignedTasks.filter(
+    (t) => t.status !== "DONE" && t.status !== "CANCELLED",
+  ).length;
 
   // 出席統計 + 每日報告統計（本月）。
   const now = new Date();
@@ -71,7 +98,7 @@ export default async function MemberProfilePage({
         userId: id,
         date: { gte: monthStart, lt: nextMonth },
       },
-      select: { present: true, offsite: true },
+      select: { present: true, offsite: true, holiday: true },
     }),
     db.dailyReport.count({
       where: {
@@ -88,10 +115,9 @@ export default async function MemberProfilePage({
   ]);
   const attPresent = attRecords.filter((r) => r.present && !r.offsite).length;
   const attOffsite = attRecords.filter((r) => r.offsite).length;
-  const attAbsent = attRecords.filter((r) => !r.present).length;
-  const lastDailyLabel = lastDaily
-    ? `${lastDaily.date.getUTCMonth() + 1}/${lastDaily.date.getUTCDate()}`
-    : null;
+  // 休假既不算出席也不算缺席，從缺席統計排除。
+  const attAbsent = attRecords.filter((r) => !r.present && !r.holiday).length;
+  const lastDailyLabel = lastDaily ? fmtDateShort(lastDaily.date) : null;
 
   return (
     <div className="space-y-5">
@@ -144,13 +170,13 @@ export default async function MemberProfilePage({
 
       {/* 生產力總覽：橫跨全寬、置於所有 section 之上 */}
       <div className="grid grid-cols-3 gap-2">
-        <Stat icon={<FolderKanban className="h-4 w-4" />} label="負責專案" value={owned.length} />
-        <Stat icon={<Users2 className="h-4 w-4" />} label="參與專案" value={m.memberships.length} />
+        <Stat icon={<Users2 className="h-4 w-4" />} label="參與專案" value={participating.length} />
+        <Stat icon={<FolderKanban className="h-4 w-4" />} label="其中負責" value={ownedCount} />
         <Stat
-          icon={<CalendarCheck className="h-4 w-4" />}
-          label="本週更新"
-          value={`${updatedOwned}/${owned.length}`}
-          highlight={owned.length > 0 && updatedOwned === owned.length}
+          icon={<ListChecks className="h-4 w-4" />}
+          label="待辦任務"
+          value={openTaskCount}
+          highlight={openTaskCount === 0 && assignedTasks.length > 0}
         />
       </div>
 
@@ -299,35 +325,40 @@ export default async function MemberProfilePage({
                 </p>
               ) : (
                 <div className="scroll-y max-h-72 divide-y overflow-y-auto">
-                  {assignedTasks.map((t) => (
-                    <div
-                      key={t.id}
-                      className="flex items-center gap-2 px-4 py-2 text-sm"
-                    >
-                      {t.done ? (
-                        <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                      ) : (
-                        <Circle className="text-muted-foreground h-4 w-4 shrink-0" />
-                      )}
-                      <span
-                        className={cn(
-                          "min-w-0 flex-1 truncate",
-                          t.done && "text-muted-foreground line-through",
+                  {assignedTasks.map((t) => {
+                    const done = t.status === "DONE";
+                    return (
+                      <div
+                        key={t.id}
+                        className="flex items-center gap-2 px-4 py-2 text-sm"
+                      >
+                        {done ? (
+                          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                        ) : (
+                          <Circle className="text-muted-foreground h-4 w-4 shrink-0" />
                         )}
-                      >
-                        {t.title}
-                      </span>
-                      <Link
-                        href={`/projects/${t.weeklyUpdate.project.id}`}
-                        className="text-muted-foreground hidden max-w-[8rem] truncate text-xs hover:underline sm:inline"
-                      >
-                        {t.weeklyUpdate.project.name}
-                      </Link>
-                      <span className="text-muted-foreground shrink-0 text-xs">
-                        {weekLabel(t.weeklyUpdate.weekStart)}
-                      </span>
-                    </div>
-                  ))}
+                        <span
+                          className={cn(
+                            "min-w-0 flex-1 truncate",
+                            done && "text-muted-foreground line-through",
+                          )}
+                        >
+                          {t.title}
+                        </span>
+                        <Link
+                          href={`/projects/${t.project.id}`}
+                          className="text-muted-foreground hidden max-w-[8rem] truncate text-xs hover:underline sm:inline"
+                        >
+                          {t.project.name}
+                        </Link>
+                        {t.dueDate && (
+                          <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
+                            {fmtDateShort(t.dueDate)}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
@@ -335,38 +366,37 @@ export default async function MemberProfilePage({
 
           <Card>
             <CardHeader>
-              <CardTitle>負責的專案</CardTitle>
+              <CardTitle>參與的專案</CardTitle>
             </CardHeader>
             <CardContent className="p-0">
-              {owned.length === 0 ? (
-                <p className="text-muted-foreground px-4 pb-4 text-sm">尚未負責任何專案</p>
+              {participating.length === 0 ? (
+                <p className="text-muted-foreground px-4 pb-4 text-sm">尚未參與任何專案</p>
               ) : (
                 <div className="divide-y">
-                  {owned.map((p) => {
-                    const updated =
-                      p.weeklyUpdates[0]?.weekStart.getTime() === week.getTime();
-                    return (
-                      <Link
-                        key={p.id}
-                        href={`/projects/${p.id}`}
-                        className="hover:bg-muted/40 flex items-center gap-2 px-4 py-2.5 text-sm"
-                      >
-                        <HealthDot health={p.health} />
-                        <span className="min-w-0 flex-1 truncate font-medium">
-                          {p.name}
+                  {participating.map((p) => (
+                    <Link
+                      key={p.id}
+                      href={`/projects/${p.id}`}
+                      className="hover:bg-muted/40 flex items-center gap-2 px-4 py-2.5 text-sm"
+                    >
+                      <HealthDot health={p.health} />
+                      <span className="min-w-0 flex-1 truncate font-medium">
+                        {p.name}
+                      </span>
+                      {p.isOwner && (
+                        <span className="shrink-0 rounded bg-violet-100 px-1.5 text-[10px] font-medium text-violet-700">
+                          負責
                         </span>
-                        <TypeBadge type={p.type} />
-                        <div className="w-24">
-                          <ProgressBar value={p.progress} />
-                        </div>
-                        {updated ? (
-                          <span className="text-[11px] text-emerald-600">本週已更新</span>
-                        ) : (
-                          <span className="text-muted-foreground text-[11px]">未更新</span>
-                        )}
-                      </Link>
-                    );
-                  })}
+                      )}
+                      <TypeBadge type={p.type} />
+                      <div className="w-24">
+                        <ProgressBar value={p.progress} />
+                      </div>
+                      <span className="text-muted-foreground w-9 shrink-0 text-right text-[11px] tabular-nums">
+                        {p.progress}%
+                      </span>
+                    </Link>
+                  ))}
                 </div>
               )}
             </CardContent>
@@ -392,32 +422,6 @@ export default async function MemberProfilePage({
             </CardContent>
           </Card>
 
-          {m.memberships.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>參與的專案</CardTitle>
-              </CardHeader>
-              <CardContent className="p-0">
-                <div className="divide-y">
-                  {m.memberships
-                    .filter((mm) => !mm.project.archived)
-                    .map((mm) => (
-                      <Link
-                        key={mm.id}
-                        href={`/projects/${mm.project.id}`}
-                        className="hover:bg-muted/40 flex items-center gap-2 px-4 py-2 text-sm"
-                      >
-                        <HealthDot health={mm.project.health} />
-                        <span className="min-w-0 flex-1 truncate">
-                          {mm.project.name}
-                        </span>
-                        <MemberRoleBadge role={mm.role} label={mm.roleLabel} />
-                      </Link>
-                    ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
         </div>
       </div>
 

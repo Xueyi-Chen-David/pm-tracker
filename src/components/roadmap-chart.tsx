@@ -34,13 +34,25 @@ export function RoadmapChart({ projects }: { projects: RProject[] }) {
     .flatMap((p) =>
       p.milestones.map((m) => ({
         id: m.id,
+        projectId: p.id,
         title: m.title,
         date: m.actualDate ?? m.plannedDate,
         isGoal: m.isGoal,
         color: p.color ?? "#475569",
       })),
     )
-    .filter((m): m is { id: string; title: string; date: Date; isGoal: boolean; color: string } => !!m.date)
+    .filter(
+      (
+        m,
+      ): m is {
+        id: string;
+        projectId: string;
+        title: string;
+        date: Date;
+        isGoal: boolean;
+        color: string;
+      } => !!m.date,
+    )
     .sort((a, b) => a.date.getTime() - b.date.getTime());
 
   const lanes = projects
@@ -121,16 +133,18 @@ export function RoadmapChart({ projects }: { projects: RProject[] }) {
               style={{ left: `${p}%`, height: 4 + row * ROW_STEP }}
             />
           ))}
-          {/* 卡片：後畫，蓋在線的前面 */}
+          {/* 卡片：後畫，蓋在線的前面。點一下捲到甘特圖對應專案。 */}
           {placed.map(({ m, p, row }) => (
-            <div
+            <a
               key={m.id}
+              href={`/projects#proj-${m.projectId}`}
+              title="前往專案與任務"
               className="absolute w-32 -translate-x-1/2"
               style={{ left: `${p}%`, bottom: 4 + row * ROW_STEP }}
             >
               <div
                 className={cn(
-                  "rounded-md border px-2 py-1 text-center text-[11px] leading-tight shadow-sm",
+                  "rounded-md border px-2 py-1 text-center text-[11px] leading-tight shadow-sm transition hover:shadow-md",
                   m.isGoal
                     ? "border-emerald-700 bg-emerald-600 font-semibold text-white"
                     : "bg-white",
@@ -142,7 +156,7 @@ export function RoadmapChart({ projects }: { projects: RProject[] }) {
                   {format(m.date, "yyyy/M/d")}
                 </div>
               </div>
-            </div>
+            </a>
           ))}
         </div>
 
@@ -199,7 +213,8 @@ export function RoadmapChart({ projects }: { projects: RProject[] }) {
                 const width = Math.max(right - left, 4);
                 return (
                   <div key={l.id} className="relative h-6">
-                    <div
+                    <a
+                      href={`/projects#proj-${l.id}`}
                       className={cn(
                         "absolute top-0 flex h-6 items-center px-2 text-[11px] font-medium text-white",
                         open ? "rounded-l-md" : "rounded-md",
@@ -211,13 +226,13 @@ export function RoadmapChart({ projects }: { projects: RProject[] }) {
                           ? `linear-gradient(to right, ${l.color}, ${l.color}99)`
                           : l.color,
                       }}
-                      title={l.name}
+                      title={`${l.name}（前往專案與任務）`}
                     >
                       <span className="truncate">
                         {l.name}
                         {open ? " ▸" : ""}
                       </span>
-                    </div>
+                    </a>
                   </div>
                 );
               })}

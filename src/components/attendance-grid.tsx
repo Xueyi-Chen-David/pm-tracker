@@ -25,7 +25,13 @@ export type GridDay = {
 };
 
 // offsite=true 代表在外工作（出差 / 在家工作），以圈圈呈現，不計入出席/缺席統計。
-type Mark = { present: boolean; reason: string | null; offsite: boolean };
+// holiday=true 代表休假 / 放假（人工指定），既不算出席也不算缺席，以「休」呈現。
+type Mark = {
+  present: boolean;
+  reason: string | null;
+  offsite: boolean;
+  holiday: boolean;
+};
 
 export type GridMember = {
   id: string;
@@ -91,9 +97,11 @@ export function AttendanceGrid({
             let absent = 0;
             for (const d of days) {
               const mk = m.marks[d.dateStr];
+              if (mk?.holiday) continue; // 休假：不列入出席 / 缺席統計
               // 出差 / 在家工作（present=true）也算出席
               if (mk?.present === true) present++;
-              else if (mk?.present === false) absent++;
+              // 週末預設放假，放假不列入缺席統計。
+              else if (mk?.present === false && !d.weekend) absent++;
             }
             return (
               <tr key={m.id} className="hover:bg-muted/30">
@@ -122,6 +130,7 @@ export function AttendanceGrid({
                       label={d.label}
                       mark={m.marks[d.dateStr]}
                       editable={canManage || m.id === viewerUserId}
+                      weekend={d.weekend}
                     />
                   </td>
                 ))}
@@ -163,27 +172,43 @@ export function AttendanceGrid({
 }
 
 /** 唯讀格：只顯示狀態圈叉，不可點（別人的列、且自己非管理者）。 */
-function StaticCell({ label, mark }: { label: string; mark?: Mark }) {
-  const isOffsite = mark?.offsite === true;
-  const isPresent = !isOffsite && mark?.present === true;
-  const isAbsent = !isOffsite && mark?.present === false;
+function StaticCell({
+  label,
+  mark,
+  weekend,
+}: {
+  label: string;
+  mark?: Mark;
+  weekend?: boolean;
+}) {
+  const isHoliday = mark?.holiday === true;
+  const isOffsite = !isHoliday && mark?.offsite === true;
+  const isPresent = !isHoliday && !isOffsite && mark?.present === true;
+  const isAbsent = !isHoliday && !isOffsite && mark?.present === false;
   return (
     <div
-      title={`${label}${(isAbsent || isOffsite) && mark?.reason ? ` · ${mark.reason}` : ""}`}
+      title={`${label}${isHoliday ? " · 休假" : weekend && !mark ? " · 放假" : ""}${(isAbsent || isOffsite) && mark?.reason ? ` · ${mark.reason}` : ""}`}
       className={cn(
         "mx-auto flex h-7 w-7 items-center justify-center rounded-md border text-xs",
         isPresent && "border-emerald-300 bg-emerald-100 text-emerald-700",
         isAbsent && "border-rose-300 bg-rose-100 text-rose-700",
         isOffsite && "rounded-full border-sky-400 bg-sky-100 text-sky-700",
-        !isPresent && !isAbsent && !isOffsite && "border-transparent",
+        isHoliday && "border-slate-200 bg-slate-100 text-slate-500",
+        !isPresent && !isAbsent && !isOffsite && !isHoliday && "border-transparent",
       )}
     >
-      {isOffsite ? (
+      {isHoliday ? (
+        <span className="text-[10px] font-medium">休</span>
+      ) : isOffsite ? (
         <Circle className="h-3.5 w-3.5" />
       ) : isPresent ? (
         <Check className="h-4 w-4" />
       ) : isAbsent ? (
         <X className="h-4 w-4" />
+      ) : weekend ? (
+        <span className="text-muted-foreground/50 text-[10px]" aria-hidden>
+          休
+        </span>
       ) : (
         <span className="text-muted-foreground/30" aria-hidden>
           ·
@@ -199,12 +224,15 @@ function AttendanceCell({
   label,
   mark,
   editable,
+  weekend,
 }: {
   userId: string;
   dateStr: string;
   label: string;
   mark?: Mark;
   editable: boolean;
+  /** 週末＝預設放假：格子顯示「休」、且不提供「缺席」（放假不算缺席）。 */
+  weekend?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -212,11 +240,11 @@ function AttendanceCell({
   const [state, setState] = useState<Mark | null>(mark ?? null);
   const [reason, setReason] = useState(mark?.reason ?? "");
 
-  if (!editable) return <StaticCell label={label} mark={mark} />;
+  if (!editable) return <StaticCell label={label} mark={mark} weekend={weekend} />;
 
   // status=offsite 時（出差 / 在家工作）用 offsiteReason 帶入類型文字。
   function apply(
-    status: "present" | "absent" | "offsite" | "clear",
+    status: "present" | "absent" | "offsite" | "holiday" | "clear",
     offsiteReason?: string,
   ) {
     start(async () => {
@@ -236,7 +264,8 @@ function AttendanceCell({
           status === "clear"
             ? null
             : {
-                present: status !== "absent", // 出差/在家工作也算出席
+                // 出席 / 在外工作算出席；缺席 / 休假不算。
+                present: status === "present" || status === "offsite",
                 reason:
                   status === "absent"
                     ? reason.trim() || null
@@ -244,6 +273,7 @@ function AttendanceCell({
                       ? (offsiteReason ?? null)
                       : null,
                 offsite: status === "offsite",
+                holiday: status === "holiday",
               },
         );
         setOpen(false);
@@ -254,40 +284,52 @@ function AttendanceCell({
     });
   }
 
-  // 在外工作（出差 / 在家工作）優先於一般出席呈現：圈圈、藍色。
-  const isOffsite = state?.offsite === true;
-  const isPresent = !isOffsite && state?.present === true;
-  const isAbsent = !isOffsite && state?.present === false;
+  // 呈現優先序：休假 → 在外工作（出差 / 在家工作）→ 出席 / 缺席。
+  const isHoliday = state?.holiday === true;
+  const isOffsite = !isHoliday && state?.offsite === true;
+  const isPresent = !isHoliday && !isOffsite && state?.present === true;
+  const isAbsent = !isHoliday && !isOffsite && state?.present === false;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        title={`${label}${(isAbsent || isOffsite) && state?.reason ? ` · ${state.reason}` : ""}`}
+        title={`${label}${isHoliday ? " · 休假" : weekend && !state ? " · 放假" : ""}${(isAbsent || isOffsite) && state?.reason ? ` · ${state.reason}` : ""}`}
         className={cn(
           "mx-auto flex h-7 w-7 items-center justify-center rounded-md border text-xs transition-colors",
           isPresent && "border-emerald-300 bg-emerald-100 text-emerald-700",
           isAbsent && "border-rose-300 bg-rose-100 text-rose-700",
           isOffsite && "rounded-full border-sky-400 bg-sky-100 text-sky-700",
+          isHoliday && "border-slate-200 bg-slate-100 text-slate-500",
           !isPresent &&
             !isAbsent &&
             !isOffsite &&
+            !isHoliday &&
             "text-muted-foreground/40 border-transparent hover:bg-muted",
           pending && "opacity-50",
         )}
       >
-        {isOffsite ? (
+        {isHoliday ? (
+          <span className="text-[10px] font-medium">休</span>
+        ) : isOffsite ? (
           <Circle className="h-3.5 w-3.5" />
         ) : isPresent ? (
           <Check className="h-4 w-4" />
         ) : isAbsent ? (
           <X className="h-4 w-4" />
+        ) : weekend ? (
+          <span className="text-muted-foreground/50 text-[10px]" aria-hidden>
+            休
+          </span>
         ) : (
           <span aria-hidden>·</span>
         )}
       </PopoverTrigger>
       <PopoverContent align="center" className="w-56 gap-2">
-        <div className="text-muted-foreground text-xs">{label}</div>
-        <div className="grid grid-cols-3 gap-1.5">
+        <div className="text-muted-foreground text-xs">
+          {label}
+          {weekend && " · 放假"}
+        </div>
+        <div className="grid grid-cols-2 gap-1.5">
           <button
             type="button"
             onClick={() => apply("present")}
@@ -295,13 +337,26 @@ function AttendanceCell({
           >
             出席
           </button>
-          <button
-            type="button"
-            onClick={() => apply("absent")}
-            className="rounded-md border border-rose-300 bg-rose-50 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100"
-          >
-            缺席
-          </button>
+          {/* 週末預設放假，不提供「缺席」——放假不算缺席。 */}
+          {!weekend && (
+            <button
+              type="button"
+              onClick={() => apply("absent")}
+              className="rounded-md border border-rose-300 bg-rose-50 py-1 text-xs font-medium text-rose-700 hover:bg-rose-100"
+            >
+              缺席
+            </button>
+          )}
+          {/* 休假：人工把某天標為休（既不算出席也不算缺席）。週末已預設放假，不重複提供。 */}
+          {!weekend && (
+            <button
+              type="button"
+              onClick={() => apply("holiday")}
+              className="rounded-md border border-slate-300 bg-slate-50 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
+            >
+              休假
+            </button>
+          )}
           <button
             type="button"
             onClick={() => apply("clear")}
@@ -326,13 +381,16 @@ function AttendanceCell({
             在家工作
           </button>
         </div>
-        <input
-          list="att-reasons"
-          value={reason}
-          onChange={(e) => setReason(e.currentTarget.value)}
-          placeholder="缺席原因（選填）"
-          className="h-8 w-full rounded-md border px-2 text-sm"
-        />
+        {/* 缺席事由：僅平日「缺席」時適用；週末放假不顯示。 */}
+        {!weekend && (
+          <input
+            list="att-reasons"
+            value={reason}
+            onChange={(e) => setReason(e.currentTarget.value)}
+            placeholder="缺席原因（選填）"
+            className="h-8 w-full rounded-md border px-2 text-sm"
+          />
+        )}
       </PopoverContent>
     </Popover>
   );

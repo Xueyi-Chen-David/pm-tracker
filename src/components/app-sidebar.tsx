@@ -12,7 +12,7 @@ import {
   FileText,
   Users,
   UserCheck,
-  GraduationCap,
+  Library,
   NotebookPen,
   ClipboardList,
   CircleUser,
@@ -44,24 +44,54 @@ type NavItem = {
   icon: typeof LayoutDashboard;
 };
 
-// 主要模組：總覽置頂，其次公司營運、專案與任務。
-const NAV_MAIN: NavItem[] = [
-  { key: "dashboard", href: "/dashboard", label: "總覽", icon: LayoutDashboard },
-  { key: "company", href: "/company", label: "公司營運", icon: Building2 },
-  { key: "projects", href: "/projects", label: "專案與任務", icon: FolderKanban },
-  { key: "crm", href: "/crm", label: "CRM", icon: Handshake },
-  { key: "timeline", href: "/timeline", label: "時程藍圖", icon: CalendarRange },
-  { key: "team", href: "/team", label: "團隊", icon: Users },
-  { key: "attendance", href: "/attendance", label: "出席狀況", icon: UserCheck },
-  { key: "training", href: "/training", label: "員工教育訓練", icon: GraduationCap },
-  { key: "meetings", href: "/meetings", label: "會議記錄", icon: NotebookPen },
-  { key: "report", href: "/report", label: "週報", icon: FileText },
-];
+type NavSection = {
+  /** 區塊小標題；省略＝置頂區塊（總覽），不顯示標題、也不加分隔線。 */
+  title?: string;
+  items: NavItem[];
+};
 
-// 個人區塊：放在最底部，以隔線分隔。
-const NAV_PERSONAL: NavItem[] = [
-  { key: "daily", href: "/daily", label: "每日報告", icon: ClipboardList },
-  { key: "me", href: "/me", label: "個人資料", icon: CircleUser },
+// 側欄依功能分群，讓「專案 / 公司管理 / 業務 / 個人」一眼可辨，不再是一長串平面清單。
+// 順序＝顯示順序；區塊內某頁被權限擋掉會自動略過，整區都被擋掉則連標題與分隔線一起省略。
+const NAV_SECTIONS: NavSection[] = [
+  // 置頂：總覽（無標題、無分隔線）。
+  {
+    items: [
+      { key: "dashboard", href: "/dashboard", label: "總覽", icon: LayoutDashboard },
+    ],
+  },
+  // 目標與專案：從公司 OKR 目標，到時程藍圖，再到落地的專案與任務。
+  {
+    title: "目標與專案",
+    items: [
+      { key: "company", href: "/company", label: "公司OKR", icon: Building2 },
+      { key: "timeline", href: "/timeline", label: "時程藍圖", icon: CalendarRange },
+      { key: "projects", href: "/projects", label: "專案與任務", icon: FolderKanban },
+    ],
+  },
+  // 團隊協作：會議、團隊、出席，週報靠近底部，公司文件置於最底。
+  {
+    title: "團隊協作",
+    items: [
+      { key: "meetings", href: "/meetings", label: "會議記錄", icon: NotebookPen },
+      { key: "team", href: "/team", label: "團隊", icon: Users },
+      { key: "attendance", href: "/attendance", label: "出席狀況", icon: UserCheck },
+      { key: "report", href: "/report", label: "週報", icon: FileText },
+      { key: "training", href: "/training", label: "公司文件", icon: Library },
+    ],
+  },
+  // 業務：客戶關係。
+  {
+    title: "業務",
+    items: [{ key: "crm", href: "/crm", label: "CRM", icon: Handshake }],
+  },
+  // 個人：每個人自己的資料。
+  {
+    title: "個人",
+    items: [
+      { key: "daily", href: "/daily", label: "每日報告", icon: ClipboardList },
+      { key: "me", href: "/me", label: "個人資料", icon: CircleUser },
+    ],
+  },
 ];
 
 type SessionUser = {
@@ -109,20 +139,25 @@ function NavLinks({
     );
   };
 
-  const personal = NAV_PERSONAL.filter((item) => allowed.has(item.key));
+  // 依權限過濾後，只保留仍有可見頁面的區塊（避免留下孤立的標題 / 分隔線）。
+  const sections = NAV_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => allowed.has(item.key)),
+  })).filter((section) => section.items.length > 0);
 
   return (
     <nav className="flex flex-col gap-1">
-      {NAV_MAIN.filter((item) => allowed.has(item.key)).map(renderItem)}
-      {personal.length > 0 && (
-        <>
-          <div className="my-2 border-t" />
-          <div className="text-muted-foreground px-3 pb-1 text-[11px] font-semibold tracking-wide">
-            個人
-          </div>
-          {personal.map(renderItem)}
-        </>
-      )}
+      {sections.map((section, index) => (
+        <div key={section.title ?? "__top"} className="flex flex-col gap-1">
+          {index > 0 && <div className="my-2 border-t" />}
+          {section.title && (
+            <div className="text-muted-foreground px-3 pb-1 text-[11px] font-semibold tracking-wide">
+              {section.title}
+            </div>
+          )}
+          {section.items.map(renderItem)}
+        </div>
+      ))}
     </nav>
   );
 }

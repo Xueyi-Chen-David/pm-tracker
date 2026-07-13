@@ -4,7 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/server/db";
-import { requireActiveOrg } from "@/server/org";
+import { requireActiveOrg, isManagerOrBoss } from "@/server/org";
 import { assertCanEditProject } from "@/server/access";
 import { logActivity } from "@/server/activity";
 import { HEALTH, PROJECT_STATUS } from "@/lib/constants";
@@ -302,4 +302,129 @@ export async function setProjectArchived(id: string, archived: boolean) {
   revalidatePath("/dashboard");
   revalidatePath("/projects");
   revalidatePath(`/projects/${id}`);
+}
+
+// ── 手動排序：依畫面可見專案的新順序重寫 sortOrder（限管理者 / 老闆）──────────
+const ReorderInput = z.object({
+  orderedIds: z.array(z.string().min(1)).min(1),
+});
+
+/**
+ * orderedIds＝目前畫面上「可見專案」的新順序（上/下移後的結果）。
+ * 為避免打亂被視窗 / 篩選隱藏的專案，採「保留隱藏者原位」合併：走訪本組織所有未封存
+ * 專案，遇到可見者就依 orderedIds 依序填入、隱藏者留在原位，最後整體重寫 sortOrder。
+ * 只有管理者 / 老闆能調整順序。
+ */
+export async function reorderProjects(input: z.input<typeof ReorderInput>) {
+  const { org, membership } = await requireActiveOrg();
+  if (!isManagerOrBoss(membership)) {
+    throw new Error("只有管理者能調整專案順序。");
+  }
+  const { orderedIds } = ReorderInput.parse(input);
+
+  const list = await db.project.findMany({
+    where: { organizationId: org.id, archived: false },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    select: { id: true },
+  });
+  const fullIds = list.map((p) => p.id);
+  const fullSet = new Set(fullIds);
+  // 只接受確實屬於本組織且未封存的可見 id（去重、擋越權）。
+  const visibleOrder = [...new Set(orderedIds.filter((id) => fullSet.has(id)))];
+  const visibleSet = new Set(visibleOrder);
+
+  let qi = 0;
+  const merged = fullIds.map((id) => (visibleSet.has(id) ? visibleOrder[qi++]! : id));
+
+  await db.$transaction(
+    merged.map((id, idx) =>
+      db.project.update({ where: { id }, data: { sortOrder: idx } }),
+    ),
+  );
+  revalidatePath("/projects");
+  revalidatePath("/dashboard");
+}
+
+// 詳情頁「就地內嵌編輯」的核心欄位（不含 status/health/countInProgress，那些有各自的
+// 快速調整動作）。存檔後不轉頁，改由前端 router.refresh() 讓摘要即時反映。
+const CoreInput = z.object({
+  projectId: z.string().min(1),
+  name: z.string().trim().min(1, "請輸入名稱").max(200),
+  type: z.enum(["ROUTINE", "PROJECT", "ONE_TIME"]),
+  priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]),
+  progress: z.coerce.number().int().min(0).max(100),
+  description: z.string().trim().max(4000).optional().nullable(),
+  ownerId: z.string().optional().nullable(),
+  startDate: z.string().optional().nullable(),
+  targetDate: z.string().optional().nullable(),
+  color: z.string().optional().nullable(),
+});
+
+export async function updateProjectCore(input: z.input<typeof CoreInput>) {
+  const { user, org } = await requireActiveOrg();
+  const d = CoreInput.parse(input);
+  await assertCanEditProject(org.id, d.projectId);
+
+  const before = await db.project.findUnique({
+    where: { id: d.projectId },
+    select: {
+      name: true,
+      type: true,
+      priority: true,
+      progress: true,
+      description: true,
+      ownerId: true,
+      startDate: true,
+      targetDate: true,
+      color: true,
+    },
+  });
+  if (!before) throw new Error("找不到專案");
+
+  await db.project.update({
+    where: { id: d.projectId },
+    data: {
+      name: d.name,
+      type: d.type,
+      priority: d.priority,
+      progress: d.progress,
+      description: d.description?.trim() || null,
+      ownerId: d.ownerId || null,
+      startDate: toDate(d.startDate),
+      targetDate: toDate(d.targetDate),
+      color: d.color?.trim() || null,
+    },
+  });
+
+  // 進度單獨記錄（是完成度統計的關鍵值）；其餘欄位變動合併成一筆。
+  if (before.progress !== d.progress) {
+    await logActivity({
+      projectId: d.projectId,
+      kind: "PROGRESS",
+      message: `進度：${before.progress}% → ${d.progress}%`,
+      userId: user.id,
+    });
+  }
+  const otherChanged =
+    before.name !== d.name ||
+    before.type !== d.type ||
+    before.priority !== d.priority ||
+    (before.ownerId ?? "") !== (d.ownerId ?? "") ||
+    (before.description ?? "") !== (d.description?.trim() ?? "") ||
+    (before.color ?? "") !== (d.color?.trim() ?? "") ||
+    before.startDate?.getTime() !== toDate(d.startDate)?.getTime() ||
+    before.targetDate?.getTime() !== toDate(d.targetDate)?.getTime();
+  if (otherChanged) {
+    await logActivity({
+      projectId: d.projectId,
+      kind: "FIELD",
+      message: "更新了專案資訊",
+      userId: user.id,
+    });
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${d.projectId}`);
+  return { ok: true as const };
 }

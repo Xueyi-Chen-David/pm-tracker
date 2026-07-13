@@ -136,7 +136,7 @@ function MemberRow({
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
       {/* 成員 */}
       <div className="flex w-52 shrink-0 items-center gap-2.5">
-        <Avatar className="h-8 w-8 shrink-0">
+        <Avatar className="h-8 w-8 shrink-0" title={displayName(member)}>
           {member.image && <AvatarImage src={member.image} alt="" />}
           <AvatarFallback className="text-xs">
             {displayInitial(member)}

@@ -339,6 +339,81 @@ export async function listDealStageChanges(dealId: string) {
   }));
 }
 
+// ── CRM 活動紀錄（org-scoped，獨立於商機）─────────
+
+const EventInput = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "請選擇日期"),
+  type: z.string().trim().min(1).max(30).default("活動"),
+  title: z.string().trim().min(1, "請輸入主題").max(200),
+  notes: z.string().trim().max(8000).optional(),
+  link: z.string().trim().max(2000).optional(),
+  contactId: z.string().nullable().optional(),
+});
+
+function eventDate(v: string): Date {
+  const d = toUtcDate(v);
+  if (!d) throw new Error("日期格式錯誤");
+  return d;
+}
+
+/** 驗證聯絡人屬於本組織；空值回 null。 */
+async function resolveContactId(orgId: string, contactId?: string | null) {
+  if (!contactId) return null;
+  const c = await db.crmContact.findFirst({
+    where: { id: contactId, organizationId: orgId },
+    select: { id: true },
+  });
+  if (!c) throw new Error("找不到聯絡人");
+  return c.id;
+}
+
+export async function createCrmEvent(input: z.input<typeof EventInput>) {
+  const { user, org } = await requireActiveOrg();
+  const d = EventInput.parse(input);
+  const contactId = await resolveContactId(org.id, d.contactId);
+  await db.crmEvent.create({
+    data: {
+      organizationId: org.id,
+      date: eventDate(d.date),
+      type: d.type,
+      title: d.title,
+      notes: d.notes || null,
+      link: d.link || null,
+      contactId,
+      createdById: user.id,
+    },
+  });
+  revalidate();
+}
+
+export async function updateCrmEvent(
+  id: string,
+  input: z.input<typeof EventInput>,
+) {
+  const { org } = await requireActiveOrg();
+  const d = EventInput.parse(input);
+  const contactId = await resolveContactId(org.id, d.contactId);
+  const res = await db.crmEvent.updateMany({
+    where: { id, organizationId: org.id },
+    data: {
+      date: eventDate(d.date),
+      type: d.type,
+      title: d.title,
+      notes: d.notes || null,
+      link: d.link || null,
+      contactId,
+    },
+  });
+  if (res.count === 0) throw new Error("找不到活動");
+  revalidate();
+}
+
+export async function deleteCrmEvent(id: string) {
+  const { org } = await requireActiveOrg();
+  await db.crmEvent.deleteMany({ where: { id, organizationId: org.id } });
+  revalidate();
+}
+
 // ── 活動 / 備註 ─────────────────────────────────
 
 /** 讀某商機的活動時間軸（供編輯對話框開啟時載入）。 */

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus, Pencil, Users, CalendarDays } from "lucide-react";
+import { Plus, Pencil, Users, CalendarDays, Link2 } from "lucide-react";
 import { requireActiveOrg } from "@/server/org";
 import { getMeetings, getOrgMemberUsers } from "@/server/queries";
 import { meetingCategoryBadge } from "@/lib/constants";
@@ -110,6 +110,28 @@ export default async function MeetingsPage({
                         <span className="whitespace-pre-wrap">{attendeeText}</span>
                       </div>
                     )}
+                    {m.link &&
+                      (safeLink(m.link) ? (
+                        <a
+                          href={safeLink(m.link)!}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={m.link}
+                          className="text-primary mt-1 flex max-w-full items-center gap-1 text-xs hover:underline"
+                        >
+                          <Link2 className="h-3.5 w-3.5 shrink-0" />
+                          <span className="min-w-0 max-w-[20rem] truncate">
+                            {shortLink(m.link)}
+                          </span>
+                        </a>
+                      ) : (
+                        <div className="text-muted-foreground mt-1 flex max-w-full items-center gap-1 text-xs">
+                          <Link2 className="h-3.5 w-3.5 shrink-0" />
+                          <span className="min-w-0 max-w-[20rem] truncate">
+                            {m.link}
+                          </span>
+                        </div>
+                      ))}
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
                     <MeetingFormDialog
@@ -122,6 +144,7 @@ export default async function MeetingsPage({
                         title: m.title,
                         attendeeIds: m.attendeeIds,
                         attendees: m.attendees,
+                        link: m.link,
                         notes: m.notes,
                       }}
                       trigger={
@@ -134,7 +157,7 @@ export default async function MeetingsPage({
                   </div>
                 </div>
                 {m.notes && (
-                  <div className="mt-2 border-t pt-2 text-sm whitespace-pre-wrap">
+                  <div className="mt-2 border-t pt-2 text-sm break-words whitespace-pre-wrap">
                     {m.notes}
                   </div>
                 )}
@@ -172,4 +195,17 @@ function Chip({
 /** Date → yyyy-mm-dd（UTC，對應 @db.Date 儲存），給編輯表單的 date input。 */
 function fmtDateInput(d: Date): string {
   return d.toISOString().slice(0, 10);
+}
+
+/** 可點的安全連結：有 http(s) 直接用；看起來像網域就補 https；否則回 null（不連）。 */
+function safeLink(url: string): string | null {
+  const u = url.trim();
+  if (/^https?:\/\//i.test(u)) return u;
+  if (/^[\w-]+(\.[\w-]+)+/.test(u)) return `https://${u}`;
+  return null;
+}
+
+/** 顯示用的精簡連結：去掉 https:// 與 www.（配合 max-w + truncate，畫面不會太長）。 */
+function shortLink(url: string): string {
+  return url.trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "");
 }

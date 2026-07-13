@@ -33,6 +33,7 @@ export type MeetingValues = {
   title?: string;
   attendeeIds?: string[];
   attendees?: string | null;
+  link?: string | null;
   notes?: string | null;
 };
 
@@ -142,6 +143,16 @@ export function MeetingFormDialog({
                 required
                 defaultValue={values?.title ?? ""}
                 placeholder="例：Q3 產品方向討論"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="m-link">會議連結（選填）</Label>
+              <Input
+                id="m-link"
+                name="link"
+                defaultValue={values?.link ?? ""}
+                placeholder="https://…（Google Meet / 會議文件）"
               />
             </div>
 

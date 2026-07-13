@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Crown } from "lucide-react";
 import { MemberName } from "@/components/member-name";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { displayInitial } from "@/lib/display";
+import { displayInitial, displayName } from "@/lib/display";
 import type { OrgChartEntry } from "@/components/org-chart";
 import styles from "./org-chart-graph.module.css";
 
@@ -58,6 +58,7 @@ function NodeCard({ node }: { node: OrgChartEntry }) {
   return (
     <Link
       href={`/me/${node.id}`}
+      title={displayName(node)}
       className="bg-background hover:border-primary/50 hover:bg-muted/40 inline-flex w-40 flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-center shadow-sm transition-colors"
     >
       <Avatar className="h-11 w-11">

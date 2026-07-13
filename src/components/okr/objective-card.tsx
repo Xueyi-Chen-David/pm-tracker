@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useOptimistic, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -54,19 +54,36 @@ export function ObjectiveCard({
   const [open, setOpen] = useState(true);
   const [adding, setAdding] = useState(false);
   const [pending, start] = useTransition();
+  // 樂觀更新：新增 KR 立即顯示，伺服器 revalidate 後自動對齊。
+  const [keyResults, addOptimisticKr] = useOptimistic(
+    objective.keyResults,
+    (state, k: KrView) => [...state, k],
+  );
 
   const rollup = rollupObjective(
-    objective.keyResults.map((k) => ({ kind: k.kind, resolved: resolveKr(k) })),
+    keyResults.map((k) => ({ kind: k.kind, resolved: resolveKr(k) })),
   );
 
   function addKr(title: string) {
     const t = title.trim();
     if (!t) return;
+    setAdding(false);
     start(async () => {
+      addOptimisticKr({
+        id: `tmp-${Date.now()}`,
+        title: t,
+        kind: "kr",
+        note: null,
+        dueDate: null,
+        ownerLabel: null,
+        status: "NOT_STARTED",
+        health: "GREEN",
+        progress: 0,
+        project: null,
+        owners: [],
+      });
       try {
         await createKeyResult({ objectiveId: objective.id, title: t });
-        setAdding(false);
-        router.refresh();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "新增失敗");
       }
@@ -179,7 +196,7 @@ export function ObjectiveCard({
       {/* KR 表 */}
       {open && (
         <div className="border-t">
-          {objective.keyResults.length > 0 && (
+          {keyResults.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[680px]">
                 <thead>
@@ -194,7 +211,7 @@ export function ObjectiveCard({
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {objective.keyResults.map((kr) => (
+                {keyResults.map((kr) => (
                   <KeyResultRow
                     key={kr.id}
                     kr={kr}

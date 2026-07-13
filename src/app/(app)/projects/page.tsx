@@ -1,10 +1,13 @@
 import { Plus } from "lucide-react";
-import { requireActiveOrg } from "@/server/org";
+import type { ProjectView } from "@prisma/client";
+import { db } from "@/server/db";
+import { requireActiveOrg, isManagerOrBoss } from "@/server/org";
 import {
   getProjectsWithTasks,
   getOrgMemberUsers,
   getProjectViews,
 } from "@/server/queries";
+import { getProjectDetailBundle } from "@/server/project-bundle";
 import {
   filterByView,
   filterProjects,
@@ -17,15 +20,18 @@ import {
 import { primaryName } from "@/lib/display";
 import { PageHeader } from "@/components/page-header";
 import { NewProjectButton } from "@/components/new-project-button";
+import { Button } from "@/components/ui/button";
 import { ProjectViewTabs } from "@/components/project-view-tabs";
 import { ProjectsToolbar } from "@/components/projects-toolbar";
-import { Button } from "@/components/ui/button";
 import {
-  ProjectGoalCard,
-  type ProjectGoalView,
-} from "@/components/tasks/project-goal-card";
+  ProjectManageCard,
+  type ProjectManageView,
+} from "@/components/projects/project-manage-card";
 
 export const metadata = { title: "專案與任務 · Project Pulse" };
+
+/** 「封存」是內建虛擬視窗（非 DB 中的 ProjectView）：顯示 archived=true 的專案。 */
+const ARCHIVED_VIEW_ID = "archived";
 
 function ymd(d: Date | null): string | null {
   return d ? d.toISOString().slice(0, 10) : null;
@@ -36,24 +42,52 @@ export default async function ProjectsPage({
 }: {
   searchParams: Promise<Record<string, string | undefined>>;
 }) {
-  const { org } = await requireActiveOrg();
+  const { org, membership } = await requireActiveOrg();
+  const canManage = isManagerOrBoss(membership);
   const sp = await searchParams;
 
-  const [rows, members, views] = await Promise.all([
+  const isArchivedView = sp.board === ARCHIVED_VIEW_ID;
+  const [rows, members, views, archivedCount] = await Promise.all([
     getProjectsWithTasks(org.id),
     getOrgMemberUsers(org.id),
     getProjectViews(org.id),
+    db.project.count({ where: { organizationId: org.id, archived: true } }),
   ]);
+  // 封存視窗才另外撈 archived=true 的專案（含任務 / 里程碑）。
+  const archivedRows = isArchivedView
+    ? await getProjectsWithTasks(org.id, true)
+    : [];
 
-  // 視窗（tabs）：以 status / type 篩出該視窗的專案。
-  const activeView =
-    views.find((v) => v.id === sp.board) ??
-    views.find((v) => v.isSystem) ??
-    views[0];
-  const viewProjects = activeView ? filterByView(rows, activeView) : rows;
+  // 視窗（tabs）：以 status / type 篩出該視窗的專案；封存視窗直接用 archivedRows。
+  const activeView = isArchivedView
+    ? null
+    : (views.find((v) => v.id === sp.board) ??
+      views.find((v) => v.isSystem) ??
+      views[0]);
+  const currentName = isArchivedView ? "封存" : (activeView?.name ?? "");
+  const viewProjects = isArchivedView
+    ? archivedRows
+    : activeView
+      ? filterByView(rows, activeView)
+      : rows;
   const counts: Record<string, number> = Object.fromEntries(
     views.map((v) => [v.id, filterByView(rows, v).length]),
   );
+  counts[ARCHIVED_VIEW_ID] = archivedCount;
+
+  // 內建「封存」虛擬視窗，接在使用者的視窗後面。
+  const archivedView: ProjectView = {
+    id: ARCHIVED_VIEW_ID,
+    name: "封存",
+    statuses: [],
+    types: [],
+    exclude: false,
+    isSystem: true,
+    sortOrder: 9999,
+    createdAt: new Date(0),
+    organizationId: org.id,
+  };
+  const tabViews = [...views, archivedView];
 
   // 工具列篩選 / 排序（套在視窗結果之上）。
   const filters = parseFilters(sp);
@@ -65,6 +99,10 @@ export default async function ProjectsPage({
     dir,
   );
   const filtered = hasActiveFilters(filters);
+
+  // 手動排序（上/下移）只在「預設順序」且非封存視窗時提供——此時畫面順序才等同 sortOrder；
+  // 其餘排序方式下手動搬移沒有意義，故隱藏控制項。限管理者 / 老闆。
+  const canReorder = canManage && sort === "default" && !isArchivedView;
 
   // 負責人下拉：取實際出現在專案中的負責人（去重）。
   const ownerOptions = Array.from(
@@ -78,19 +116,27 @@ export default async function ProjectsPage({
     ).values(),
   ).sort((a, b) => a.label.localeCompare(b.label, "zh-Hant"));
 
-  const projects: ProjectGoalView[] = filteredRows.map((p) => ({
+  const projects: ProjectManageView[] = filteredRows.map((p) => ({
     id: p.id,
     name: p.name,
     type: p.type,
     status: p.status,
     health: p.health,
+    priority: p.priority,
     progress: p.progress,
+    description: p.description,
+    startDate: ymd(p.startDate),
     targetDate: ymd(p.targetDate),
+    color: p.color,
+    archived: p.archived,
+    countInProgress: p.countInProgress,
+    ownerId: p.ownerId,
     owner: p.owner,
     tasks: p.tasks.map((t) => ({
       id: t.id,
       title: t.title,
       note: t.note,
+      startDate: ymd(t.startDate),
       dueDate: ymd(t.dueDate),
       ownerLabel: t.ownerLabel,
       status: t.status,
@@ -98,9 +144,35 @@ export default async function ProjectsPage({
       progress: t.progress,
       owners: t.owners,
     })),
+    milestones: p.milestones.map((m) => ({
+      id: m.id,
+      title: m.title,
+      status: m.status,
+      plannedDate: ymd(m.plannedDate),
+      isGoal: m.isGoal,
+    })),
+    team: p.members.map((mem) => ({
+      id: mem.id,
+      roleLabel: mem.roleLabel,
+      user: mem.user,
+    })),
   }));
 
   const totalTasks = projects.reduce((s, p) => s + p.tasks.length, 0);
+
+  // 就地展開管理：只對「展開中」(URL `expand`) 且仍在目前清單的專案載入明細。
+  const expandedIds = new Set(
+    (sp.expand?.split(",").filter(Boolean)) ?? [],
+  );
+  const bundleEntries = await Promise.all(
+    projects
+      .filter((p) => expandedIds.has(p.id))
+      .map(
+        async (p) =>
+          [p.id, await getProjectDetailBundle(org.id, p.id)] as const,
+      ),
+  );
+  const bundles = new Map(bundleEntries);
 
   return (
     <div className="space-y-4">
@@ -108,7 +180,7 @@ export default async function ProjectsPage({
         title="專案與任務"
         description={
           filtered
-            ? `${activeView?.name ?? ""}：符合 ${projects.length} / ${viewProjects.length} 個專案`
+            ? `${currentName}：符合 ${projects.length} / ${viewProjects.length} 個專案`
             : `${projects.length} 個專案 · ${totalTasks} 項任務`
         }
       >
@@ -122,7 +194,7 @@ export default async function ProjectsPage({
         />
       </PageHeader>
 
-      {rows.length === 0 ? (
+      {rows.length === 0 && archivedCount === 0 ? (
         <div className="text-muted-foreground rounded-xl border border-dashed py-16 text-center">
           目前還沒有任何專案。
           <br />
@@ -131,27 +203,34 @@ export default async function ProjectsPage({
       ) : (
         <>
           <ProjectViewTabs
-            views={views}
+            views={tabViews}
             counts={counts}
-            activeId={activeView?.id ?? ""}
+            activeId={isArchivedView ? ARCHIVED_VIEW_ID : (activeView?.id ?? "")}
             viewMode="card"
           />
           <ProjectsToolbar owners={ownerOptions} />
 
           {projects.length === 0 ? (
             <div className="text-muted-foreground rounded-xl border border-dashed py-16 text-center">
-              {viewProjects.length === 0
-                ? `「${activeView?.name ?? ""}」視窗目前沒有專案。`
-                : "沒有符合條件的專案，試試調整或清除篩選。"}
+              {isArchivedView
+                ? "目前沒有封存的專案。"
+                : viewProjects.length === 0
+                  ? `「${currentName}」視窗目前沒有專案。`
+                  : "沒有符合條件的專案，試試調整或清除篩選。"}
             </div>
           ) : (
             <div className="space-y-3">
               {projects.map((p, i) => (
-                <ProjectGoalCard
+                <ProjectManageCard
                   key={p.id}
                   project={p}
                   index={i}
                   members={members}
+                  canEdit={true}
+                  canReorder={canReorder}
+                  siblingIds={projects.map((x) => x.id)}
+                  expanded={expandedIds.has(p.id)}
+                  bundle={bundles.get(p.id) ?? null}
                 />
               ))}
             </div>

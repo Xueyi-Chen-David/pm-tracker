@@ -11,6 +11,7 @@ import {
 } from "@/server/queries";
 import { visibleModules } from "@/lib/modules";
 import { AppSidebar } from "@/components/app-sidebar";
+import { AppContainer } from "@/components/app-container";
 import { ViewAsBanner } from "@/components/view-as-banner";
 
 export default async function AppLayout({
@@ -61,9 +62,7 @@ export default async function AppLayout({
       />
       <main className="lg:pl-60">
         {previewing && <ViewAsBanner />}
-        <div className="mx-auto w-full max-w-[90rem] px-4 py-6 sm:px-6 lg:px-8">
-          {children}
-        </div>
+        <AppContainer>{children}</AppContainer>
       </main>
     </div>
   );

@@ -26,7 +26,7 @@ export default function RootLayout({
   return (
     <html
       lang="zh-Hant-TW"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full scroll-smooth antialiased`}
     >
       <body className="bg-muted/30 min-h-full">
         <Providers>{children}</Providers>

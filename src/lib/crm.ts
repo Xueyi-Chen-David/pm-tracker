@@ -55,6 +55,16 @@ export const CRM_STATUS_META: Record<
   LOST: { label: "流失", badge: "bg-rose-100 text-rose-700 border-rose-200" },
 };
 
+/** CRM 活動紀錄的類型（獨立活動頁用）。 */
+export const CRM_EVENT_TYPES = [
+  "拜訪",
+  "電話",
+  "活動",
+  "Email",
+  "會議",
+  "其他",
+] as const;
+
 /** 活動類型（電話 / 會議 / Email / 備註 / 待辦）。 */
 export const CRM_ACTIVITY_TYPES = [
   { value: "note", label: "備註", icon: "📝" },

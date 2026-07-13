@@ -57,13 +57,14 @@ export function weekLabelFull(weekStart: Date | string): string {
 export function fmtDate(d: Date | string | null | undefined): string {
   if (!d) return "—";
   const date = typeof d === "string" ? parseISO(d) : d;
-  return isValid(date) ? format(date, "yyyy/M/d") : "—";
+  return isValid(date) ? format(date, "yyyy/MM/dd") : "—";
 }
 
+/** 年月日順序的精簡日期（含年份），例：「2026/07/14」。 */
 export function fmtDateShort(d: Date | string | null | undefined): string {
   if (!d) return "—";
   const date = typeof d === "string" ? parseISO(d) : d;
-  return isValid(date) ? format(date, "M/d") : "—";
+  return isValid(date) ? format(date, "yyyy/MM/dd") : "—";
 }
 
 /** <input type="date"> 用的 yyyy-MM-dd */

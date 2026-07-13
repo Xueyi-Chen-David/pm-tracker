@@ -82,7 +82,7 @@ export default async function TeamPage({
                     href={`/me/${m.id}`}
                     className="flex min-w-0 flex-1 items-center gap-3"
                   >
-                    <Avatar className="h-12 w-12">
+                    <Avatar className="h-12 w-12" title={displayName(m)}>
                       {m.image && <AvatarImage src={m.image} alt="" />}
                       <AvatarFallback>{displayInitial(m)}</AvatarFallback>
                     </Avatar>

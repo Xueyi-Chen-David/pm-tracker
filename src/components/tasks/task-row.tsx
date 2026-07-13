@@ -3,11 +3,12 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { MoreHorizontal, Trash2 } from "lucide-react";
+import { CalendarDays, GripVertical, MoreHorizontal, Trash2 } from "lucide-react";
 import { updateTask, setTaskOwners, deleteTask } from "@/server/actions/tasks";
 import { TASK_STATUS } from "@/lib/tasks";
+import { fmtDateShort } from "@/lib/date";
 import { cn } from "@/lib/utils";
-import { displayInitial } from "@/lib/display";
+import { displayInitial, displayName } from "@/lib/display";
 import { MemberName } from "@/components/member-name";
 import { HealthDot } from "@/components/badges";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -23,6 +24,7 @@ export type TaskView = {
   id: string;
   title: string;
   note: string | null;
+  startDate: string | null;
   dueDate: string | null;
   ownerLabel: string | null;
   status: KrStatus;
@@ -49,9 +51,18 @@ function autoSizeNote(el: HTMLTextAreaElement | null) {
 export function TaskRow({
   task,
   members,
+  drag,
 }: {
   task: TaskView;
   members: OwnerLite[];
+  /** 拖放排序（選填）。未傳入時不顯示拖曳把手。 */
+  drag?: {
+    dragging: boolean;
+    onDragStart: () => void;
+    onDragEnter: () => void;
+    onDrop: () => void;
+    onDragEnd: () => void;
+  };
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -83,9 +94,51 @@ export function TaskRow({
   }
 
   return (
-    <tr className={cn("hover:bg-muted/30", pending && "opacity-60")}>
+    <tr
+      className={cn(
+        "hover:bg-muted/30",
+        pending && "opacity-60",
+        drag?.dragging && "bg-primary/5 opacity-60",
+      )}
+      onDragEnter={
+        drag
+          ? (e) => {
+              e.preventDefault();
+              drag.onDragEnter();
+            }
+          : undefined
+      }
+      onDragOver={drag ? (e) => e.preventDefault() : undefined}
+      onDrop={
+        drag
+          ? (e) => {
+              e.preventDefault();
+              drag.onDrop();
+            }
+          : undefined
+      }
+    >
+      {/* 拖曳把手 */}
+      {drag && (
+        <td className="w-6 pl-2 align-top">
+          <button
+            type="button"
+            draggable
+            onDragStart={(e) => {
+              e.dataTransfer.effectAllowed = "move";
+              e.dataTransfer.setData("text/plain", task.id);
+              drag.onDragStart();
+            }}
+            onDragEnd={drag.onDragEnd}
+            className="text-muted-foreground/50 hover:text-foreground mt-1.5 cursor-grab active:cursor-grabbing"
+            title="拖曳排序"
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+        </td>
+      )}
       {/* 名稱 */}
-      <td className="py-1.5 pr-2 pl-3">
+      <td className="py-1.5 pr-2 pl-3 align-top">
         <input
           defaultValue={task.title}
           onBlur={(e) => {
@@ -94,32 +147,92 @@ export function TaskRow({
           }}
           className="hover:bg-muted/50 focus:bg-muted/50 min-w-0 w-full rounded-md bg-transparent px-1 py-0.5 text-sm font-medium outline-none"
         />
+        {/* 開始 / 結束日：直接顯示在任務名稱下，點一下就能設定（不用進 ⋯ 選單）。 */}
+        <Popover>
+          <PopoverTrigger
+            className={cn(
+              "mt-0.5 flex items-center gap-1 rounded-md px-1 py-0.5 text-[11px]",
+              task.startDate || task.dueDate
+                ? "text-muted-foreground hover:bg-muted/60"
+                : "text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/60",
+            )}
+            title="設定開始 / 結束日期"
+          >
+            <CalendarDays className="h-3 w-3 shrink-0" />
+            {task.startDate || task.dueDate ? (
+              <span className="tabular-nums">
+                {task.startDate ? fmtDateShort(task.startDate) : "—"}
+                {" → "}
+                {task.dueDate ? fmtDateShort(task.dueDate) : "—"}
+              </span>
+            ) : (
+              <span>設定日期</span>
+            )}
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-56">
+            <div className="space-y-1">
+              <div className="text-muted-foreground text-xs">開始日</div>
+              <input
+                type="date"
+                defaultValue={task.startDate ?? ""}
+                max={task.dueDate ?? undefined}
+                disabled={pending}
+                onChange={(e) =>
+                  patch({ startDate: e.currentTarget.value || null })
+                }
+                className={inputCls}
+              />
+            </div>
+            <div className="mt-2 space-y-1">
+              <div className="text-muted-foreground text-xs">結束 / 到期日</div>
+              <input
+                type="date"
+                defaultValue={task.dueDate ?? ""}
+                min={task.startDate ?? undefined}
+                disabled={pending}
+                onChange={(e) =>
+                  patch({ dueDate: e.currentTarget.value || null })
+                }
+                className={inputCls}
+              />
+            </div>
+          </PopoverContent>
+        </Popover>
       </td>
 
       {/* 負責人 */}
-      <td className="px-2 py-1.5">
+      <td className="px-2 py-1.5 align-top">
         <Popover>
-          <PopoverTrigger className="hover:bg-muted flex items-center gap-1 rounded-md px-1 py-0.5">
+          <PopoverTrigger className="hover:bg-muted flex w-full items-start gap-1 rounded-md px-1 py-0.5 text-left">
             {task.owners.length === 0 && !task.ownerLabel ? (
               <span className="text-muted-foreground/60 text-xs">指派…</span>
             ) : (
-              <span className="flex items-center">
-                {task.owners.slice(0, 3).map((o, i) => (
-                  <Avatar
-                    key={o.id}
-                    className={cn("h-6 w-6 border-2 border-white", i > 0 && "-ml-2")}
-                  >
-                    {o.image && <AvatarImage src={o.image} alt="" />}
-                    <AvatarFallback className="text-[9px]">
-                      {displayInitial(o)}
-                    </AvatarFallback>
-                  </Avatar>
-                ))}
-                {task.ownerLabel && (
-                  <span className="text-muted-foreground ml-1.5 text-xs">
-                    {task.ownerLabel}
+              <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                {task.owners.length > 0 && (
+                  <span className="flex items-center">
+                    {task.owners.slice(0, 3).map((o, i) => (
+                      <Avatar
+                        key={o.id}
+                        className={cn(
+                          "h-6 w-6 border-2 border-white",
+                          i > 0 && "-ml-2",
+                        )}
+                      >
+                        {o.image && <AvatarImage src={o.image} alt="" />}
+                        <AvatarFallback className="text-[9px]">
+                          {displayInitial(o)}
+                        </AvatarFallback>
+                      </Avatar>
+                    ))}
                   </span>
                 )}
+                <span className="min-w-0 text-left text-xs leading-tight break-words">
+                  {task.owners.map((o) => displayName(o)).join("、")}
+                  {task.owners.length > 0 && task.ownerLabel && "、"}
+                  {task.ownerLabel && (
+                    <span className="text-muted-foreground">{task.ownerLabel}</span>
+                  )}
+                </span>
               </span>
             )}
           </PopoverTrigger>
@@ -161,13 +274,13 @@ export function TaskRow({
       </td>
 
       {/* 狀態 */}
-      <td className="px-2 py-1.5">
+      <td className="px-2 py-1.5 align-top">
         <select
           value={task.status}
           disabled={pending}
           onChange={(e) => patch({ status: e.currentTarget.value as KrStatus })}
           className={cn(
-            "h-7 rounded-full border px-2 text-xs font-medium outline-none",
+            "h-7 w-full min-w-0 rounded-full border px-2 text-xs font-medium outline-none",
             TASK_STATUS[task.status].badge,
           )}
         >
@@ -180,9 +293,9 @@ export function TaskRow({
       </td>
 
       {/* 進度 */}
-      <td className="px-2 py-1.5">
-        <div className="flex items-center gap-2">
-          <div className="bg-muted h-1.5 w-16 overflow-hidden rounded-full">
+      <td className="px-2 py-1.5 align-top">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div className="bg-muted h-1.5 w-full min-w-[2.5rem] flex-1 overflow-hidden rounded-full">
             <div
               className="h-full rounded-full"
               style={{
@@ -201,13 +314,13 @@ export function TaskRow({
               const v = Math.max(0, Math.min(100, Number(e.currentTarget.value) || 0));
               if (v !== task.progress) patch({ progress: v });
             }}
-            className="border-input h-7 w-12 rounded border bg-transparent px-1 text-xs outline-none"
+            className="border-input h-7 w-11 shrink-0 rounded border bg-transparent px-1 text-xs outline-none"
           />
         </div>
       </td>
 
       {/* 健康度 RAG */}
-      <td className="px-2 py-1.5 text-center">
+      <td className="px-2 py-1.5 text-center align-top">
         <button
           type="button"
           disabled={pending}
@@ -218,7 +331,7 @@ export function TaskRow({
         </button>
       </td>
 
-      {/* 這週備註 */}
+      {/* 進度追蹤 */}
       <td className="px-2 py-1.5 align-top">
         <textarea
           ref={autoSizeNote}
@@ -230,27 +343,17 @@ export function TaskRow({
             const v = e.currentTarget.value;
             if (v !== (task.note ?? "")) patch({ note: v });
           }}
-          className="hover:bg-muted/50 focus:bg-muted/50 block w-48 max-w-full resize-none overflow-hidden rounded-md bg-transparent px-1 py-0.5 text-xs leading-snug break-words whitespace-pre-wrap outline-none"
+          className="hover:bg-muted/50 focus:bg-muted/50 block w-full max-w-full resize-none overflow-hidden rounded-md bg-transparent px-1 py-0.5 text-xs leading-snug break-words whitespace-pre-wrap outline-none"
         />
       </td>
 
       {/* ⋯ 選單 */}
-      <td className="px-1 py-1.5 text-center">
+      <td className="px-1 py-1.5 text-center align-top">
         <Popover>
           <PopoverTrigger className="hover:bg-muted text-muted-foreground rounded-md p-1">
             <MoreHorizontal className="h-4 w-4" />
           </PopoverTrigger>
-          <PopoverContent align="end" className="w-56">
-            <div className="space-y-1">
-              <div className="text-muted-foreground text-xs">到期日</div>
-              <input
-                type="date"
-                defaultValue={task.dueDate ?? ""}
-                disabled={pending}
-                onChange={(e) => patch({ dueDate: e.currentTarget.value || null })}
-                className={inputCls}
-              />
-            </div>
+          <PopoverContent align="end" className="w-48">
             <button
               type="button"
               disabled={pending}

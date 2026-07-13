@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { requireActiveOrg } from "@/server/org";
 import { getTimelineData } from "@/server/queries";
 import { PageHeader } from "@/components/page-header";
@@ -98,9 +97,9 @@ export default async function TimelinePage() {
                   m.actualDate &&
                   m.actualDate.getTime() > m.plannedDate.getTime();
                 return (
-                  <Link
+                  <a
                     key={m.id}
-                    href={`/projects/${project.id}`}
+                    href={`/projects#proj-${project.id}`}
                     className="hover:bg-muted/40 flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2.5 text-sm"
                   >
                     <span className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -125,7 +124,7 @@ export default async function TimelinePage() {
                     >
                       實際 {fmtDate(m.actualDate)}
                     </span>
-                  </Link>
+                  </a>
                 );
               })}
             </div>

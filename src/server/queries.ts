@@ -221,7 +221,13 @@ export async function getAttendanceMonth(orgId: string, start: Date, end: Date) 
           ...userIdentitySelect,
           attendanceRecords: {
             where: { organizationId: orgId, date: { gte: start, lt: end } },
-            select: { date: true, present: true, reason: true, offsite: true },
+            select: {
+              date: true,
+              present: true,
+              reason: true,
+              offsite: true,
+              holiday: true,
+            },
           },
         },
       },
@@ -280,7 +286,14 @@ export async function getMemberProfile(orgId: string, userId: string) {
       ownedProjects: {
         where: { organizationId: orgId, archived: false },
         orderBy: { updatedAt: "desc" },
-        include: { weeklyUpdates: { orderBy: { weekStart: "desc" }, take: 1 } },
+        select: {
+          id: true,
+          name: true,
+          type: true,
+          status: true,
+          health: true,
+          progress: true,
+        },
       },
       memberships: {
         where: { project: { organizationId: orgId } },
@@ -298,28 +311,23 @@ export async function getMemberProfile(orgId: string, userId: string) {
           },
         },
       },
-      weeklyUpdates: {
-        where: { project: { organizationId: orgId } },
-        orderBy: { weekStart: "desc" },
-        take: 8,
-        include: { project: { select: { id: true, name: true } } },
-      },
       memberEvents: {
         where: { organizationId: orgId },
         orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
         take: 50,
       },
-      weeklyTasks: {
-        where: { weeklyUpdate: { project: { organizationId: orgId } } },
-        orderBy: { createdAt: "desc" },
-        take: 60,
-        include: {
-          weeklyUpdate: {
-            select: {
-              weekStart: true,
-              project: { select: { id: true, name: true } },
-            },
-          },
+      // 被指派的任務：以「專案與任務」頁的真實 Task 為唯一來源（本人為負責人之一）。
+      tasksOwned: {
+        where: { project: { organizationId: orgId, archived: false } },
+        orderBy: [{ project: { sortOrder: "asc" } }, { sortOrder: "asc" }],
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          progress: true,
+          startDate: true,
+          dueDate: true,
+          project: { select: { id: true, name: true } },
         },
       },
     },
@@ -358,15 +366,34 @@ export type ProjectOverview = Awaited<
 >[number];
 
 /** 合併「專案與任務」頁用：本組織未封存專案 + 底下任務（含任務負責人）。 */
-export async function getProjectsWithTasks(orgId: string) {
+export async function getProjectsWithTasks(orgId: string, archived = false) {
   return db.project.findMany({
-    where: { archived: false, organizationId: orgId },
+    where: { archived, organizationId: orgId },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     include: {
       owner: { select: userIdentitySelect },
       tasks: {
         orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
         include: { owners: { select: userIdentitySelect } },
+      },
+      milestones: {
+        orderBy: [{ sortOrder: "asc" }, { plannedDate: "asc" }],
+        select: {
+          id: true,
+          title: true,
+          status: true,
+          plannedDate: true,
+          isGoal: true,
+        },
+      },
+      members: {
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          role: true,
+          roleLabel: true,
+          user: { select: userIdentitySelect },
+        },
       },
     },
   });
@@ -385,6 +412,12 @@ export async function getProject(orgId: string, id: string) {
       createdBy: { select: { id: true, name: true, nickname: true, useNickname: true, email: true } },
       members: memberInclude,
       milestones: { orderBy: [{ plannedDate: "asc" }, { sortOrder: "asc" }] },
+      releases: {
+        orderBy: [
+          { releasedAt: { sort: "desc", nulls: "last" } },
+          { createdAt: "desc" },
+        ],
+      },
       weeklyUpdates: {
         orderBy: { weekStart: "asc" },
         include: {
@@ -395,13 +428,6 @@ export async function getProject(orgId: string, id: string) {
               assignee: { select: { id: true, name: true, nickname: true, useNickname: true, email: true } },
             },
           },
-        },
-      },
-      activities: {
-        orderBy: { createdAt: "desc" },
-        take: 100,
-        include: {
-          user: { select: { id: true, name: true, nickname: true, useNickname: true, email: true } },
         },
       },
     },
@@ -709,43 +735,60 @@ export async function getUnreadNotificationCount(orgId: string, userId: string) 
 }
 
 // ─────────────────────────────────────────────
-// 員工教育訓練（Training）
+// 員工教育訓練文件庫（Training Docs）— 巢狀資料夾 + markdown 文件
 // ─────────────────────────────────────────────
 
-/** 課程目錄（管理者用）：本組織所有課程 + 各課的指派紀錄（供完成概況統計）。 */
-export async function getTrainingCourses(orgId: string) {
-  return db.trainingCourse.findMany({
-    where: { organizationId: orgId },
-    orderBy: [{ active: "desc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
-    include: {
-      assignments: {
-        select: {
-          userId: true,
-          status: true,
-          dueDate: true,
-          completedAt: true,
-        },
+/**
+ * 本組織的全部文件樹（資料夾 + 文件含內容）。
+ * 內部知識庫規模不大，一次載齊即可在前端建樹、即時搜尋與渲染，免逐頁往返。
+ */
+export async function getTrainingDocs(
+  orgId: string,
+  userId: string,
+  canManage: boolean,
+) {
+  const [folders, pages] = await Promise.all([
+    db.trainingDocFolder.findMany({
+      where: { organizationId: orgId },
+      orderBy: [{ sortOrder: "asc" }, { name: "asc" }],
+      select: { id: true, name: true, parentId: true, sortOrder: true },
+    }),
+    db.trainingDocPage.findMany({
+      where: {
+        organizationId: orgId,
+        // 管理者一律可見；其他人只看 ALL 或被列入白名單者。
+        ...(canManage
+          ? {}
+          : {
+              OR: [
+                { visibility: "ALL" },
+                { visibility: "RESTRICTED", allowedUserIds: { has: userId } },
+              ],
+            }),
       },
-    },
-  });
+      orderBy: [{ sortOrder: "asc" }, { title: "asc" }],
+      select: {
+        id: true,
+        title: true,
+        content: true,
+        folderId: true,
+        sortOrder: true,
+        updatedAt: true,
+        visibility: true,
+        allowedUserIds: true,
+      },
+    }),
+  ]);
+  return { folders, pages };
 }
 
-export type TrainingCourseRow = Awaited<
-  ReturnType<typeof getTrainingCourses>
->[number];
+export type TrainingDocFolderRow = Awaited<
+  ReturnType<typeof getTrainingDocs>
+>["folders"][number];
 
-/** 我的訓練：目前使用者被指派的課程（含課程內容），待辦在前。 */
-export async function getMyTrainingAssignments(orgId: string, userId: string) {
-  return db.trainingAssignment.findMany({
-    where: { organizationId: orgId, userId },
-    orderBy: [{ status: "asc" }, { dueDate: "asc" }, { createdAt: "asc" }],
-    include: { course: true },
-  });
-}
-
-export type MyTrainingAssignment = Awaited<
-  ReturnType<typeof getMyTrainingAssignments>
->[number];
+export type TrainingDocPageRow = Awaited<
+  ReturnType<typeof getTrainingDocs>
+>["pages"][number];
 
 // ─────────────────────────────────────────────
 // CRM（org-scoped）
@@ -777,6 +820,18 @@ export async function getCrmContacts(orgId: string) {
   });
 }
 export type CrmContactRow = Awaited<ReturnType<typeof getCrmContacts>>[number];
+
+/** CRM 活動紀錄（最新在前），含關聯客戶精簡資料。 */
+export async function getCrmEvents(orgId: string) {
+  return db.crmEvent.findMany({
+    where: { organizationId: orgId },
+    orderBy: [{ date: "desc" }, { createdAt: "desc" }],
+    include: {
+      contact: { select: { id: true, name: true, company: true } },
+    },
+  });
+}
+export type CrmEventRow = Awaited<ReturnType<typeof getCrmEvents>>[number];
 
 /** 每組織的管線階段（依 sortOrder）；若尚未種子則自動建立預設 8 階段。 */
 export async function getDealStages(orgId: string) {

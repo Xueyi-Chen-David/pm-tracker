@@ -42,6 +42,10 @@ export function MemberAvatars({
       })}
       {extra > 0 && (
         <div
+          title={members
+            .slice(max)
+            .map((m) => displayName(m.user))
+            .join("、")}
           className={cn(
             "bg-muted text-muted-foreground ring-background flex items-center justify-center rounded-full ring-2",
             dim,

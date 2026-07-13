@@ -11,7 +11,6 @@ import {
   removeMember,
   setOwner,
 } from "@/server/actions/members";
-import { MEMBER_ROLE_OPTIONS } from "@/lib/constants";
 import { displayName, displayInitial } from "@/lib/display";
 import { MemberName } from "@/components/member-name";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -32,6 +31,12 @@ type Member = {
   user: NamedUser & { image: string | null };
 };
 type UserOption = NamedUser;
+
+// 角色只保留兩種：成員 / 負責人（負責人＝專案 owner）。
+const ROLE_OPTIONS = [
+  { value: "MEMBER", label: "成員" },
+  { value: "OWNER", label: "負責人" },
+] as const;
 
 const selectClass =
   "border-input bg-transparent dark:bg-input/30 h-8 rounded-md border px-2 text-xs outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]";
@@ -70,21 +75,41 @@ export function MembersPanel({
     });
   }
 
+  // 切換角色：選負責人＝設為專案 owner（setOwner 會一併把 role 設 OWNER）；選成員＝role MEMBER。
+  function changeRole(m: Member, role: string) {
+    if (role === "OWNER") {
+      run(() => setOwner({ projectId, userId: m.user.id }), "已設為負責人");
+    } else {
+      run(
+        () => updateMember({ memberId: m.id, projectId, role: "MEMBER" }),
+        "已設為成員",
+      );
+    }
+  }
+
   return (
     <div className="space-y-3">
-      <ul className="scroll-y max-h-[20rem] divide-y overflow-y-auto pr-1.5">
-        {members.map((m) => {
-          const isOwner = m.user.id === ownerId;
-          const initials = displayInitial(m.user);
-          return (
-            <li key={m.id} className="py-2.5">
-              <div className="flex items-center gap-3">
+      {/* 團隊成員：一長條橫向排列，不換行，過多則水平捲動。 */}
+      {members.length === 0 ? (
+        <p className="text-muted-foreground py-2 text-sm">尚未指派成員</p>
+      ) : (
+        <div className="flex gap-2 overflow-x-auto pb-1.5">
+          {members.map((m) => {
+            const isOwner = m.user.id === ownerId;
+            const roleValue = m.role === "OWNER" || isOwner ? "OWNER" : "MEMBER";
+            return (
+              <div
+                key={m.id}
+                className="bg-card flex shrink-0 items-center gap-2 rounded-lg border px-2.5 py-2"
+              >
                 <Avatar className="h-8 w-8 shrink-0">
                   {m.user.image && <AvatarImage src={m.user.image} alt="" />}
-                  <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+                  <AvatarFallback className="text-xs">
+                    {displayInitial(m.user)}
+                  </AvatarFallback>
                 </Avatar>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 text-sm font-medium">
+                <div className="flex flex-col gap-1">
+                  <span className="flex items-center gap-1 text-sm font-medium whitespace-nowrap">
                     <MemberName u={m.user} />
                     {isOwner && (
                       <Crown
@@ -92,107 +117,53 @@ export function MembersPanel({
                         aria-label="負責人"
                       />
                     )}
-                  </div>
-                  <div className="text-muted-foreground truncate text-xs">
-                    {m.user.email}
-                  </div>
-                </div>
-                {!canEdit && (
-                  <span className="text-muted-foreground shrink-0 text-xs">
-                    {m.roleLabel ||
-                      MEMBER_ROLE_OPTIONS.find((o) => o.value === m.role)?.label}
                   </span>
-                )}
-              </div>
-
-              {canEdit && (
-                <div className="mt-2 flex flex-wrap items-center gap-1 pl-11">
-                  <input
-                    type="text"
-                    defaultValue={m.roleLabel ?? ""}
-                    placeholder="職位"
-                    title="職位（自由文字，例：PM / 工程 / 設計）"
-                    disabled={pending}
-                    onBlur={(e) => {
-                      if (e.target.value !== (m.roleLabel ?? "")) {
-                        run(
-                          () =>
-                            updateMember({
-                              memberId: m.id,
-                              projectId,
-                              roleLabel: e.target.value,
-                            }),
-                          "已更新職位",
-                        );
-                      }
-                    }}
-                    className={selectClass + " w-20"}
-                  />
-                  <select
-                    value={m.role}
-                    disabled={pending}
-                    onChange={(e) =>
-                      run(
-                        () =>
-                          updateMember({
-                            memberId: m.id,
-                            projectId,
-                            role: e.target.value as Member["role"],
-                          }),
-                        "已更新角色",
-                      )
-                    }
-                    className={selectClass}
-                  >
-                    {MEMBER_ROLE_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
-                  {!isOwner && (
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      title="設為負責人"
-                      disabled={pending}
-                      onClick={() =>
-                        run(
-                          () => setOwner({ projectId, userId: m.user.id }),
-                          "已設為負責人",
-                        )
-                      }
-                    >
-                      <Crown className="h-4 w-4" />
-                    </Button>
+                  {canEdit ? (
+                    <div className="flex items-center gap-1">
+                      <select
+                        value={roleValue}
+                        disabled={pending}
+                        onChange={(e) => changeRole(m, e.target.value)}
+                        className={selectClass}
+                      >
+                        {ROLE_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        title="移除"
+                        disabled={pending}
+                        onClick={() => {
+                          if (
+                            !confirm(
+                              `確定將成員 ${displayName(m.user)} 移出此專案嗎？`,
+                            )
+                          )
+                            return;
+                          run(
+                            () => removeMember({ memberId: m.id, projectId }),
+                            "已移除成員",
+                          );
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ) : (
+                    <span className="text-muted-foreground text-xs whitespace-nowrap">
+                      {isOwner ? "負責人" : "成員"}
+                    </span>
                   )}
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    title="移除"
-                    disabled={pending}
-                    onClick={() => {
-                      if (
-                        !confirm(`確定將成員 ${displayName(m.user)} 移出此專案嗎？`)
-                      )
-                        return;
-                      run(
-                        () => removeMember({ memberId: m.id, projectId }),
-                        "已移除成員",
-                      );
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
                 </div>
-              )}
-            </li>
-          );
-        })}
-        {members.length === 0 && (
-          <li className="text-muted-foreground py-3 text-sm">尚未指派成員</li>
-        )}
-      </ul>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {canEdit && (
         <div className="space-y-2 border-t pt-3">
@@ -215,7 +186,7 @@ export function MembersPanel({
                 onChange={(e) => setNewRole(e.target.value)}
                 className={selectClass + " h-9 text-sm"}
               >
-                {MEMBER_ROLE_OPTIONS.map((o) => (
+                {ROLE_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
                     {o.label}
                   </option>

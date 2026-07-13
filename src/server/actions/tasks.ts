@@ -76,6 +76,7 @@ const TaskPatch = z.object({
   health: z.enum(["GREEN", "YELLOW", "RED"]).optional(),
   progress: z.number().int().min(0).max(100).optional(),
   note: z.string().max(2000).nullable().optional(),
+  startDate: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),
   ownerLabel: z.string().max(200).nullable().optional(),
 });
@@ -97,6 +98,7 @@ export async function updateTask(id: string, patch: z.input<typeof TaskPatch>) {
       ...(p.health !== undefined ? { health: p.health } : {}),
       ...(p.progress !== undefined ? { progress: p.progress } : {}),
       ...(p.note !== undefined ? { note: p.note || null } : {}),
+      ...(p.startDate !== undefined ? { startDate: toUtcDate(p.startDate) } : {}),
       ...(p.dueDate !== undefined ? { dueDate: toUtcDate(p.dueDate) } : {}),
       ...(p.ownerLabel !== undefined ? { ownerLabel: p.ownerLabel || null } : {}),
     },
@@ -109,6 +111,32 @@ export async function updateTask(id: string, patch: z.input<typeof TaskPatch>) {
   ) {
     await recomputeProject(task.projectId);
   }
+  revalidate();
+}
+
+// ── 重新排序（拖放）──────────────────────────────
+
+const TaskReorderInput = z.object({
+  projectId: z.string().min(1),
+  orderedIds: z.array(z.string().min(1)),
+});
+
+export async function reorderTasks(input: z.input<typeof TaskReorderInput>) {
+  const { org } = await requireActiveOrg();
+  const d = TaskReorderInput.parse(input);
+  await assertCanEditProject(org.id, d.projectId);
+  // 僅接受確實屬於該專案的任務 id，避免越權改動別的專案。
+  const existing = await db.task.findMany({
+    where: { projectId: d.projectId },
+    select: { id: true },
+  });
+  const validIds = new Set(existing.map((t) => t.id));
+  const ids = d.orderedIds.filter((id) => validIds.has(id));
+  await db.$transaction(
+    ids.map((id, i) =>
+      db.task.update({ where: { id }, data: { sortOrder: i } }),
+    ),
+  );
   revalidate();
 }
 

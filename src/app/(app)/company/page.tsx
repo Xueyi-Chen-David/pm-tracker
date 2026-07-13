@@ -25,7 +25,7 @@ import {
   type ObjectiveView,
 } from "@/components/okr/objective-card";
 
-export const metadata = { title: "公司營運 · Project Pulse" };
+export const metadata = { title: "公司OKR · Project Pulse" };
 
 function ymd(d: Date | null): string | null {
   return d ? d.toISOString().slice(0, 10) : null;
@@ -107,7 +107,7 @@ export default async function CompanyPage({
   return (
     <div className="space-y-6">
       <PageHeader
-        title="公司營運"
+        title="公司OKR"
         description="願景、年度 OKR、季度 OKR —— 策略層的目標。季度 KR 可連專案，進度自動反映。"
       />
 

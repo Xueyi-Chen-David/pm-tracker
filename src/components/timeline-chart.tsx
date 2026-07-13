@@ -1,4 +1,3 @@
-import Link from "next/link";
 import {
   startOfMonth,
   endOfMonth,
@@ -71,16 +70,16 @@ export function TimelineChart({ rows }: { rows: Row[] }) {
         <div className="w-44 shrink-0">
           <div style={{ height: HEADER_H }} />
           {rows.map((r) => (
-            <Link
+            <a
               key={r.id}
-              href={`/projects/${r.id}`}
+              href={`/projects#proj-${r.id}`}
               className="hover:bg-muted/40 flex items-center gap-1.5 truncate border-t pr-2 text-sm font-medium"
               style={{ height: ROW_H }}
-              title={r.name}
+              title={`${r.name}（前往專案與任務）`}
             >
               <HealthDot health={r.health} />
               <span className="truncate">{r.name}</span>
-            </Link>
+            </a>
           ))}
         </div>
 
