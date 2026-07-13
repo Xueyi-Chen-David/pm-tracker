@@ -17,9 +17,11 @@ export type ModuleKey =
   | "me"
   | "projects"
   | "company"
+  | "crm"
   | "timeline"
   | "team"
   | "attendance"
+  | "training"
   | "meetings"
   | "report";
 
@@ -40,9 +42,11 @@ export const MODULES: readonly AppModule[] = [
   { key: "me", label: "個人資料", href: "/me", alwaysVisible: true },
   { key: "projects", label: "專案與任務", href: "/projects" },
   { key: "company", label: "公司營運", href: "/company" },
+  { key: "crm", label: "CRM", href: "/crm" },
   { key: "timeline", label: "時程藍圖", href: "/timeline" },
   { key: "team", label: "團隊", href: "/team" },
   { key: "attendance", label: "出席狀況", href: "/attendance" },
+  { key: "training", label: "員工教育訓練", href: "/training" },
   { key: "meetings", label: "會議記錄", href: "/meetings" },
   { key: "report", label: "週報", href: "/report" },
 ] as const;

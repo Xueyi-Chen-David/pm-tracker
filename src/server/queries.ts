@@ -706,3 +706,73 @@ export async function getUnreadNotificationCount(orgId: string, userId: string) 
     where: { organizationId: orgId, userId, read: false },
   });
 }
+
+// ─────────────────────────────────────────────
+// 員工教育訓練（Training）
+// ─────────────────────────────────────────────
+
+/** 課程目錄（管理者用）：本組織所有課程 + 各課的指派紀錄（供完成概況統計）。 */
+export async function getTrainingCourses(orgId: string) {
+  return db.trainingCourse.findMany({
+    where: { organizationId: orgId },
+    orderBy: [{ active: "desc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
+    include: {
+      assignments: {
+        select: {
+          userId: true,
+          status: true,
+          dueDate: true,
+          completedAt: true,
+        },
+      },
+    },
+  });
+}
+
+export type TrainingCourseRow = Awaited<
+  ReturnType<typeof getTrainingCourses>
+>[number];
+
+/** 我的訓練：目前使用者被指派的課程（含課程內容），待辦在前。 */
+export async function getMyTrainingAssignments(orgId: string, userId: string) {
+  return db.trainingAssignment.findMany({
+    where: { organizationId: orgId, userId },
+    orderBy: [{ status: "asc" }, { dueDate: "asc" }, { createdAt: "asc" }],
+    include: { course: true },
+  });
+}
+
+export type MyTrainingAssignment = Awaited<
+  ReturnType<typeof getMyTrainingAssignments>
+>[number];
+
+// ─────────────────────────────────────────────
+// CRM（org-scoped）
+// ─────────────────────────────────────────────
+
+/** 所有商機（看板 + 統計用）：含聯絡人精簡、負責人、活動數。 */
+export async function getCrmDeals(orgId: string) {
+  return db.crmDeal.findMany({
+    where: { organizationId: orgId },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    include: {
+      contact: { select: { id: true, name: true, company: true } },
+      owner: { select: userIdentitySelect },
+      _count: { select: { activities: true } },
+    },
+  });
+}
+export type CrmDealRow = Awaited<ReturnType<typeof getCrmDeals>>[number];
+
+/** 聯絡人清單：含負責人與商機數。 */
+export async function getCrmContacts(orgId: string) {
+  return db.crmContact.findMany({
+    where: { organizationId: orgId },
+    orderBy: { createdAt: "desc" },
+    include: {
+      owner: { select: userIdentitySelect },
+      _count: { select: { deals: true } },
+    },
+  });
+}
+export type CrmContactRow = Awaited<ReturnType<typeof getCrmContacts>>[number];

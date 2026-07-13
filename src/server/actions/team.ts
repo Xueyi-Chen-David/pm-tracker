@@ -6,7 +6,6 @@ import { db } from "@/server/db";
 import { requireActiveOrg, requireActiveOrgWithRole } from "@/server/org";
 import { getMembershipGraph } from "@/server/queries";
 import { wouldCycle } from "@/server/hierarchy";
-import { GATED_NORMAL_MODULES, GATED_ADMIN_MODULES } from "@/lib/modules";
 
 export type TeamActionState = { error?: string; ok?: boolean } | null;
 
@@ -161,7 +160,6 @@ export async function updateProfileAction(
     department: formData.get("department") || undefined,
     attendance: formData.get("attendance") || undefined,
     bio: formData.get("bio") || undefined,
-    isBoss: formData.get("isBoss") === "on",
     active: formData.get("active") === "on",
     managerId: formData.get("managerId") || undefined,
   });
@@ -192,19 +190,6 @@ export async function updateProfileAction(
     managerId = d.managerId;
   }
 
-  // 細分權限（可見模組）：
-  // - 一般頁面：勾「可存取全部一般頁面」→ 空（＝全開）；否則收集勾選的一般 key（白名單）。
-  // - 管理者專屬頁（出席 / 團隊）：獨立「額外授權」，勾了就把 key 加入（不影響一般頁面可見性）。
-  const allModules = formData.get("allModules") === "on";
-  const normalPart = allModules
-    ? []
-    : GATED_NORMAL_MODULES.map((m) => m.key).filter(
-        (k) => formData.get(`mod_${k}`) === "on",
-      );
-  const adminGrants = GATED_ADMIN_MODULES.map((m) => m.key).filter(
-    (k) => formData.get(`mod_${k}`) === "on",
-  );
-  const allowedModules = [...normalPart, ...adminGrants];
   const trackAttendance = formData.get("trackAttendance") === "on";
   const lowerEmail = d.email ? d.email.toLowerCase() : undefined;
 
@@ -229,9 +214,7 @@ export async function updateProfileAction(
           department: d.department || null,
           attendance: d.attendance || null,
           bio: d.bio || null,
-          isBoss: d.isBoss ?? false,
           active: d.active ?? true,
-          allowedModules,
           trackAttendance,
           managerId,
         },

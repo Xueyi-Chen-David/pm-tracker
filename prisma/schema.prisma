@@ -47,6 +47,9 @@ model User {
   dailyReportComments DailyReportComment[]
   notifications       Notification[]
   checkIns            CheckIn[]
+  trainingAssignments TrainingAssignment[]
+  crmContactsOwned    CrmContact[] @relation("CrmContactOwner")
+  crmDealsOwned       CrmDeal[]    @relation("CrmDealOwner")
 }
 
 model Account {
@@ -124,6 +127,10 @@ model Organization {
   dailyReports      DailyReport[]
   notifications     Notification[]
   checkIns          CheckIn[]
+  trainingCourses     TrainingCourse[]
+  trainingAssignments TrainingAssignment[]
+  crmContacts         CrmContact[]
+  crmDeals            CrmDeal[]
 }
 
 /**
@@ -674,4 +681,166 @@ model CheckIn {
 
   @@index([organizationId, date])
   @@index([userId, date])
+}
+
+// ─────────────────────────────────────────────
+// 員工教育訓練（Training）— 課程目錄 + 指派給成員 + 完成追蹤。
+// 必修（法遵）可設有效月數，完成後到期需重訓；支援分類、教材連結、預估時數。
+// ─────────────────────────────────────────────
+
+enum TrainingFormat {
+  ONLINE // 線上課程
+  VIDEO // 影片
+  DOCUMENT // 文件 / 閱讀
+  IN_PERSON // 實體 / 講座
+  EXTERNAL // 外部課程 / 認證
+}
+
+enum TrainingStatus {
+  NOT_STARTED // 未開始
+  IN_PROGRESS // 進行中
+  COMPLETED // 已完成
+}
+
+/// 訓練課程（課程目錄；由管理者建立、指派給成員）。
+model TrainingCourse {
+  id           String         @id @default(cuid())
+  title        String
+  description  String?        @db.Text
+  category     String         @default("一般") // 新人訓練 / 法遵 / 專業技能 / 職場安全 / 一般
+  format       TrainingFormat @default(ONLINE)
+  resourceUrl  String? // 教材 / 課程連結
+  estimatedMin Int? // 預估時數（分鐘）
+  required     Boolean        @default(false) // 必修（法遵 / 強制）
+  renewMonths  Int? // 有效月數（完成後幾個月需重訓；null＝永久）
+  active       Boolean        @default(true)
+  sortOrder    Int            @default(0)
+  createdById  String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  assignments TrainingAssignment[]
+
+  @@index([organizationId])
+}
+
+/// 課程指派（每位成員每門課一筆）＝該員的訓練紀錄（狀態 / 到期日 / 完成日 / 分數）。
+model TrainingAssignment {
+  id          String         @id @default(cuid())
+  courseId    String
+  course      TrainingCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status      TrainingStatus @default(NOT_STARTED)
+  dueDate     DateTime?      @db.Date // 應完成日
+  startedAt   DateTime?
+  completedAt DateTime?
+  score       Int? // 測驗分數（選填 0–100）
+  note        String?        @db.Text
+  assignedById String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([courseId, userId])
+  @@index([organizationId])
+  @@index([userId, status])
+  @@index([courseId])
+}
+
+// ─────────────────────────────────────────────
+// CRM（客戶關係管理）：聯絡人 + 商機銷售管線 + 活動時間軸
+// 業界慣例：以「管線階段(stage)」推進商機；成交/流失後離開管線。org-scoped。
+// ─────────────────────────────────────────────
+
+enum CrmStage {
+  LEAD // 潛在
+  QUALIFIED // 已確認需求
+  PROPOSAL // 提案 / 報價
+  NEGOTIATION // 議約中
+}
+
+enum CrmDealStatus {
+  OPEN // 進行中（在管線上）
+  WON // 成交
+  LOST // 流失
+}
+
+/// 聯絡人 / 客戶（公司或個人）。
+model CrmContact {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name    String // 主要聯絡人姓名
+  company String? // 公司名稱
+  title   String? // 職稱
+  email   String?
+  phone   String?
+  note    String? @db.Text
+
+  ownerId     String?
+  owner       User?   @relation("CrmContactOwner", fields: [ownerId], references: [id])
+  createdById String?
+
+  deals CrmDeal[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+}
+
+/// 商機 / 交易（銷售管線的一張卡）。
+model CrmDeal {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  title  String
+  value  Int           @default(0) // 金額（日圓，整數）
+  stage  CrmStage      @default(LEAD)
+  status CrmDealStatus @default(OPEN)
+
+  contactId String?
+  contact   CrmContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  ownerId String?
+  owner   User?   @relation("CrmDealOwner", fields: [ownerId], references: [id])
+
+  expectedCloseDate DateTime? @db.Date // 預計成交日
+  closedAt          DateTime? // 成交 / 流失時間
+  note              String?   @db.Text
+  sortOrder         Int       @default(0) // 同一階段內排序
+  createdById       String?
+
+  activities CrmActivity[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, status])
+  @@index([contactId])
+}
+
+/// 商機的活動 / 備註時間軸（電話 / 會議 / Email / 備註 / 待辦）。
+model CrmActivity {
+  id     String  @id @default(cuid())
+  dealId String
+  deal   CrmDeal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  type    String    @default("note") // note | call | email | meeting | task
+  body    String    @db.Text
+  dueDate DateTime? @db.Date // task 用（跟進提醒）
+  done    Boolean   @default(false)
+
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([dealId])
 }

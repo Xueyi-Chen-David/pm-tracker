@@ -10,8 +10,10 @@ import {
   CheckCircle2,
   Circle,
   ListChecks,
+  ClipboardList,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { db } from "@/server/db";
 import { requireManageContext } from "@/server/org";
 import { getMemberProfile, getOrgMemberDirectory } from "@/server/queries";
 import { thisWeekStart, weekLabel } from "@/lib/date";
@@ -57,6 +59,39 @@ export default async function MemberProfilePage({
       b.weeklyUpdate.weekStart.getTime() - a.weeklyUpdate.weekStart.getTime(),
   );
   const openTaskCount = assignedTasks.filter((t) => !t.done).length;
+
+  // 出席統計 + 每日報告統計（本月）。
+  const now = new Date();
+  const monthStart = new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1));
+  const nextMonth = new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 1));
+  const [attRecords, dailyCount, lastDaily] = await Promise.all([
+    db.attendanceRecord.findMany({
+      where: {
+        organizationId: org.id,
+        userId: id,
+        date: { gte: monthStart, lt: nextMonth },
+      },
+      select: { present: true, offsite: true },
+    }),
+    db.dailyReport.count({
+      where: {
+        organizationId: org.id,
+        userId: id,
+        date: { gte: monthStart, lt: nextMonth },
+      },
+    }),
+    db.dailyReport.findFirst({
+      where: { organizationId: org.id, userId: id },
+      orderBy: { date: "desc" },
+      select: { date: true },
+    }),
+  ]);
+  const attPresent = attRecords.filter((r) => r.present && !r.offsite).length;
+  const attOffsite = attRecords.filter((r) => r.offsite).length;
+  const attAbsent = attRecords.filter((r) => !r.present).length;
+  const lastDailyLabel = lastDaily
+    ? `${lastDaily.date.getUTCMonth() + 1}/${lastDaily.date.getUTCDate()}`
+    : null;
 
   return (
     <div className="space-y-5">
@@ -117,6 +152,68 @@ export default async function MemberProfilePage({
           value={`${updatedOwned}/${owned.length}`}
           highlight={owned.length > 0 && updatedOwned === owned.length}
         />
+      </div>
+
+      {/* 出席統計 + 每日報告統計（本月） */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-1.5 text-base">
+              <CalendarCheck className="h-4 w-4" /> 出席統計
+              <span className="text-muted-foreground text-xs font-normal">
+                · 本月
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="rounded-md bg-emerald-50 py-2">
+                <div className="text-xl font-bold tabular-nums text-emerald-600">
+                  {attPresent}
+                </div>
+                <div className="text-muted-foreground text-[11px]">出席</div>
+              </div>
+              <div className="rounded-md bg-rose-50 py-2">
+                <div className="text-xl font-bold tabular-nums text-rose-600">
+                  {attAbsent}
+                </div>
+                <div className="text-muted-foreground text-[11px]">缺席</div>
+              </div>
+              <div className="rounded-md bg-sky-50 py-2">
+                <div className="text-xl font-bold tabular-nums text-sky-600">
+                  {attOffsite}
+                </div>
+                <div className="text-muted-foreground text-[11px]">在外</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-1.5 text-base">
+              <ClipboardList className="h-4 w-4" /> 每日報告
+              <span className="text-muted-foreground text-xs font-normal">
+                · 本月
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-baseline gap-3">
+              <div>
+                <span className="text-2xl font-bold tabular-nums">
+                  {dailyCount}
+                </span>
+                <span className="text-muted-foreground text-sm"> 天已填</span>
+              </div>
+              {lastDailyLabel && (
+                <span className="text-muted-foreground text-xs">
+                  最近：{lastDailyLabel}
+                </span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-2">
