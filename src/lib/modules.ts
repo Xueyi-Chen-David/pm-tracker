@@ -3,9 +3,9 @@
  *
  * 權限語意：
  * - `alwaysVisible` 模組（每日報告 / 個人資料）：一律可見。
- * - `adminOnly` 模組（團隊）：預設只有管理者(OWNER/ADMIN)或老闆可見；
- *   其他成員唯有被「加選授權」（key 列入 allowedModules）才看得到。
- * - 一般模組（含出席狀況）：`allowedModules` 的「一般部分」為空 → 可見全部一般模組
+ * - `adminOnly` 模組：預設只有管理者(OWNER/ADMIN)或老闆可見；其他成員唯有被
+ *   「加選授權」（key 列入 allowedModules）才看得到。（目前無 adminOnly 模組）
+ * - 一般模組（含團隊 / 出席狀況）：`allowedModules` 的「一般部分」為空 → 可見全部一般模組
  *   （預設全開）；非空 → 只可見列出的一般模組。管理者 / 老闆一律可見全部。
  *   註：出席狀況雖人人可見，頁內的編輯 / 設定仍以 role 於各頁 canManage 控管。
  */
@@ -41,7 +41,7 @@ export const MODULES: readonly AppModule[] = [
   { key: "projects", label: "專案與任務", href: "/projects" },
   { key: "company", label: "公司營運", href: "/company" },
   { key: "timeline", label: "時程藍圖", href: "/timeline" },
-  { key: "team", label: "團隊", href: "/team", adminOnly: true },
+  { key: "team", label: "團隊", href: "/team" },
   { key: "attendance", label: "出席狀況", href: "/attendance" },
   { key: "meetings", label: "會議記錄", href: "/meetings" },
   { key: "report", label: "週報", href: "/report" },

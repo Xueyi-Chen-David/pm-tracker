@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { MemberName } from "@/components/member-name";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MemberDeleteButton } from "@/components/member-delete-button";
+import { LoginStatusBadge } from "@/components/login-status-badge";
 
 /** 每列估計高度（px），用來由可用視窗高度換算每頁筆數。 */
 const ROW_H = 53;
@@ -127,6 +128,7 @@ export function PaginatedMemberList({
                             停用
                           </span>
                         )}
+                        <LoginStatusBadge loggedIn={m.hasLoggedIn} />
                       </div>
                       <div className="text-muted-foreground truncate text-[11px]">
                         {m.email}

@@ -161,7 +161,8 @@ export async function getOrgMembers(orgId: string) {
       jobTitle: true,
       department: true,
       attendance: true,
-      user: { select: userIdentitySelect },
+      // accounts>0 ＝ 曾用 OAuth（Google）登入過（被邀請但沒登入的 stub User 為 0）。
+      user: { select: { ...userIdentitySelect, _count: { select: { accounts: true } } } },
     },
   });
   const userIds = members.map((m) => m.user.id);
@@ -185,20 +186,24 @@ export async function getOrgMembers(orgId: string) {
   const ownedMap = new Map(owned.map((r) => [r.ownerId, r._count._all]));
   const memberMap = new Map(memberOf.map((r) => [r.userId, r._count._all]));
   const weeklyMap = new Map(weeklies.map((r) => [r.authorId, r._count._all]));
-  return members.map((m) => ({
-    ...m.user,
-    isBoss: m.isBoss,
-    active: m.active,
-    role: m.role,
-    jobTitle: m.jobTitle,
-    department: m.department,
-    attendance: m.attendance,
-    _count: {
-      ownedProjects: ownedMap.get(m.user.id) ?? 0,
-      memberships: memberMap.get(m.user.id) ?? 0,
-      weeklyUpdates: weeklyMap.get(m.user.id) ?? 0,
-    },
-  }));
+  return members.map((m) => {
+    const { _count: userCounts, ...identity } = m.user;
+    return {
+      ...identity,
+      isBoss: m.isBoss,
+      active: m.active,
+      role: m.role,
+      jobTitle: m.jobTitle,
+      department: m.department,
+      attendance: m.attendance,
+      hasLoggedIn: userCounts.accounts > 0, // 曾登入過
+      _count: {
+        ownedProjects: ownedMap.get(m.user.id) ?? 0,
+        memberships: memberMap.get(m.user.id) ?? 0,
+        weeklyUpdates: weeklyMap.get(m.user.id) ?? 0,
+      },
+    };
+  });
 }
 
 export type WorkspaceMember = Awaited<ReturnType<typeof getOrgMembers>>[number];

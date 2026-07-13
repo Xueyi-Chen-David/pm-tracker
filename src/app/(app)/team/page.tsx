@@ -11,6 +11,7 @@ import { ManagerRoleManager } from "@/components/manager-role-manager";
 import { OrgStructureEditor } from "@/components/org-structure-editor";
 import { ViewToggle } from "@/components/view-toggle";
 import { MemberName } from "@/components/member-name";
+import { LoginStatusBadge } from "@/components/login-status-badge";
 import { displayName, displayInitial } from "@/lib/display";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card } from "@/components/ui/card";
@@ -97,6 +98,7 @@ export default async function TeamPage({
                             停用
                           </span>
                         )}
+                        <LoginStatusBadge loggedIn={m.hasLoggedIn} />
                       </div>
                       <div className="text-muted-foreground truncate text-xs">
                         {[m.department, m.jobTitle].filter(Boolean).join(" · ") ||
