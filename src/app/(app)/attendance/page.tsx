@@ -2,6 +2,7 @@ import { requireActiveOrg, canManageMembers } from "@/server/org";
 import { db } from "@/server/db";
 import { getAttendanceMonth, getTrackableMembers } from "@/server/queries";
 import { parseGeofences } from "@/lib/checkin";
+import { todayUtc } from "@/lib/date";
 import { PageHeader } from "@/components/page-header";
 import {
   AttendanceGrid,
@@ -62,26 +63,50 @@ export default async function AttendancePage({
     };
   });
 
-  const [rows, trackable, orgConfig] = await Promise.all([
+  const [rows, trackable, orgConfig, firstCheckIn] = await Promise.all([
     getAttendanceMonth(org.id, start, end),
     getTrackableMembers(org.id),
-    canManage
-      ? db.organization.findUnique({
-          where: { id: org.id },
-          select: {
-            checkInEnabled: true,
-            checkInAllowedIps: true,
-            checkInGeofences: true,
-          },
-        })
-      : Promise.resolve(null),
+    db.organization.findUnique({
+      where: { id: org.id },
+      select: {
+        checkInEnabled: true,
+        checkInAllowedIps: true,
+        checkInGeofences: true,
+      },
+    }),
+    // 自動缺席的起算錨點：該企業第一次打卡的日期（在那之前不判缺席，避免把
+    // 尚未導入打卡的歷史日子全部誤標）。沒有任何打卡則不啟用自動缺席。
+    db.checkIn.findFirst({
+      where: { organizationId: org.id, valid: true },
+      orderBy: { date: "asc" },
+      select: { date: true },
+    }),
   ]);
+
+  // 自動缺席規則：企業有開打卡、且某平日落在 [第一次打卡日, 今天) 之間、
+  // 該成員當天完全沒有出席紀錄（沒打卡 / 請假 / 手動 / 出差）→ 視為缺席（未打卡）。
+  // 純顯示層，不寫入資料庫；手動 / 打卡 / 事件產生的紀錄一律優先。
+  const checkInEnabled = orgConfig?.checkInEnabled ?? false;
+  const anchorStr = firstCheckIn
+    ? firstCheckIn.date.toISOString().slice(0, 10)
+    : null;
+  const todayStr = todayUtc().toISOString().slice(0, 10);
+  const autoAbsentEnabled = checkInEnabled && anchorStr !== null;
 
   const members: GridMember[] = rows.map((m) => {
     const marks: GridMember["marks"] = {};
     for (const r of m.attendanceRecords) {
       const ds = r.date.toISOString().slice(0, 10);
       marks[ds] = { present: r.present, reason: r.reason, offsite: r.offsite };
+    }
+    if (autoAbsentEnabled) {
+      for (const d of days) {
+        if (d.weekend) continue; // 週末不判缺席
+        if (d.dateStr >= todayStr) continue; // 今天與未來先不動（還可補打卡）
+        if (anchorStr && d.dateStr < anchorStr) continue; // 打卡導入前不追溯
+        if (marks[d.dateStr]) continue; // 已有紀錄者一律優先
+        marks[d.dateStr] = { present: false, reason: "未打卡", offsite: false };
+      }
     }
     return {
       id: m.id,
@@ -134,7 +159,11 @@ export default async function AttendancePage({
           </span>
           未記錄
         </span>
-        <span>· 點格子登記；請假 / 出差 / 在家工作 由團隊成員頁的事件自動帶入</span>
+        <span>
+          · 點格子登記；請假 / 出差 / 在家工作 由團隊成員頁的事件自動帶入
+          {checkInEnabled &&
+            "；開啟打卡後，平日未打卡者於次日起自動標記缺席"}
+        </span>
       </div>
 
       {members.length === 0 ? (

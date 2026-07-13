@@ -271,27 +271,29 @@ export function ProfileForm({
         </p>
       </div>
 
-      {/* 管理者專屬頁：額外授權 */}
-      <div className="space-y-2.5 rounded-lg border border-amber-200 bg-amber-50/40 p-3">
-        <div className="text-sm font-medium">管理頁面授權</div>
-        <p className="text-muted-foreground text-xs">
-          以下頁面預設只有<strong className="font-semibold">管理者 / 老闆</strong>看得到。勾選＝額外開放給此成員（不影響他其他頁面的可見性）。
-        </p>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2 pt-0.5 sm:grid-cols-3">
-          {GATED_ADMIN_MODULES.map((m) => (
-            <label key={m.key} className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                name={`mod_${m.key}`}
-                checked={adminGrants.has(m.key)}
-                onChange={(e) => toggleAdminGrant(m.key, e.currentTarget.checked)}
-                className="accent-primary h-4 w-4"
-              />
-              {m.label}
-            </label>
-          ))}
+      {/* 管理者專屬頁：額外授權（目前無此類頁面時不顯示） */}
+      {GATED_ADMIN_MODULES.length > 0 && (
+        <div className="space-y-2.5 rounded-lg border border-amber-200 bg-amber-50/40 p-3">
+          <div className="text-sm font-medium">管理頁面授權</div>
+          <p className="text-muted-foreground text-xs">
+            以下頁面預設只有<strong className="font-semibold">管理者 / 老闆</strong>看得到。勾選＝額外開放給此成員（不影響他其他頁面的可見性）。
+          </p>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 pt-0.5 sm:grid-cols-3">
+            {GATED_ADMIN_MODULES.map((m) => (
+              <label key={m.key} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name={`mod_${m.key}`}
+                  checked={adminGrants.has(m.key)}
+                  onChange={(e) => toggleAdminGrant(m.key, e.currentTarget.checked)}
+                  className="accent-primary h-4 w-4"
+                />
+                {m.label}
+              </label>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {error && (
         <p className="bg-destructive/10 text-destructive rounded-md px-3 py-2 text-sm">

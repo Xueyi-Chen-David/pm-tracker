@@ -155,26 +155,6 @@ export default async function MemberProfilePage({
               )}
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-1.5">
-                <CalendarRange className="h-4 w-4" /> 請假 / 出差 / 事件
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <MemberEventsPanel
-                userId={m.id}
-                events={m.memberEvents.map((ev) => ({
-                  id: ev.id,
-                  type: ev.type,
-                  startDate: ev.startDate,
-                  endDate: ev.endDate,
-                  note: ev.note,
-                }))}
-              />
-            </CardContent>
-          </Card>
         </div>
 
         {/* 生產力 */}
@@ -279,6 +259,26 @@ export default async function MemberProfilePage({
                   })}
                 </div>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-1.5">
+                <CalendarRange className="h-4 w-4" /> 請假 / 出差 / 事件
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <MemberEventsPanel
+                userId={m.id}
+                events={m.memberEvents.map((ev) => ({
+                  id: ev.id,
+                  type: ev.type,
+                  startDate: ev.startDate,
+                  endDate: ev.endDate,
+                  note: ev.note,
+                }))}
+              />
             </CardContent>
           </Card>
 

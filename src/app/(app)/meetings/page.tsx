@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { MeetingFormDialog } from "@/components/meeting-form-dialog";
 import { MeetingDeleteButton } from "@/components/meeting-delete-button";
+import { ViewportScroll } from "@/components/viewport-scroll";
 import { Button, buttonVariants } from "@/components/ui/button";
 
 export const metadata = { title: "會議記錄 · Project Pulse" };
@@ -68,7 +69,7 @@ export default async function MeetingsPage({
           )}
         </div>
       ) : (
-        <div className="space-y-3">
+        <ViewportScroll className="space-y-3 pr-1">
           {meetings.map((m) => {
             const names = m.attendeeIds
               .map((id) => nameById.get(id))
@@ -140,7 +141,7 @@ export default async function MeetingsPage({
               </div>
             );
           })}
-        </div>
+        </ViewportScroll>
       )}
     </div>
   );
