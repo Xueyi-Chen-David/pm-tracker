@@ -103,7 +103,7 @@ export function PaginatedMemberList({
                   className="hover:bg-muted/40 flex items-center gap-3 px-3 py-2"
                 >
                   <Link
-                    href={`/team/${m.id}`}
+                    href={`/me/${m.id}`}
                     className="flex w-56 shrink-0 items-center gap-2.5"
                   >
                     <Avatar className="h-8 w-8 shrink-0">

@@ -244,7 +244,7 @@ export async function updateProfileAction(
     throw e;
   }
   revalidatePath("/team");
-  revalidatePath(`/team/${d.id}`);
+  revalidatePath(`/me/${d.id}`);
   revalidatePath("/attendance");
   revalidatePath("/daily");
   return { ok: true };
@@ -284,7 +284,7 @@ export async function setMemberManagerRole(userId: string, makeManager: boolean)
     });
   }
   revalidatePath("/team");
-  revalidatePath(`/team/${userId}`);
+  revalidatePath(`/me/${userId}`);
 }
 
 /**
@@ -322,7 +322,7 @@ export async function setMemberManager(
     data: { managerId },
   });
   revalidatePath("/team");
-  revalidatePath(`/team/${userId}`);
+  revalidatePath(`/me/${userId}`);
   revalidatePath("/daily");
 }
 
@@ -336,7 +336,7 @@ export async function setMemberDepartment(userId: string, department: string) {
   });
   if (res.count === 0) throw new Error("該成員不屬於目前組織。");
   revalidatePath("/team");
-  revalidatePath(`/team/${userId}`);
+  revalidatePath(`/me/${userId}`);
 }
 
 /** 設定成員在本組織是否在職 / 啟用。需擁有者 / 管理員。 */
@@ -347,7 +347,7 @@ export async function setMemberActive(id: string, active: boolean) {
     data: { active },
   });
   revalidatePath("/team");
-  revalidatePath(`/team/${id}`);
+  revalidatePath(`/me/${id}`);
 }
 
 /**

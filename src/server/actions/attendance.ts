@@ -89,5 +89,5 @@ export async function setTrackAttendance(userId: string, on: boolean) {
   });
   revalidatePath("/attendance");
   revalidatePath("/team");
-  revalidatePath(`/team/${userId}`);
+  revalidatePath(`/me/${userId}`);
 }

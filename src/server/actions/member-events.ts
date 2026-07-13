@@ -59,7 +59,7 @@ export async function createMemberEvent(input: z.input<typeof EventInput>) {
     );
   }
 
-  revalidatePath(`/team/${d.userId}`);
+  revalidatePath(`/me/${d.userId}`);
   revalidatePath("/team");
   revalidatePath("/attendance");
 }
@@ -85,7 +85,7 @@ export async function deleteMemberEvent(input: { id: string; userId: string }) {
     );
   }
 
-  revalidatePath(`/team/${input.userId}`);
+  revalidatePath(`/me/${input.userId}`);
   revalidatePath("/team");
   revalidatePath("/attendance");
 }

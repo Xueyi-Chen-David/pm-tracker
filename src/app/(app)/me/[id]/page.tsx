@@ -61,12 +61,14 @@ export default async function MemberProfilePage({
 
   return (
     <div className="space-y-5">
-      <Link
-        href="/team"
-        className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
-      >
-        <ArrowLeft className="h-4 w-4" /> 返回團隊
-      </Link>
+      {!isSelf && (
+        <Link
+          href="/team"
+          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-sm"
+        >
+          <ArrowLeft className="h-4 w-4" /> 返回團隊
+        </Link>
+      )}
 
       <Card>
         <CardContent className="flex flex-wrap items-center gap-4 pt-6">

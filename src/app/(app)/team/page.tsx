@@ -79,7 +79,7 @@ export default async function TeamPage({
                   className="hover:bg-muted/30 relative flex h-full flex-row items-center gap-3 p-4 transition-colors"
                 >
                   <Link
-                    href={`/team/${m.id}`}
+                    href={`/me/${m.id}`}
                     className="flex min-w-0 flex-1 items-center gap-3"
                   >
                     <Avatar className="h-12 w-12">

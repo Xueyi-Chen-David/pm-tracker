@@ -7,5 +7,5 @@ import { requireActiveOrg } from "@/server/org";
  */
 export default async function MyProfilePage() {
   const { user } = await requireActiveOrg();
-  redirect(`/team/${user.id}`);
+  redirect(`/me/${user.id}`);
 }

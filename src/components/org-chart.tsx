@@ -41,7 +41,7 @@ export function OrgChart({ members }: { members: OrgChartEntry[] }) {
           style={{ paddingLeft: depth * 20 }}
         >
           {depth > 0 && <span className="text-muted-foreground">└</span>}
-          <Link href={`/team/${node.id}`} className="hover:underline">
+          <Link href={`/me/${node.id}`} className="hover:underline">
             <MemberName u={node} className="font-medium" />
           </Link>
           {node.isBoss && <Crown className="h-3.5 w-3.5 shrink-0 text-amber-500" />}

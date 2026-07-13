@@ -57,7 +57,7 @@ export function OrgChartGraph({ members }: { members: OrgChartEntry[] }) {
 function NodeCard({ node }: { node: OrgChartEntry }) {
   return (
     <Link
-      href={`/team/${node.id}`}
+      href={`/me/${node.id}`}
       className="bg-background hover:border-primary/50 hover:bg-muted/40 inline-flex w-40 flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-center shadow-sm transition-colors"
     >
       <Avatar className="h-11 w-11">
