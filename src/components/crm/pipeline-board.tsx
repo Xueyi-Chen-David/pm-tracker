@@ -4,7 +4,6 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Plus, Pencil } from "lucide-react";
-import type { CrmDealStatus } from "@prisma/client";
 import { fmtMoneyShort, stageColor } from "@/lib/crm";
 import { moveDealStage } from "@/server/actions/crm";
 import { cn } from "@/lib/utils";
@@ -22,29 +21,10 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import type { OwnerLite } from "@/components/okr/key-result-row";
+import type { ContactLite, StageView, DealView } from "@/components/crm/types";
 
-export type ContactLite = { id: string; name: string; company: string | null };
-
-export type StageView = {
-  id: string;
-  key: string;
-  label: string;
-  note: string | null;
-  color: string;
-};
-
-export type DealView = {
-  id: string;
-  title: string;
-  value: number;
-  stage: string; // DealStage.key
-  status: CrmDealStatus;
-  contact: ContactLite | null;
-  owner: OwnerLite | null;
-  expectedCloseDate: string | null;
-  note: string | null;
-  activityCount: number;
-};
+// 相容既有 import：型別實際定義在 ./types（見該檔說明的循環依賴問題）。
+export type { ContactLite, StageView, DealView } from "@/components/crm/types";
 
 export function PipelineBoard({
   deals,
@@ -97,7 +77,10 @@ export function PipelineBoard({
   return (
     <>
       <div
-        className={cn("flex gap-3 overflow-x-auto pb-2", pending && "opacity-60")}
+        className={cn(
+          "flex h-full gap-3 overflow-x-auto pb-2",
+          pending && "opacity-60",
+        )}
       >
         {stages.map((stage) => {
           const list = byStage.get(stage.key) ?? [];
@@ -119,7 +102,7 @@ export function PipelineBoard({
                 if (id) requestMove(id, stage.key);
               }}
               className={cn(
-                "bg-muted/30 flex w-72 shrink-0 flex-col rounded-xl border transition-shadow",
+                "bg-muted/30 flex h-full w-72 shrink-0 flex-col rounded-xl border transition-shadow",
                 isOver && dragId && "ring-primary ring-2",
               )}
             >
@@ -157,7 +140,7 @@ export function PipelineBoard({
                 </div>
               )}
 
-              <div className="max-h-[calc(100dvh-20rem)] flex-1 space-y-2 overflow-y-auto p-2">
+              <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-2">
                 {list.map((d) => (
                   <div
                     key={d.id}

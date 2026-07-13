@@ -41,7 +41,7 @@ import type {
   DealView,
   ContactLite,
   StageView,
-} from "@/components/crm/pipeline-board";
+} from "@/components/crm/types";
 
 type StageChange = {
   id: string;

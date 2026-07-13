@@ -27,7 +27,7 @@ import {
   DialogTitle,
   DialogFooter,
 } from "@/components/ui/dialog";
-import type { StageView } from "@/components/crm/pipeline-board";
+import type { StageView } from "@/components/crm/types";
 
 /** 新增 / 編輯（含刪除）一個管線階段。無 stage＝新增。 */
 export function StageDialog({

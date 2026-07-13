@@ -22,6 +22,7 @@ import {
   type StageView,
 } from "@/components/crm/pipeline-board";
 import { ContactsList, type ContactRow } from "@/components/crm/contacts-list";
+import { FunnelView, type FunnelStage } from "@/components/crm/funnel-view";
 
 export const metadata = { title: "CRM · Project Pulse" };
 
@@ -36,7 +37,12 @@ export default async function CrmPage({
 }) {
   const { org } = await requireActiveOrg();
   const { tab: tabParam } = await searchParams;
-  const tab = tabParam === "contacts" ? "contacts" : "pipeline";
+  const tab =
+    tabParam === "contacts"
+      ? "contacts"
+      : tabParam === "funnel"
+        ? "funnel"
+        : "pipeline";
 
   const [dealRows, contactRows, members, stageRows] = await Promise.all([
     getCrmDeals(org.id),
@@ -71,6 +77,18 @@ export default async function CrmPage({
   const openDeals = deals.filter((d) => d.status === "OPEN");
   const won = deals.filter((d) => d.status === "WON");
   const lost = deals.filter((d) => d.status === "LOST");
+
+  // 漏斗：依階段順序統計所有商機的數量與金額。
+  const funnelStages: FunnelStage[] = stages.map((s) => {
+    const ds = deals.filter((d) => d.stage === s.key);
+    return {
+      key: s.key,
+      label: s.label,
+      color: s.color,
+      count: ds.length,
+      value: ds.reduce((a, d) => a + d.value, 0),
+    };
+  });
   const pipelineValue = openDeals.reduce((s, d) => s + d.value, 0);
   const wonValue = won.reduce((s, d) => s + d.value, 0);
   const closed = won.length + lost.length;
@@ -96,7 +114,7 @@ export default async function CrmPage({
   }));
 
   return (
-    <div className="space-y-4">
+    <div className="flex h-full min-h-0 flex-col gap-4">
       <PageHeader
         title="CRM"
         description={`銷售管線 · ${openDeals.length} 個進行中商機 · ${contactRows.length} 位聯絡人`}
@@ -156,21 +174,32 @@ export default async function CrmPage({
         <TabLink href="/crm?tab=pipeline" active={tab === "pipeline"}>
           銷售管線
         </TabLink>
+        <TabLink href="/crm?tab=funnel" active={tab === "funnel"}>
+          漏斗
+        </TabLink>
         <TabLink href="/crm?tab=contacts" active={tab === "contacts"}>
           聯絡人 · {contactRows.length}
         </TabLink>
       </div>
 
-      {tab === "pipeline" ? (
-        <PipelineBoard
-          deals={openDeals}
-          members={members}
-          contacts={contacts}
-          stages={stages}
-        />
-      ) : (
-        <ContactsList contacts={contactRowsView} members={members} />
-      )}
+      <div className="min-h-0 flex-1">
+        {tab === "pipeline" ? (
+          <PipelineBoard
+            deals={openDeals}
+            members={members}
+            contacts={contacts}
+            stages={stages}
+          />
+        ) : tab === "funnel" ? (
+          <div className="h-full overflow-y-auto pb-2">
+            <FunnelView stages={funnelStages} />
+          </div>
+        ) : (
+          <div className="h-full overflow-y-auto pb-2">
+            <ContactsList contacts={contactRowsView} members={members} />
+          </div>
+        )}
+      </div>
     </div>
   );
 }

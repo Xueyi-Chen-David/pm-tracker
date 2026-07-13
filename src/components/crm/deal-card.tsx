@@ -12,7 +12,7 @@ import type {
   DealView,
   ContactLite,
   StageView,
-} from "@/components/crm/pipeline-board";
+} from "@/components/crm/types";
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
