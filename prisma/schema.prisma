@@ -131,6 +131,8 @@ model Organization {
   trainingAssignments TrainingAssignment[]
   crmContacts         CrmContact[]
   crmDeals            CrmDeal[]
+  dealStages          DealStage[]
+  dealStageChanges    DealStageChange[]
 }
 
 /**
@@ -758,13 +760,6 @@ model TrainingAssignment {
 // 業界慣例：以「管線階段(stage)」推進商機；成交/流失後離開管線。org-scoped。
 // ─────────────────────────────────────────────
 
-enum CrmStage {
-  LEAD // 潛在
-  QUALIFIED // 已確認需求
-  PROPOSAL // 提案 / 報價
-  NEGOTIATION // 議約中
-}
-
 enum CrmDealStatus {
   OPEN // 進行中（在管線上）
   WON // 成交
@@ -804,7 +799,7 @@ model CrmDeal {
 
   title  String
   value  Int           @default(0) // 金額（日圓，整數）
-  stage  CrmStage      @default(LEAD)
+  stage  String        @default("LEAD") // DealStage.key（每組織可自訂階段）
   status CrmDealStatus @default(OPEN)
 
   contactId String?
@@ -819,13 +814,54 @@ model CrmDeal {
   sortOrder         Int       @default(0) // 同一階段內排序
   createdById       String?
 
-  activities CrmActivity[]
+  activities   CrmActivity[]
+  stageChanges DealStageChange[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([organizationId, status])
   @@index([contactId])
+  @@index([organizationId, stage])
+}
+
+/// 每組織可自訂的銷售管線階段（看板欄位）。key 為穩定鍵，CrmDeal.stage 存 key。
+model DealStage {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  key       String // 穩定鍵：預設階段用語意鍵（LEAD…），自訂為 cuid
+  label     String // 顯示名稱（可編輯）
+  note      String? @db.Text // 小備註（顯示於欄位上方）
+  color     String  @default("slate") // 色名（slate/sky/cyan/violet/amber/emerald/rose/zinc…）
+  sortOrder Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
+}
+
+/// 商機的階段異動時間線（每次換階段記一筆，含原因），供視覺化客戶狀態歷程。
+model DealStageChange {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  dealId String
+  deal   CrmDeal @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  fromStage String? // 前一階段 key（建立商機時為 null）
+  toStage   String // 新階段 key
+  reason    String? @db.Text // 這次調整的原因
+
+  changedById String?
+  changedAt   DateTime @default(now())
+
+  @@index([dealId, changedAt])
+  @@index([organizationId])
 }
 
 /// 商機的活動 / 備註時間軸（電話 / 會議 / Email / 備註 / 待辦）。

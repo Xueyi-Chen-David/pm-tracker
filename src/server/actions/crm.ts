@@ -16,7 +16,7 @@ function revalidate() {
   revalidatePath("/crm");
 }
 
-const STAGE = z.enum(["LEAD", "QUALIFIED", "PROPOSAL", "NEGOTIATION"]);
+const STAGE = z.string().trim().min(1); // DealStage.key（每組織自訂）
 const STATUS = z.enum(["OPEN", "WON", "LOST"]);
 
 // ── 聯絡人 ──────────────────────────────────────
@@ -121,6 +121,16 @@ export async function createDeal(input: z.input<typeof DealInput>) {
     },
     select: { id: true },
   });
+  // 時間線起點：建立於哪個階段。
+  await db.dealStageChange.create({
+    data: {
+      organizationId: org.id,
+      dealId: deal.id,
+      fromStage: null,
+      toStage: d.stage,
+      changedById: user.id,
+    },
+  });
   revalidate();
   return deal;
 }
@@ -136,11 +146,11 @@ const DealPatch = z.object({
 });
 
 export async function updateDeal(id: string, patch: z.input<typeof DealPatch>) {
-  const { org } = await requireActiveOrg();
+  const { user, org } = await requireActiveOrg();
   const p = DealPatch.parse(patch);
   const deal = await db.crmDeal.findFirst({
     where: { id, organizationId: org.id },
-    select: { id: true },
+    select: { id: true, stage: true },
   });
   if (!deal) throw new Error("找不到商機");
   if (p.contactId) {
@@ -150,6 +160,7 @@ export async function updateDeal(id: string, patch: z.input<typeof DealPatch>) {
     });
     if (!c) throw new Error("找不到聯絡人");
   }
+  const stageChanged = p.stage !== undefined && p.stage !== deal.stage;
   await db.crmDeal.update({
     where: { id },
     data: {
@@ -164,25 +175,51 @@ export async function updateDeal(id: string, patch: z.input<typeof DealPatch>) {
       ...(p.note !== undefined ? { note: p.note || null } : {}),
     },
   });
+  // 在編輯視窗改階段也記入時間線（無原因）。
+  if (stageChanged) {
+    await db.dealStageChange.create({
+      data: {
+        organizationId: org.id,
+        dealId: id,
+        fromStage: deal.stage,
+        toStage: p.stage!,
+        changedById: user.id,
+      },
+    });
+  }
   revalidate();
 }
 
-/** 看板移動：換階段（僅對進行中的商機）。 */
-export async function moveDealStage(
-  id: string,
-  stage: z.input<typeof STAGE>,
-) {
-  const { org } = await requireActiveOrg();
+/** 看板移動：換階段，並記入時間線（可帶原因）。 */
+export async function moveDealStage(id: string, stage: string, reason?: string) {
+  const { user, org } = await requireActiveOrg();
   const s = STAGE.parse(stage);
+  const deal = await db.crmDeal.findFirst({
+    where: { id, organizationId: org.id },
+    select: { id: true, stage: true },
+  });
+  if (!deal) throw new Error("找不到商機");
+  if (deal.stage === s) return; // 沒換階段
   const max = await db.crmDeal.aggregate({
     where: { organizationId: org.id, stage: s, status: "OPEN" },
     _max: { sortOrder: true },
   });
-  const res = await db.crmDeal.updateMany({
-    where: { id, organizationId: org.id },
-    data: { stage: s, sortOrder: (max._max.sortOrder ?? 0) + 1 },
-  });
-  if (res.count === 0) throw new Error("找不到商機");
+  await db.$transaction([
+    db.crmDeal.update({
+      where: { id },
+      data: { stage: s, sortOrder: (max._max.sortOrder ?? 0) + 1 },
+    }),
+    db.dealStageChange.create({
+      data: {
+        organizationId: org.id,
+        dealId: id,
+        fromStage: deal.stage,
+        toStage: s,
+        reason: reason?.trim() || null,
+        changedById: user.id,
+      },
+    }),
+  ]);
   revalidate();
 }
 
@@ -202,6 +239,104 @@ export async function deleteDeal(id: string) {
   const { org } = await requireActiveOrg();
   await db.crmDeal.deleteMany({ where: { id, organizationId: org.id } });
   revalidate();
+}
+
+// ── 管線階段（每組織可自訂） ────────────────────
+
+const StageInput = z.object({
+  label: z.string().trim().min(1, "請輸入階段名稱").max(40),
+  note: z.string().trim().max(500).optional(),
+  color: z.string().trim().max(20).optional(),
+});
+
+export async function createDealStage(input: z.input<typeof StageInput>) {
+  const { org } = await requireActiveOrg();
+  const d = StageInput.parse(input);
+  const max = await db.dealStage.aggregate({
+    where: { organizationId: org.id },
+    _max: { sortOrder: true },
+  });
+  await db.dealStage.create({
+    data: {
+      organizationId: org.id,
+      key: crypto.randomUUID(), // 自訂階段用穩定隨機鍵
+      label: d.label,
+      note: d.note || null,
+      color: d.color || "slate",
+      sortOrder: (max._max.sortOrder ?? -1) + 1,
+    },
+  });
+  revalidate();
+}
+
+export async function updateDealStage(
+  id: string,
+  input: z.input<typeof StageInput>,
+) {
+  const { org } = await requireActiveOrg();
+  const d = StageInput.parse(input);
+  const res = await db.dealStage.updateMany({
+    where: { id, organizationId: org.id },
+    data: { label: d.label, note: d.note || null, color: d.color || "slate" },
+  });
+  if (res.count === 0) throw new Error("找不到階段");
+  revalidate();
+}
+
+export async function deleteDealStage(id: string) {
+  const { org } = await requireActiveOrg();
+  const stage = await db.dealStage.findFirst({
+    where: { id, organizationId: org.id },
+    select: { key: true },
+  });
+  if (!stage) throw new Error("找不到階段");
+  const total = await db.dealStage.count({ where: { organizationId: org.id } });
+  if (total <= 1) throw new Error("至少保留一個階段");
+  const inUse = await db.crmDeal.count({
+    where: { organizationId: org.id, stage: stage.key },
+  });
+  if (inUse > 0) {
+    throw new Error(`此階段還有 ${inUse} 個商機，請先移走再刪除`);
+  }
+  await db.dealStage.delete({ where: { id } });
+  revalidate();
+}
+
+/** 讀某商機的階段異動時間線（含變更者名稱），供時間軸視覺化。 */
+export async function listDealStageChanges(dealId: string) {
+  const { org } = await requireActiveOrg();
+  const changes = await db.dealStageChange.findMany({
+    where: { organizationId: org.id, dealId },
+    orderBy: { changedAt: "asc" },
+    select: {
+      id: true,
+      fromStage: true,
+      toStage: true,
+      reason: true,
+      changedAt: true,
+      changedById: true,
+    },
+  });
+  const ids = [
+    ...new Set(changes.map((c) => c.changedById).filter((v): v is string => !!v)),
+  ];
+  const users = ids.length
+    ? await db.user.findMany({
+        where: { id: { in: ids } },
+        select: {
+          id: true,
+          name: true,
+          nickname: true,
+          useNickname: true,
+          email: true,
+        },
+      })
+    : [];
+  const byId = new Map(users.map((u) => [u.id, u]));
+  return changes.map((c) => ({
+    ...c,
+    changedBy: c.changedById ? (byId.get(c.changedById) ?? null) : null,
+  }));
 }
 
 // ── 活動 / 備註 ─────────────────────────────────

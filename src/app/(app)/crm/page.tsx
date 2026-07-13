@@ -1,7 +1,12 @@
 import Link from "next/link";
 import { Plus, TrendingUp, Wallet, Trophy, Target } from "lucide-react";
 import { requireActiveOrg } from "@/server/org";
-import { getCrmDeals, getCrmContacts, getOrgMemberUsers } from "@/server/queries";
+import {
+  getCrmDeals,
+  getCrmContacts,
+  getDealStages,
+  getOrgMemberUsers,
+} from "@/server/queries";
 import { fmtMoney } from "@/lib/crm";
 import { primaryName } from "@/lib/display";
 import { cn } from "@/lib/utils";
@@ -14,6 +19,7 @@ import {
   PipelineBoard,
   type DealView,
   type ContactLite,
+  type StageView,
 } from "@/components/crm/pipeline-board";
 import { ContactsList, type ContactRow } from "@/components/crm/contacts-list";
 
@@ -32,11 +38,20 @@ export default async function CrmPage({
   const { tab: tabParam } = await searchParams;
   const tab = tabParam === "contacts" ? "contacts" : "pipeline";
 
-  const [dealRows, contactRows, members] = await Promise.all([
+  const [dealRows, contactRows, members, stageRows] = await Promise.all([
     getCrmDeals(org.id),
     getCrmContacts(org.id),
     getOrgMemberUsers(org.id),
+    getDealStages(org.id),
   ]);
+
+  const stages: StageView[] = stageRows.map((s) => ({
+    id: s.id,
+    key: s.key,
+    label: s.label,
+    note: s.note,
+    color: s.color,
+  }));
 
   const deals: DealView[] = dealRows.map((d) => ({
     id: d.id,
@@ -97,6 +112,7 @@ export default async function CrmPage({
         <DealDialog
           members={members}
           contacts={contacts}
+          stages={stages}
           trigger={
             <Button className="gap-1.5">
               <Plus className="h-4 w-4" /> 新增商機
@@ -146,7 +162,12 @@ export default async function CrmPage({
       </div>
 
       {tab === "pipeline" ? (
-        <PipelineBoard deals={openDeals} members={members} contacts={contacts} />
+        <PipelineBoard
+          deals={openDeals}
+          members={members}
+          contacts={contacts}
+          stages={stages}
+        />
       ) : (
         <ContactsList contacts={contactRowsView} members={members} />
       )}

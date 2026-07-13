@@ -1,19 +1,18 @@
 "use client";
 
-import { useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
 import { CalendarClock, MessageSquare } from "lucide-react";
-import type { CrmStage } from "@prisma/client";
-import { moveDealStage } from "@/server/actions/crm";
-import { CRM_STAGE_OPTIONS, fmtMoney } from "@/lib/crm";
+import { fmtMoney } from "@/lib/crm";
 import { fmtDateShort } from "@/lib/date";
 import { displayInitial } from "@/lib/display";
 import { cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { DealDialog } from "@/components/crm/deal-dialog";
 import type { OwnerLite } from "@/components/okr/key-result-row";
-import type { DealView, ContactLite } from "@/components/crm/pipeline-board";
+import type {
+  DealView,
+  ContactLite,
+  StageView,
+} from "@/components/crm/pipeline-board";
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
 
@@ -21,38 +20,25 @@ export function DealCard({
   deal,
   members,
   contacts,
+  stages,
+  onMove,
 }: {
   deal: DealView;
   members: OwnerLite[];
   contacts: ContactLite[];
+  stages: StageView[];
+  /** 換階段（會由看板開啟原因視窗後才真正移動）。 */
+  onMove: (toKey: string) => void;
 }) {
-  const router = useRouter();
-  const [pending, start] = useTransition();
   const overdue = !!deal.expectedCloseDate && deal.expectedCloseDate < todayStr();
 
-  function move(stage: string) {
-    if (stage === deal.stage) return;
-    start(async () => {
-      try {
-        await moveDealStage(deal.id, stage as CrmStage);
-        router.refresh();
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "移動失敗");
-      }
-    });
-  }
-
   return (
-    <div
-      className={cn(
-        "bg-card rounded-lg border p-2.5 shadow-sm transition-opacity",
-        pending && "opacity-60",
-      )}
-    >
+    <div className="bg-card rounded-lg border p-2.5 shadow-sm">
       <DealDialog
         deal={deal}
         members={members}
         contacts={contacts}
+        stages={stages}
         trigger={
           <button type="button" className="block w-full text-left">
             <div className="text-sm font-medium break-words">{deal.title}</div>
@@ -99,18 +85,17 @@ export function DealCard({
         }
       />
 
-      {/* 快速移動階段 */}
+      {/* 快速移動階段（也可直接拖曳卡片） */}
       <div className="mt-2 border-t pt-1.5">
         <select
           value={deal.stage}
-          disabled={pending}
-          onChange={(e) => move(e.target.value)}
-          className="text-muted-foreground h-6 w-full rounded border-none bg-transparent text-[11px] outline-none hover:bg-muted"
+          onChange={(e) => onMove(e.target.value)}
+          className="text-muted-foreground hover:bg-muted h-6 w-full rounded border-none bg-transparent text-[11px] outline-none"
           title="移動到其他階段"
         >
-          {CRM_STAGE_OPTIONS.map((s) => (
-            <option key={s.value} value={s.value}>
-              移到：{s.label}
+          {stages.map((s) => (
+            <option key={s.key} value={s.key}>
+              {s.key === deal.stage ? s.label : `移到：${s.label}`}
             </option>
           ))}
         </select>

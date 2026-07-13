@@ -19,13 +19,11 @@ import {
   toggleActivityDone,
   deleteActivity,
   listDealActivities,
+  listDealStageChanges,
 } from "@/server/actions/crm";
-import {
-  CRM_STAGE_OPTIONS,
-  CRM_ACTIVITY_TYPES,
-  CRM_ACTIVITY_ICON,
-} from "@/lib/crm";
+import { CRM_ACTIVITY_TYPES, CRM_ACTIVITY_ICON, stageColor } from "@/lib/crm";
 import { fmtDate } from "@/lib/date";
+import { primaryName, type NameSource } from "@/lib/display";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,7 +37,20 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import type { OwnerLite } from "@/components/okr/key-result-row";
-import type { DealView, ContactLite } from "@/components/crm/pipeline-board";
+import type {
+  DealView,
+  ContactLite,
+  StageView,
+} from "@/components/crm/pipeline-board";
+
+type StageChange = {
+  id: string;
+  fromStage: string | null;
+  toStage: string;
+  reason: string | null;
+  changedAt: Date | string;
+  changedBy: NameSource | null;
+};
 
 const inputCls =
   "border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm outline-none focus:border-ring";
@@ -57,12 +68,14 @@ export function DealDialog({
   trigger,
   members,
   contacts,
+  stages,
   deal,
-  defaultStage = "LEAD",
+  defaultStage,
 }: {
   trigger: React.ReactElement;
   members: OwnerLite[];
   contacts: ContactLite[];
+  stages: StageView[];
   deal?: DealView;
   defaultStage?: string;
 }) {
@@ -71,14 +84,20 @@ export function DealDialog({
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
   const [activities, setActivities] = useState<Activity[]>([]);
+  const [changes, setChanges] = useState<StageChange[]>([]);
   const editing = !!deal;
+  const firstStage = defaultStage ?? stages[0]?.key ?? "LEAD";
+  const stageMap = new Map(stages.map((s) => [s.key, s]));
 
-  // 開啟編輯時載入活動時間軸。
+  // 開啟編輯時載入活動時間軸 + 階段歷程。
   useEffect(() => {
     if (open && deal) {
       listDealActivities(deal.id)
         .then(setActivities)
         .catch(() => setActivities([]));
+      listDealStageChanges(deal.id)
+        .then(setChanges)
+        .catch(() => setChanges([]));
     }
   }, [open, deal]);
 
@@ -92,7 +111,7 @@ export function DealDialog({
     const input = {
       title: String(fd.get("title") ?? "").trim(),
       value: Number(fd.get("value") ?? 0) || 0,
-      stage: String(fd.get("stage") ?? defaultStage) as never,
+      stage: String(fd.get("stage") ?? firstStage),
       contactId: String(fd.get("contactId") ?? "") || null,
       ownerId: String(fd.get("ownerId") ?? "") || null,
       expectedCloseDate: String(fd.get("expectedCloseDate") ?? "") || null,
@@ -171,11 +190,11 @@ export function DealDialog({
                 <select
                   id="d-stage"
                   name="stage"
-                  defaultValue={deal?.stage ?? defaultStage}
+                  defaultValue={deal?.stage ?? firstStage}
                   className={inputCls}
                 >
-                  {CRM_STAGE_OPTIONS.map((s) => (
-                    <option key={s.value} value={s.value}>
+                  {stages.map((s) => (
+                    <option key={s.key} value={s.key}>
                       {s.label}
                     </option>
                   ))}
@@ -305,10 +324,13 @@ export function DealDialog({
                 )}
               </div>
 
+              <StageTimeline changes={changes} stageMap={stageMap} />
+
               <ActivitySection
                 dealId={deal.id}
                 activities={activities}
                 pending={pending}
+                onOptimistic={(a) => setActivities((prev) => [a, ...prev])}
                 onChanged={refreshActivities}
                 run={run}
               />
@@ -317,6 +339,63 @@ export function DealDialog({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/** 階段歷程時間線：一目了然看客戶從哪個階段走到哪個階段、何時、原因。 */
+function StageTimeline({
+  changes,
+  stageMap,
+}: {
+  changes: StageChange[];
+  stageMap: Map<string, StageView>;
+}) {
+  if (changes.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <div className="text-sm font-medium">階段歷程</div>
+      <ol className="border-muted relative ml-1 space-y-3 border-l pl-4">
+        {changes.map((c) => {
+          const st = stageMap.get(c.toStage);
+          const col = stageColor(st?.color);
+          const from = c.fromStage ? stageMap.get(c.fromStage) : null;
+          return (
+            <li key={c.id} className="relative">
+              <span
+                className={cn(
+                  "ring-background absolute top-1 -left-[1.35rem] h-2.5 w-2.5 rounded-full ring-2",
+                  col.dot,
+                )}
+              />
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span
+                  className={cn(
+                    "rounded px-1.5 py-0.5 text-xs font-medium",
+                    col.chip,
+                  )}
+                >
+                  {st?.label ?? c.toStage}
+                </span>
+                {from && (
+                  <span className="text-muted-foreground text-[11px]">
+                    ← {from.label}
+                  </span>
+                )}
+                <span className="text-muted-foreground ml-auto text-[11px]">
+                  {fmtDate(new Date(c.changedAt))}
+                  {c.changedBy ? ` · ${primaryName(c.changedBy)}` : ""}
+                </span>
+              </div>
+              {c.reason && (
+                <p className="text-muted-foreground mt-0.5 text-xs break-words whitespace-pre-wrap">
+                  {c.reason}
+                </p>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
   );
 }
 
@@ -353,12 +432,14 @@ function ActivitySection({
   dealId,
   activities,
   pending,
+  onOptimistic,
   onChanged,
   run,
 }: {
   dealId: string;
   activities: Activity[];
   pending: boolean;
+  onOptimistic: (a: Activity) => void;
   onChanged: () => void;
   run: (fn: () => Promise<void>, after?: () => void) => void;
 }) {
@@ -371,14 +452,20 @@ function ActivitySection({
     const body = String(fd.get("body") ?? "").trim();
     if (!body) return;
     const dueDate = String(fd.get("dueDate") ?? "") || null;
-    run(
-      () => addActivity({ dealId, type: type as never, body, dueDate }),
-      () => {
-        form.reset();
-        setType("note");
-        onChanged();
-      },
-    );
+    // 樂觀更新：先本地插入，送出後 onChanged 重新載入取代（本地 state 不會閃動）。
+    onOptimistic({
+      id: `tmp-${Date.now()}`,
+      type,
+      body,
+      dueDate,
+      done: false,
+      createdAt: new Date(),
+    });
+    run(() => addActivity({ dealId, type: type as never, body, dueDate }), () => {
+      form.reset();
+      setType("note");
+      onChanged();
+    });
   }
 
   return (

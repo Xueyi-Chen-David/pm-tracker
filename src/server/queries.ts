@@ -2,6 +2,7 @@ import { cache } from "react";
 import type { OkrLevel, ProjectStatus } from "@prisma/client";
 import { db } from "./db";
 import { thisWeekStart, weekStartOf } from "@/lib/date";
+import { DEFAULT_DEAL_STAGES } from "@/lib/crm";
 
 // 註：所有查詢皆以「目前組織」(orgId) 收斂。Project 底下的子表（成員 / 週報 /
 // 里程碑 / 任務 / 活動）不帶 organizationId，改用關聯過濾 project.organizationId。
@@ -776,3 +777,25 @@ export async function getCrmContacts(orgId: string) {
   });
 }
 export type CrmContactRow = Awaited<ReturnType<typeof getCrmContacts>>[number];
+
+/** 每組織的管線階段（依 sortOrder）；若尚未種子則自動建立預設 8 階段。 */
+export async function getDealStages(orgId: string) {
+  const order = [{ sortOrder: "asc" as const }, { createdAt: "asc" as const }];
+  const existing = await db.dealStage.findMany({
+    where: { organizationId: orgId },
+    orderBy: order,
+  });
+  if (existing.length > 0) return existing;
+  await db.dealStage.createMany({
+    data: DEFAULT_DEAL_STAGES.map((s, i) => ({
+      organizationId: orgId,
+      key: s.key,
+      label: s.label,
+      color: s.color,
+      sortOrder: i,
+    })),
+    skipDuplicates: true,
+  });
+  return db.dealStage.findMany({ where: { organizationId: orgId }, orderBy: order });
+}
+export type DealStageRow = Awaited<ReturnType<typeof getDealStages>>[number];
