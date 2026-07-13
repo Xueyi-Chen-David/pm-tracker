@@ -131,7 +131,7 @@ export default async function DailyPage() {
             </CardHeader>
             <CardContent>
               {myReports.length > 0 ? (
-                <div className="space-y-2">
+                <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
                   {myReports.map((r) => (
                     <DailyReportCard
                       key={r.id}

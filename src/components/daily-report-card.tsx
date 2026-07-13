@@ -10,6 +10,14 @@ import { Button } from "@/components/ui/button";
 import { fmtQty } from "@/lib/daily";
 import type { NameSource } from "@/lib/display";
 
+const WEEKDAY = ["日", "一", "二", "三", "四", "五", "六"];
+
+/** 報告日標籤，如「7/13（一）」。以 UTC 讀取（對應 @db.Date，避免時區位移）。 */
+function dateWithWeekday(date: string | Date): string {
+  const d = new Date(date);
+  return `${d.getUTCMonth() + 1}/${d.getUTCDate()}（${WEEKDAY[d.getUTCDay()]}）`;
+}
+
 type Comment = {
   id: string;
   body: string;
@@ -67,7 +75,7 @@ export function DailyReportCard({
           <MemberName u={report.user} className="text-sm font-medium" />
         )}
         <span className="text-muted-foreground text-xs">
-          {format(new Date(report.date), "M/d")}
+          {dateWithWeekday(report.date)}
         </span>
         {report.items.length > 0 && (
           <span className="text-muted-foreground ml-auto text-xs tabular-nums">

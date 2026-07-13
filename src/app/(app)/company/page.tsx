@@ -287,7 +287,7 @@ function QuarterlyOkrSection({
           {year} 年尚無季度目標。點右上「新增季度目標」，選一個季別（Q1–Q4）建立。
         </div>
       ) : (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="space-y-4">
           {usedQuarters.map((q) => {
             const cycle = quarterCycle(year, q);
             const objs = byQuarter.get(q) ?? [];

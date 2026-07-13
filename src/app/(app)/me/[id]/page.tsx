@@ -5,7 +5,6 @@ import {
   Crown,
   FolderKanban,
   Users2,
-  FileText,
   CalendarCheck,
   CalendarRange,
   CheckCircle2,
@@ -109,10 +108,9 @@ export default async function MemberProfilePage({
       </Card>
 
       {/* 生產力總覽：橫跨全寬、置於所有 section 之上 */}
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         <Stat icon={<FolderKanban className="h-4 w-4" />} label="負責專案" value={owned.length} />
         <Stat icon={<Users2 className="h-4 w-4" />} label="參與專案" value={m.memberships.length} />
-        <Stat icon={<FileText className="h-4 w-4" />} label="累積週報" value={m.weeklyUpdates.length >= 8 ? "8+" : m.weeklyUpdates.length} />
         <Stat
           icon={<CalendarCheck className="h-4 w-4" />}
           label="本週更新"
