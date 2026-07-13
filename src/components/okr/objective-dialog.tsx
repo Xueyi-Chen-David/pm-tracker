@@ -31,6 +31,7 @@ export function ObjectiveDialog({
   trigger,
   members,
   cycles,
+  cycleOptions,
   defaultCycle,
   level,
   objective,
@@ -38,6 +39,8 @@ export function ObjectiveDialog({
   trigger: React.ReactElement;
   members: OwnerLite[];
   cycles: string[];
+  /** 有給就把「週期」欄改成固定下拉選單（季度用：Q1–Q4），讓使用者直接挑一個季別。 */
+  cycleOptions?: string[];
   defaultCycle: string;
   level: "ANNUAL" | "QUARTERLY";
   objective?: ObjectiveEdit;
@@ -116,19 +119,38 @@ export function ObjectiveDialog({
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="o-cycle">{cycleLabel}</Label>
-                <Input
-                  id="o-cycle"
-                  name="cycle"
-                  list={listId}
-                  required
-                  defaultValue={objective?.cycle ?? defaultCycle}
-                  placeholder={cyclePlaceholder}
-                />
-                <datalist id={listId}>
-                  {cycles.map((c) => (
-                    <option key={c} value={c} />
-                  ))}
-                </datalist>
+                {cycleOptions ? (
+                  <select
+                    id="o-cycle"
+                    name="cycle"
+                    defaultValue={objective?.cycle ?? defaultCycle}
+                    className="border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm"
+                  >
+                    {Array.from(
+                      new Set([objective?.cycle ?? defaultCycle, ...cycleOptions]),
+                    ).map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <>
+                    <Input
+                      id="o-cycle"
+                      name="cycle"
+                      list={listId}
+                      required
+                      defaultValue={objective?.cycle ?? defaultCycle}
+                      placeholder={cyclePlaceholder}
+                    />
+                    <datalist id={listId}>
+                      {cycles.map((c) => (
+                        <option key={c} value={c} />
+                      ))}
+                    </datalist>
+                  </>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="o-date">目標日期（選填）</Label>

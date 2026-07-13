@@ -8,6 +8,7 @@ import {
 } from "@/server/queries";
 import {
   currentYear,
+  currentCycle,
   cycleYear,
   cycleQuarter,
   quarterCycle,
@@ -226,8 +227,9 @@ function AnnualOkrSection({
 }
 
 /**
- * 季度 OKR：先用右上的年份下拉選一個年份，底下就出現該年的 Q1–Q4，
- * 每一季各自新增 / 檢視目標（Objective）與底下的 Key Result。
+ * 季度 OKR：先用右上的年份下拉選一個年份；不預先鋪出 Q1–Q4，
+ * 而是由使用者按「新增季度目標」時自行挑一個季別（Q1–Q4）來建立。
+ * 只顯示「已有目標」的季度；每季各自新增 / 檢視 Objective 與底下的 Key Result。
  */
 function QuarterlyOkrSection({
   year,
@@ -243,7 +245,15 @@ function QuarterlyOkrSection({
   projects: React.ComponentProps<typeof ObjectiveCard>["projects"];
 }) {
   const yearCycles = QUARTERS.map((q) => quarterCycle(year, q));
-  const total = QUARTERS.reduce((s, q) => s + (byQuarter.get(q)?.length ?? 0), 0);
+  // 只顯示已建立（有目標）的季度；使用者主動新增才會出現新的季度。
+  const usedQuarters = QUARTERS.filter((q) => (byQuarter.get(q)?.length ?? 0) > 0);
+  const total = usedQuarters.reduce(
+    (s, q) => s + (byQuarter.get(q)?.length ?? 0),
+    0,
+  );
+  // 「新增季度目標」對話框預設帶入的季別：今年→本季，其他年→ Q1。
+  const defaultCycle =
+    year === currentYear() ? currentCycle() : quarterCycle(year, 1);
 
   return (
     <section className="space-y-4">
@@ -251,47 +261,63 @@ function QuarterlyOkrSection({
         <div>
           <h2 className="text-lg font-semibold">季度 OKR</h2>
           <p className="text-muted-foreground text-xs">
-            先選年份，再為各季（Q1–Q4）設定目標與 KR · {year} 年共 {total} 個目標
+            先選年份，再自行新增要規劃的季度 · {year} 年 {usedQuarters.length} 季 /{" "}
+            {total} 個目標
           </p>
         </div>
-        <CompanyCycleSelect param="qy" active={year} options={years} />
+        <div className="flex items-center gap-2">
+          <CompanyCycleSelect param="qy" active={year} options={years} />
+          <ObjectiveDialog
+            members={members}
+            cycles={yearCycles}
+            cycleOptions={yearCycles}
+            defaultCycle={defaultCycle}
+            level="QUARTERLY"
+            trigger={
+              <Button className="gap-1.5">
+                <Plus className="h-4 w-4" /> 新增季度目標
+              </Button>
+            }
+          />
+        </div>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {QUARTERS.map((q) => {
-          const cycle = quarterCycle(year, q);
-          const objs = byQuarter.get(q) ?? [];
-          return (
-            <div key={q} className="space-y-2">
-              <div className="flex items-center gap-2 border-b pb-1">
-                <h3 className="text-base font-semibold">Q{q}</h3>
-                <span className="text-muted-foreground text-xs">
-                  {QUARTER_MONTHS[q]} · {objs.length} 個目標
-                </span>
-                <div className="ml-auto">
-                  <ObjectiveDialog
-                    members={members}
-                    cycles={yearCycles}
-                    defaultCycle={cycle}
-                    level="QUARTERLY"
-                    trigger={
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 gap-1 text-xs"
-                      >
-                        <Plus className="h-3.5 w-3.5" /> 新增
-                      </Button>
-                    }
-                  />
+      {usedQuarters.length === 0 ? (
+        <div className="text-muted-foreground rounded-xl border border-dashed py-10 text-center text-sm">
+          {year} 年尚無季度目標。點右上「新增季度目標」，選一個季別（Q1–Q4）建立。
+        </div>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {usedQuarters.map((q) => {
+            const cycle = quarterCycle(year, q);
+            const objs = byQuarter.get(q) ?? [];
+            return (
+              <div key={q} className="space-y-2">
+                <div className="flex items-center gap-2 border-b pb-1">
+                  <h3 className="text-base font-semibold">Q{q}</h3>
+                  <span className="text-muted-foreground text-xs">
+                    {QUARTER_MONTHS[q]} · {objs.length} 個目標
+                  </span>
+                  <div className="ml-auto">
+                    <ObjectiveDialog
+                      members={members}
+                      cycles={yearCycles}
+                      cycleOptions={yearCycles}
+                      defaultCycle={cycle}
+                      level="QUARTERLY"
+                      trigger={
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 gap-1 text-xs"
+                        >
+                          <Plus className="h-3.5 w-3.5" /> 新增
+                        </Button>
+                      }
+                    />
+                  </div>
                 </div>
-              </div>
 
-              {objs.length === 0 ? (
-                <p className="text-muted-foreground rounded-lg border border-dashed px-3 py-4 text-center text-xs">
-                  {year} Q{q} 尚無目標。點右側「新增」建立。
-                </p>
-              ) : (
                 <div className="space-y-3">
                   {objs.map((o, i) => (
                     <ObjectiveCard
@@ -305,11 +331,11 @@ function QuarterlyOkrSection({
                     />
                   ))}
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }

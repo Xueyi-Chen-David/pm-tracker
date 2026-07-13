@@ -108,6 +108,19 @@ export default async function MemberProfilePage({
         </CardContent>
       </Card>
 
+      {/* 生產力總覽：橫跨全寬、置於所有 section 之上 */}
+      <div className="grid grid-cols-4 gap-2">
+        <Stat icon={<FolderKanban className="h-4 w-4" />} label="負責專案" value={owned.length} />
+        <Stat icon={<Users2 className="h-4 w-4" />} label="參與專案" value={m.memberships.length} />
+        <Stat icon={<FileText className="h-4 w-4" />} label="累積週報" value={m.weeklyUpdates.length >= 8 ? "8+" : m.weeklyUpdates.length} />
+        <Stat
+          icon={<CalendarCheck className="h-4 w-4" />}
+          label="本週更新"
+          value={`${updatedOwned}/${owned.length}`}
+          highlight={owned.length > 0 && updatedOwned === owned.length}
+        />
+      </div>
+
       <div className="grid gap-5 lg:grid-cols-2">
         {/* 編輯 profile + 事件紀錄 */}
         <div className="space-y-5">
@@ -173,18 +186,6 @@ export default async function MemberProfilePage({
 
         {/* 生產力 */}
         <div className="space-y-5">
-          <div className="grid grid-cols-2 gap-3">
-            <Stat icon={<FolderKanban className="h-4 w-4" />} label="負責專案" value={owned.length} />
-            <Stat icon={<Users2 className="h-4 w-4" />} label="參與專案" value={m.memberships.length} />
-            <Stat icon={<FileText className="h-4 w-4" />} label="累積週報" value={m.weeklyUpdates.length >= 8 ? "8+" : m.weeklyUpdates.length} />
-            <Stat
-              icon={<CalendarCheck className="h-4 w-4" />}
-              label="本週更新"
-              value={`${updatedOwned}/${owned.length}`}
-              highlight={owned.length > 0 && updatedOwned === owned.length}
-            />
-          </div>
-
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-1.5">
@@ -375,17 +376,17 @@ function Stat({
 }) {
   return (
     <Card>
-      <CardContent className="flex items-center gap-2.5 p-3">
+      <CardContent className="flex flex-col items-center gap-1 p-2.5 text-center">
         <span
-          className={`flex h-8 w-8 items-center justify-center rounded-md ${
+          className={`flex h-7 w-7 items-center justify-center rounded-md ${
             highlight ? "bg-emerald-100 text-emerald-600" : "bg-slate-100 text-slate-600"
           }`}
         >
           {icon}
         </span>
-        <div>
-          <div className="text-xl leading-none font-bold">{value}</div>
-          <div className="text-muted-foreground text-[11px]">{label}</div>
+        <div className="text-lg leading-none font-bold tabular-nums">{value}</div>
+        <div className="text-muted-foreground text-[10px] leading-tight">
+          {label}
         </div>
       </CardContent>
     </Card>
