@@ -1,6 +1,12 @@
 /**
  * 打卡（check-in）驗證：純函式，方便測試與在 server action 重用。
- * 有效條件：來源 IP 命中允許清單（精確或 IPv4 CIDR），或 GPS 座標落在任一地理圍欄內。
+ * 兩個維度：
+ *   - 網段：來源 IP 命中允許清單（精確或 IPv4 CIDR）。
+ *   - 地點：GPS 座標落在任一地理圍欄內。
+ * 兩者以 matchMode 組合：
+ *   - "any"：任一符合即通過（IP 或 地點）。
+ *   - "all"：兩者皆須符合才通過（IP 且 地點）。
+ * 只設定其中一個維度時，兩種模式行為相同（只需該維度通過）。
  */
 
 export type Geofence = {
@@ -10,7 +16,16 @@ export type Geofence = {
   radiusM: number; // 半徑（公尺）
 };
 
-export type CheckInMethod = "ip" | "gps";
+/** 通過方式："ip"＝僅網段、"gps"＝僅地點、"both"＝網段且地點（AND 模式兩者皆符合）。 */
+export type CheckInMethod = "ip" | "gps" | "both";
+
+/** 網段與地點的組合方式："any"＝任一符合、"all"＝兩者皆須符合。 */
+export type CheckInMatchMode = "any" | "all";
+
+/** 安全把任意值收斂成合法的 CheckInMatchMode（未知值一律回到 "any"）。 */
+export function parseMatchMode(raw: unknown): CheckInMatchMode {
+  return raw === "all" ? "all" : "any";
+}
 
 export type CheckInEvaluation = {
   valid: boolean;
@@ -124,15 +139,21 @@ export function parseGeofences(raw: unknown): Geofence[] {
   return out;
 }
 
-/** 綜合判斷一次打卡是否有效（IP 或 GPS 任一符合即通過）。 */
+/**
+ * 綜合判斷一次打卡是否有效。
+ * matchMode="any"：網段或地點任一符合即通過（預設，沿用舊行為）。
+ * matchMode="all"：網段與地點皆須符合才通過；只設定其中一種條件時，等同只判該條件。
+ */
 export function evaluateCheckIn(input: {
   ip: string | null;
   lat: number | null;
   lng: number | null;
   allowedIps: string[];
   geofences: Geofence[];
+  matchMode?: CheckInMatchMode;
 }): CheckInEvaluation {
   const { ip, lat, lng, allowedIps, geofences } = input;
+  const matchMode = input.matchMode ?? "any";
   const hasIpRule = allowedIps.some((p) => p.trim());
   const hasGeoRule = geofences.length > 0;
 
@@ -143,23 +164,39 @@ export function evaluateCheckIn(input: {
       reason: "管理者尚未設定允許的打卡網路或地點。",
     };
   }
-  if (ip && hasIpRule && ipAllowed(ip, allowedIps)) {
-    return { valid: true, method: "ip" };
-  }
-  if (
+
+  const ipOk = hasIpRule && ip !== null && ipAllowed(ip, allowedIps);
+  const geoOk =
+    hasGeoRule &&
     lat !== null &&
     lng !== null &&
-    hasGeoRule &&
-    withinGeofence(lat, lng, geofences)
-  ) {
-    return { valid: true, method: "gps" };
-  }
+    withinGeofence(lat, lng, geofences);
+  const missingGps = hasGeoRule && (lat === null || lng === null);
 
-  // 未通過：依設定給出對應提示。
   const needs: string[] = [];
   if (hasIpRule) needs.push("在允許的網路（IP）內");
   if (hasGeoRule) needs.push("在允許的地點範圍內");
-  const missingGps = hasGeoRule && (lat === null || lng === null);
+
+  if (matchMode === "all") {
+    // 兩者皆須符合：只對「有設定」的維度要求通過（未設定的維度不構成限制）。
+    const ipPass = !hasIpRule || ipOk;
+    const geoPass = !hasGeoRule || geoOk;
+    if (ipPass && geoPass) {
+      const method: CheckInMethod =
+        hasIpRule && hasGeoRule ? "both" : hasGeoRule ? "gps" : "ip";
+      return { valid: true, method };
+    }
+    const base = `需同時${needs.join(" 且 ")}才能打卡`;
+    const reason = missingGps
+      ? `${base}；請允許瀏覽器定位，或連上公司網路。`
+      : `${base}。`;
+    return { valid: false, method: null, reason };
+  }
+
+  // matchMode === "any"：任一符合即通過。
+  if (ipOk) return { valid: true, method: "ip" };
+  if (geoOk) return { valid: true, method: "gps" };
+
   const reason = missingGps
     ? `需${needs.join(" 或 ")}才能打卡；請允許瀏覽器定位，或連上公司網路。`
     : `不在允許範圍：需${needs.join(" 或 ")}才能打卡。`;

@@ -8,6 +8,7 @@ export type OrgChartEntry = NameSource & {
   image?: string | null;
   membershipId: string;
   managerId: string | null;
+  secondaryManagerIds?: string[]; // 額外（虛線）回報對象的 membership id
   jobTitle: string | null;
   department?: string | null;
   isBoss: boolean;

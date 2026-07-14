@@ -10,6 +10,7 @@ import { MemberName } from "@/components/member-name";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MemberDeleteButton } from "@/components/member-delete-button";
 import { LoginStatusBadge } from "@/components/login-status-badge";
+import { WorkDescriptionEditor } from "@/components/work-description-editor";
 
 /** 每列估計高度（px），用來由可用視窗高度換算每頁筆數。 */
 const ROW_H = 53;
@@ -20,9 +21,12 @@ const MIN_PAGE = 4;
 export function PaginatedMemberList({
   members,
   canManage = true,
+  viewerId,
 }: {
   members: WorkspaceMember[];
   canManage?: boolean;
+  /** 目前使用者 id；用來判斷「工作描述」是否可編輯（本人或管理者）。 */
+  viewerId?: string;
 }) {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(0);
@@ -86,7 +90,7 @@ export function PaginatedMemberList({
             <div className="w-12 shrink-0 text-center">負責</div>
             <div className="w-12 shrink-0 text-center">參與</div>
             <div className="w-12 shrink-0 text-center">週報</div>
-            <div className="flex-1" />
+            <div className="flex-1">工作描述</div>
             <div className="w-9 shrink-0" />
           </div>
 
@@ -156,7 +160,13 @@ export function PaginatedMemberList({
                   <div className="w-12 shrink-0 text-center text-sm tabular-nums">
                     {m._count.weeklyUpdates}
                   </div>
-                  <div className="flex-1" />
+                  <div className="min-w-0 flex-1">
+                    <WorkDescriptionEditor
+                      userId={m.id}
+                      value={m.workDescription}
+                      canEdit={canManage || m.id === viewerId}
+                    />
+                  </div>
                   <div className="w-9 shrink-0">
                     {canManage && (
                       <MemberDeleteButton

@@ -58,7 +58,7 @@ import {
   deleteDocPage,
   moveDocPage,
   moveDocFolder,
-  setDocPageVisibility,
+  setDocPagePermissions,
 } from "@/server/actions/training-docs";
 
 export type DocFolder = {
@@ -77,6 +77,7 @@ export type DocPage = {
   updatedAt: Date | string;
   visibility: string; // "ALL" | "RESTRICTED"
   allowedUserIds: string[];
+  editorUserIds: string[]; // 額外可編輯者（管理者一律可編輯）
 };
 
 export type DocMember = {
@@ -114,14 +115,21 @@ export function DocsWorkspace({
   pages,
   members,
   canManage,
+  viewerId,
 }: {
   folders: DocFolder[];
   pages: DocPage[];
   members: DocMember[];
   canManage: boolean;
+  /** 目前使用者 id，用來判斷「非管理者但被指定為編輯者」的單份文件編輯權限。 */
+  viewerId: string;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+
+  /** 是否可編輯某份文件：管理者一律可，或本人在該文件的編輯白名單內。 */
+  const canEditPage = (p: DocPage) =>
+    canManage || p.editorUserIds.includes(viewerId);
 
   // 本地資料夾 / 文件狀態：儲存 / 拖放時樂觀更新，畫面即時反映、不用等 router.refresh 往返。
   // 伺服器資料更新（props 換新陣列）時，於 render 期間同步回本地（React 建議寫法）。
@@ -434,13 +442,20 @@ export function DocsWorkspace({
   function savePermission(
     visibility: "ALL" | "RESTRICTED",
     allowedUserIds: string[],
+    editorUserIds: string[],
   ) {
     const d = dialog;
     if (d?.kind !== "permission") return;
-    run(() => setDocPageVisibility({ id: d.page.id, visibility, allowedUserIds }), {
-      ok: "已更新權限",
-      onDone: () => setDialog(null),
-    });
+    run(
+      () =>
+        setDocPagePermissions({
+          id: d.page.id,
+          visibility,
+          allowedUserIds,
+          editorUserIds,
+        }),
+      { ok: "已更新權限", onDone: () => setDialog(null) },
+    );
   }
 
   // ── 樹狀渲染 ──
@@ -1017,21 +1032,23 @@ export function DocsWorkspace({
                   最後更新 {format(new Date(selectedPage.updatedAt), "yyyy/MM/dd HH:mm")}
                 </p>
               </div>
-              {canManage && (
-                <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
+                {canManage && (
                   <Button
                     size="sm"
                     variant="ghost"
                     onClick={() =>
                       setDialog({ kind: "permission", page: selectedPage })
                     }
-                    title="設定誰可以看這份文件"
+                    title="設定誰可以看 / 誰可以編輯這份文件"
                   >
                     <Lock className="h-4 w-4" />
                     {selectedPage.visibility === "RESTRICTED"
                       ? "權限（限定）"
                       : "權限"}
                   </Button>
+                )}
+                {canEditPage(selectedPage) && (
                   <Button
                     size="sm"
                     variant="outline"
@@ -1039,8 +1056,8 @@ export function DocsWorkspace({
                   >
                     <Pencil className="h-4 w-4" /> 編輯
                   </Button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
             <div className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
               {selectedPage.content.trim() ? (
@@ -1050,7 +1067,7 @@ export function DocsWorkspace({
               ) : (
                 <p className="text-muted-foreground text-sm">
                   這份文件還沒有內容。
-                  {canManage && "點右上「編輯」開始撰寫。"}
+                  {canEditPage(selectedPage) && "點右上「編輯」開始撰寫。"}
                 </p>
               )}
             </div>
@@ -1141,7 +1158,7 @@ export function DocsWorkspace({
   );
 }
 
-/** 設定某文件由誰可見（所有人 / 只有指定的人；管理者一律可見）。 */
+/** 設定某文件「誰可以看」與「誰可以編輯」（管理者一律可看 + 可編輯）。 */
 function PermissionDialog({
   open,
   page,
@@ -1154,7 +1171,11 @@ function PermissionDialog({
   page: DocPage | null;
   members: DocMember[];
   pending: boolean;
-  onSave: (visibility: "ALL" | "RESTRICTED", allowedUserIds: string[]) => void;
+  onSave: (
+    visibility: "ALL" | "RESTRICTED",
+    allowedUserIds: string[],
+    editorUserIds: string[],
+  ) => void;
   onOpenChange: (o: boolean) => void;
 }) {
   const [mode, setMode] = useState<"ALL" | "RESTRICTED">(
@@ -1163,8 +1184,19 @@ function PermissionDialog({
   const [ids, setIds] = useState<Set<string>>(
     () => new Set(page?.allowedUserIds ?? []),
   );
+  const [editorIds, setEditorIds] = useState<Set<string>>(
+    () => new Set(page?.editorUserIds ?? []),
+  );
   function toggle(id: string) {
     setIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleEditor(id: string) {
+    setEditorIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -1176,42 +1208,76 @@ function PermissionDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>誰可以看「{page?.title}」</DialogTitle>
+          <DialogTitle>「{page?.title}」的權限</DialogTitle>
         </DialogHeader>
-        <div className="space-y-3">
-          <label className="hover:bg-muted/40 flex cursor-pointer items-start gap-2 rounded-md p-2 text-sm">
-            <input
-              type="radio"
-              name="doc-vis"
-              checked={mode === "ALL"}
-              onChange={() => setMode("ALL")}
-              className="accent-primary mt-0.5 h-4 w-4"
-            />
-            <span>
-              <span className="font-medium">所有人可見</span>
-              <span className="text-muted-foreground block text-xs">
-                預設；組織內每個人都看得到。
+        <div className="max-h-[70vh] space-y-4 overflow-y-auto">
+          {/* 誰可以看 */}
+          <div className="space-y-2">
+            <div className="text-sm font-semibold">誰可以看</div>
+            <label className="hover:bg-muted/40 flex cursor-pointer items-start gap-2 rounded-md p-2 text-sm">
+              <input
+                type="radio"
+                name="doc-vis"
+                checked={mode === "ALL"}
+                onChange={() => setMode("ALL")}
+                className="accent-primary mt-0.5 h-4 w-4"
+              />
+              <span>
+                <span className="font-medium">所有人可見</span>
+                <span className="text-muted-foreground block text-xs">
+                  預設；組織內每個人都看得到。
+                </span>
               </span>
-            </span>
-          </label>
-          <label className="hover:bg-muted/40 flex cursor-pointer items-start gap-2 rounded-md p-2 text-sm">
-            <input
-              type="radio"
-              name="doc-vis"
-              checked={mode === "RESTRICTED"}
-              onChange={() => setMode("RESTRICTED")}
-              className="accent-primary mt-0.5 h-4 w-4"
-            />
-            <span>
-              <span className="font-medium">只有指定的人可見</span>
-              <span className="text-muted-foreground block text-xs">
-                不勾任何人＝只有管理者看得到；勾選則額外開放給那些人。
+            </label>
+            <label className="hover:bg-muted/40 flex cursor-pointer items-start gap-2 rounded-md p-2 text-sm">
+              <input
+                type="radio"
+                name="doc-vis"
+                checked={mode === "RESTRICTED"}
+                onChange={() => setMode("RESTRICTED")}
+                className="accent-primary mt-0.5 h-4 w-4"
+              />
+              <span>
+                <span className="font-medium">只有指定的人可見</span>
+                <span className="text-muted-foreground block text-xs">
+                  不勾任何人＝只有管理者看得到；勾選則額外開放給那些人。
+                </span>
               </span>
-            </span>
-          </label>
+            </label>
 
-          {mode === "RESTRICTED" && (
-            <div className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-2">
+            {mode === "RESTRICTED" && (
+              <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
+                {members.length === 0 ? (
+                  <p className="text-muted-foreground p-1 text-xs">沒有其他成員。</p>
+                ) : (
+                  members.map((m) => (
+                    <label
+                      key={m.id}
+                      className="hover:bg-muted/40 flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={ids.has(m.id)}
+                        onChange={() => toggle(m.id)}
+                        className="accent-primary h-4 w-4"
+                      />
+                      <span className="min-w-0 truncate">
+                        {m.name || m.email}
+                      </span>
+                    </label>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 誰可以編輯 */}
+          <div className="space-y-2 border-t pt-3">
+            <div className="text-sm font-semibold">誰可以編輯</div>
+            <p className="text-muted-foreground text-xs">
+              勾選的成員可以編輯這份文件的內容（管理者一律可編輯，不受此限制）。被勾選者即使原本看不到，也會自動能看到並編輯。
+            </p>
+            <div className="max-h-48 space-y-1 overflow-y-auto rounded-md border p-2">
               {members.length === 0 ? (
                 <p className="text-muted-foreground p-1 text-xs">沒有其他成員。</p>
               ) : (
@@ -1222,22 +1288,16 @@ function PermissionDialog({
                   >
                     <input
                       type="checkbox"
-                      checked={ids.has(m.id)}
-                      onChange={() => toggle(m.id)}
+                      checked={editorIds.has(m.id)}
+                      onChange={() => toggleEditor(m.id)}
                       className="accent-primary h-4 w-4"
                     />
-                    <span className="min-w-0 truncate">
-                      {m.name || m.email}
-                    </span>
+                    <span className="min-w-0 truncate">{m.name || m.email}</span>
                   </label>
                 ))
               )}
             </div>
-          )}
-
-          <p className="text-muted-foreground text-xs">
-            ※ 管理者一律看得到，不受此設定影響。
-          </p>
+          </div>
         </div>
         <DialogFooter>
           <Button
@@ -1247,7 +1307,10 @@ function PermissionDialog({
           >
             取消
           </Button>
-          <Button onClick={() => onSave(mode, [...ids])} disabled={pending}>
+          <Button
+            onClick={() => onSave(mode, [...ids], [...editorIds])}
+            disabled={pending}
+          >
             {pending ? "儲存中…" : "儲存"}
           </Button>
         </DialogFooter>

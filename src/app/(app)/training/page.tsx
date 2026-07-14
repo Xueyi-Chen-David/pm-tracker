@@ -23,6 +23,7 @@ export default async function TrainingPage() {
         pages={pages}
         members={members}
         canManage={canManage}
+        viewerId={user.id}
       />
     </div>
   );

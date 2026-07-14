@@ -16,6 +16,7 @@ import { MemberName } from "@/components/member-name";
 import { DailyReportForm } from "@/components/daily-report-form";
 import { DailyReportCard } from "@/components/daily-report-card";
 import { CheckInCard } from "@/components/check-in-card";
+import { parseMatchMode } from "@/lib/checkin";
 import { DailyVisibilityToggle } from "@/components/daily-visibility-toggle";
 
 export const metadata = { title: "每日報告 · Project Pulse" };
@@ -33,10 +34,12 @@ export default async function DailyPage() {
     select: {
       dailyReportChainVisible: true,
       checkInEnabled: true,
+      checkInMatchMode: true,
     },
   });
   const chainVisible = orgRow?.dailyReportChainVisible ?? false;
   const checkInEnabled = orgRow?.checkInEnabled ?? false;
+  const checkInMatchMode = parseMatchMode(orgRow?.checkInMatchMode);
 
   // 我的資料。
   const [myReports, graph, directory, todayPunches] = await Promise.all([
@@ -95,7 +98,10 @@ export default async function DailyPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <CheckInCard todayPunches={todayPunches} />
+                <CheckInCard
+                  todayPunches={todayPunches}
+                  matchMode={checkInMatchMode}
+                />
               </CardContent>
             </Card>
           )}

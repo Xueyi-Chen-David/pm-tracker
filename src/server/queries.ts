@@ -162,6 +162,7 @@ export async function getOrgMembers(orgId: string) {
       jobTitle: true,
       department: true,
       attendance: true,
+      workDescription: true,
       // accounts>0 ＝ 曾用 OAuth（Google）登入過（被邀請但沒登入的 stub User 為 0）。
       user: { select: { ...userIdentitySelect, _count: { select: { accounts: true } } } },
     },
@@ -197,6 +198,7 @@ export async function getOrgMembers(orgId: string) {
       jobTitle: m.jobTitle,
       department: m.department,
       attendance: m.attendance,
+      workDescription: m.workDescription,
       hasLoggedIn: userCounts.accounts > 0, // 曾登入過
       _count: {
         ownedProjects: ownedMap.get(m.user.id) ?? 0,
@@ -227,6 +229,7 @@ export async function getAttendanceMonth(orgId: string, start: Date, end: Date) 
               reason: true,
               offsite: true,
               holiday: true,
+              leave: true,
             },
           },
         },
@@ -273,6 +276,7 @@ export async function getMemberProfile(orgId: string, userId: string) {
       allowedModules: true,
       trackAttendance: true,
       managerId: true,
+      secondaryManagerIds: true,
       manager: {
         select: { userId: true, user: { select: userIdentitySelect } },
       },
@@ -631,11 +635,16 @@ export async function getKrLinksForProject(orgId: string, projectId: string) {
 // 組織架構 / 成員名錄
 // ─────────────────────────────────────────────
 
-/** 組織架構運算用：全體成員的 (membership id, userId, managerId)。 */
+/** 組織架構運算用：全體成員的 (membership id, userId, managerId, 額外回報對象)。 */
 export async function getMembershipGraph(orgId: string) {
   return db.organizationMember.findMany({
     where: { organizationId: orgId },
-    select: { id: true, userId: true, managerId: true },
+    select: {
+      id: true,
+      userId: true,
+      managerId: true,
+      secondaryManagerIds: true,
+    },
   });
 }
 
@@ -647,6 +656,7 @@ export async function getOrgMemberDirectory(orgId: string) {
     select: {
       id: true,
       managerId: true,
+      secondaryManagerIds: true,
       role: true,
       isBoss: true,
       active: true,
@@ -660,6 +670,7 @@ export async function getOrgMemberDirectory(orgId: string) {
     ...m.user,
     membershipId: m.id,
     managerId: m.managerId,
+    secondaryManagerIds: m.secondaryManagerIds,
     role: m.role,
     isBoss: m.isBoss,
     active: m.active,
@@ -756,13 +767,14 @@ export async function getTrainingDocs(
     db.trainingDocPage.findMany({
       where: {
         organizationId: orgId,
-        // 管理者一律可見；其他人只看 ALL 或被列入白名單者。
+        // 管理者一律可見；其他人只看 ALL、被列入可見白名單、或被列入可編輯白名單者。
         ...(canManage
           ? {}
           : {
               OR: [
                 { visibility: "ALL" },
                 { visibility: "RESTRICTED", allowedUserIds: { has: userId } },
+                { editorUserIds: { has: userId } },
               ],
             }),
       },
@@ -776,6 +788,7 @@ export async function getTrainingDocs(
         updatedAt: true,
         visibility: true,
         allowedUserIds: true,
+        editorUserIds: true,
       },
     }),
   ]);

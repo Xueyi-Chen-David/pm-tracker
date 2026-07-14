@@ -38,6 +38,7 @@ function effectForDate(
     if (t < s || t > en) continue;
     const eff = eventAttendanceEffect(e.type);
     if (!eff) continue;
+    if (eff === "leave") return { effect: "leave", type: e.type }; // 請假優先
     if (eff === "absent") return { effect: "absent", type: e.type }; // 缺席優先
     offsite ??= { effect: "offsite", type: e.type };
   }
@@ -83,13 +84,15 @@ export async function recomputeAttendance(
       if (ex) ops.push(db.attendanceRecord.delete({ where: { id: ex.id } }));
       continue;
     }
-    const present = win.effect !== "absent";
+    // 只有「在外工作」算出席；請假 / 缺席都不算。
+    const present = win.effect === "offsite";
     const offsite = win.effect === "offsite";
+    const leave = win.effect === "leave";
     if (ex) {
       ops.push(
         db.attendanceRecord.update({
           where: { id: ex.id },
-          data: { present, offsite, reason: win.type },
+          data: { present, offsite, leave, reason: win.type },
         }),
       );
     } else {
@@ -101,6 +104,7 @@ export async function recomputeAttendance(
             date,
             present,
             offsite,
+            leave,
             reason: win.type,
             auto: true,
             createdById,

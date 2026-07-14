@@ -39,12 +39,17 @@ export default async function MemberProfilePage({
   if (!m) notFound();
   const isSelf = m.id === user.id; // m.id ＝ userId
 
-  // 主管下拉選單（僅管理者需要）。
-  const directory = canManage ? await getOrgMemberDirectory(org.id) : [];
+  // 名錄：主管下拉選單（僅管理者用）＋ 解析「額外回報對象」的顯示名稱（所有人可見）。
+  const directory = await getOrgMemberDirectory(org.id);
   const memberOptions = directory.map((d) => ({
     membershipId: d.membershipId,
     label: d.jobTitle ? `${displayName(d)}（${d.jobTitle}）` : displayName(d),
   }));
+  const secondaryNames = (m.secondaryManagerIds ?? [])
+    .map((mid) => directory.find((d) => d.membershipId === mid))
+    .filter((d): d is (typeof directory)[number] => Boolean(d))
+    .map((d) => displayName(d))
+    .join("、");
 
   // 參與的專案：負責 + 參與合成單一清單（負責的 tag「負責」），排除封存 / 暫停。
   const ownedList = m.ownedProjects
@@ -98,7 +103,7 @@ export default async function MemberProfilePage({
         userId: id,
         date: { gte: monthStart, lt: nextMonth },
       },
-      select: { present: true, offsite: true, holiday: true },
+      select: { present: true, offsite: true, holiday: true, leave: true },
     }),
     db.dailyReport.count({
       where: {
@@ -115,8 +120,10 @@ export default async function MemberProfilePage({
   ]);
   const attPresent = attRecords.filter((r) => r.present && !r.offsite).length;
   const attOffsite = attRecords.filter((r) => r.offsite).length;
-  // 休假既不算出席也不算缺席，從缺席統計排除。
-  const attAbsent = attRecords.filter((r) => !r.present && !r.holiday).length;
+  // 休假 / 請假既不算出席也不算缺席，從缺席統計排除。
+  const attAbsent = attRecords.filter(
+    (r) => !r.present && !r.holiday && !r.leave,
+  ).length;
   const lastDailyLabel = lastDaily ? fmtDateShort(lastDaily.date) : null;
 
   return (
@@ -157,6 +164,11 @@ export default async function MemberProfilePage({
             {m.manager && (
               <p className="text-muted-foreground mt-1 text-xs">
                 上級主管：{displayName(m.manager.user)}
+              </p>
+            )}
+            {secondaryNames && (
+              <p className="text-muted-foreground mt-1 text-xs">
+                另外回報給：{secondaryNames}
               </p>
             )}
             {m.attendance && (
@@ -298,6 +310,7 @@ export default async function MemberProfilePage({
                     label="上級主管"
                     value={m.manager ? displayName(m.manager.user) : null}
                   />
+                  <ReadOnlyRow label="另外回報給" value={secondaryNames || null} />
                   <ReadOnlyRow label="簡介 / 備註" value={m.bio} />
                 </dl>
               )}

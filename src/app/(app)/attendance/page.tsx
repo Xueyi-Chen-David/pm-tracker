@@ -1,7 +1,7 @@
 import { requireManageContext } from "@/server/org";
 import { db } from "@/server/db";
 import { getAttendanceMonth, getTrackableMembers } from "@/server/queries";
-import { parseGeofences } from "@/lib/checkin";
+import { parseGeofences, parseMatchMode } from "@/lib/checkin";
 import { todayUtc } from "@/lib/date";
 import { PageHeader } from "@/components/page-header";
 import {
@@ -76,6 +76,7 @@ export default async function AttendancePage({
           checkInEnabled: true,
           checkInAllowedIps: true,
           checkInGeofences: true,
+          checkInMatchMode: true,
         },
       }),
       // 自動缺席的起算錨點：該企業第一次打卡的日期（在那之前不判缺席，避免把
@@ -116,6 +117,7 @@ export default async function AttendancePage({
         reason: r.reason,
         offsite: r.offsite,
         holiday: r.holiday,
+        leave: r.leave,
       };
     }
     if (autoAbsentEnabled) {
@@ -129,6 +131,7 @@ export default async function AttendancePage({
           reason: "未打卡",
           offsite: false,
           holiday: false,
+          leave: false,
         };
       }
     }
@@ -191,6 +194,7 @@ export default async function AttendancePage({
             enabled={orgConfig.checkInEnabled}
             allowedIps={orgConfig.checkInAllowedIps}
             geofences={parseGeofences(orgConfig.checkInGeofences)}
+            matchMode={parseMatchMode(orgConfig.checkInMatchMode)}
           />
         )}
         {canManage && <AttendanceTrackManager members={trackable} />}
@@ -221,9 +225,15 @@ export default async function AttendancePage({
           </span>
           放假 / 休假
         </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-pink-300 bg-pink-100 text-[9px] text-pink-700">
+            假
+          </span>
+          請假
+        </span>
         <span>
           · 點格子登記；請假 / 出差 / 在家工作 由團隊成員頁的事件自動帶入
-          ；週末預設放假、平日可點格子設為休假，皆不列入缺席統計
+          ；週末預設放假、平日可點格子設為休假 / 請假，皆不列入缺席統計
           {checkInEnabled &&
             "；開啟打卡後，平日未打卡者於次日起自動標記缺席"}
         </span>

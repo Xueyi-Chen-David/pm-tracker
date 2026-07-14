@@ -50,6 +50,8 @@ model User {
   trainingAssignments TrainingAssignment[]
   crmContactsOwned    CrmContact[] @relation("CrmContactOwner")
   crmDealsOwned       CrmDeal[]    @relation("CrmDealOwner")
+  todoItems           TodoItem[]
+  pomodoroSessions    PomodoroSession[]
 }
 
 model Account {
@@ -110,10 +112,13 @@ model Organization {
   // false＝只有直屬主管看得到；true＝整條上級鏈都看得到。由管理者設定。
   dailyReportChainVisible Boolean @default(false)
 
-  // 打卡限制設定（管理者設定）。啟用後，員工需符合「允許 IP」或「地理圍欄」任一才算有效打卡。
+  // 打卡限制設定（管理者設定）。啟用後，員工需符合「允許 IP」與「地理圍欄」的組合才算有效打卡。
   checkInEnabled    Boolean  @default(false)
-  checkInAllowedIps String[] @default([]) // 允許的 IP / CIDR 網段（任一符合即通過）
-  checkInGeofences  Json? // [{ label, lat, lng, radiusM }]（任一範圍內即通過）
+  checkInAllowedIps String[] @default([]) // 允許的 IP / CIDR 網段（清單內任一符合即算「網段通過」）
+  checkInGeofences  Json? // [{ label, lat, lng, radiusM }]（清單內任一範圍內即算「地點通過」）
+  // 網段與地點的組合方式："any"＝任一符合即可（IP 或 地點）；"all"＝兩者皆須符合（IP 且 地點）。
+  // 只設定其中一種條件時，兩種模式行為相同（只需該條件通過）。
+  checkInMatchMode  String   @default("any")
 
   members           OrganizationMember[]
   projects          Project[]
@@ -136,6 +141,8 @@ model Organization {
   dealStages          DealStage[]
   dealStageChanges    DealStageChange[]
   crmEvents           CrmEvent[]
+  todoItems           TodoItem[]
+  pomodoroSessions    PomodoroSession[]
 }
 
 /**
@@ -161,11 +168,17 @@ model OrganizationMember {
   trackAttendance Boolean  @default(false) // 是否納入出席月曆追蹤
   bio             String?  @db.Text // 簡介 / 備註
   attendance      String? // 出席情況（自由文字）
+  workDescription String?  @db.Text // 工作描述（本人可改，管理者可改任何人的）
 
   // 組織架構：上級主管（指向同組織的另一位成員）。主管可看下屬的每日報告。
   managerId String?
   manager   OrganizationMember?  @relation("MemberManager", fields: [managerId], references: [id], onDelete: SetNull)
   reports   OrganizationMember[] @relation("MemberManager")
+
+  // 額外（虛線 / 矩陣式）回報對象：除 managerId 外，也回報給這些成員（值＝membership id）。
+  // 這些人與正式上級主管一樣，可在每日報告看到並回饋這位成員的日報，但可見性不沿其
+  // 自身主管鏈往上傳遞。純 id 陣列（無 FK）；成員被移除時由 deleteWorkspaceMember 清掉殘留 id。
+  secondaryManagerIds String[] @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -489,6 +502,7 @@ model AttendanceRecord {
   reason      String? // 事由（請假 / 出差 / 在家工作…；選填）
   offsite     Boolean  @default(false) // 出差 / 在家工作（在外工作）：出席月曆顯示為圈圈
   holiday     Boolean  @default(false) // 休假 / 放假：既不算出席也不算缺席（週末預設放假不寫入，這是人工指定的休）
+  leave       Boolean  @default(false) // 請假（特休 / 事假 / 病假…）：既不算出席也不算缺席，事由記在 reason
   auto        Boolean  @default(false) // 由成員事件自動產生（vs 人工登記）；人工編輯會清為 false
   createdById String? // 登記者
   createdAt   DateTime @default(now())
@@ -614,6 +628,8 @@ model Task {
 
   owners     User[]  @relation("TaskOwners") // 多負責人（組織成員）
   ownerLabel String? // 外部非成員自由文字
+
+  todoItems TodoItem[] // 個人待辦可關聯到此任務
 
   sortOrder Int      @default(0)
   createdAt DateTime @default(now())
@@ -832,6 +848,8 @@ model TrainingDocPage {
   // 管理者(OWNER/ADMIN/老闆)一律可見，不受此限制。
   visibility     String   @default("ALL")
   allowedUserIds String[] @default([]) // RESTRICTED 時的白名單（user id）
+  // 編輯白名單：除了管理者(OWNER/ADMIN)一律可編輯外，額外可編輯這份文件的成員 user id。
+  editorUserIds  String[] @default([])
 
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -999,4 +1017,60 @@ model CrmEvent {
   @@index([organizationId])
   @@index([date])
   @@index([contactId])
+}
+
+// ─────────────────────────────────────────────
+// 個人待辦（Todo）+ 番茄鐘（Pomodoro）——每個人自己管理，不與他人共享。
+// ─────────────────────────────────────────────
+
+/// 個人待辦事項。可選擇性關聯到某個專案任務(Task)；有開始 / 結束日。
+model TodoItem {
+  id     String  @id @default(cuid())
+  userId String
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  title String
+  note  String? @db.Text // 備註（選填，自由文字）
+  done  Boolean @default(false)
+
+  startDate DateTime? @db.Date // 開始日
+  dueDate   DateTime? @db.Date // 結束 / 到期日
+
+  // 關聯到的專案任務（可選；任務被刪則設為 null 不連帶刪待辦）。
+  taskId String?
+  task   Task?   @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  pomodoros PomodoroSession[]
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([taskId])
+}
+
+/// 番茄鐘專注紀錄。durationSec＝該次專注秒數；可選擇性關聯到某個待辦。
+model PomodoroSession {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  todoId String?
+  todo   TodoItem? @relation(fields: [todoId], references: [id], onDelete: SetNull)
+
+  startedAt   DateTime @default(now()) // 開始專注的時間
+  durationSec Int // 專注時長（秒）
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([organizationId])
+  @@index([todoId])
 }

@@ -150,17 +150,19 @@ export function memberEventBadge(type: string): string {
 }
 
 // 成員事件如何反映到出席月曆：
-//   請假 → 缺席（紅 X）
+//   請假 → 請假（粉色「假」；不算缺席）
 //   出差 / 在家工作 → 在外工作（藍色圈圈；仍在工作，只是不在辦公室）
 //   外出 / 其他 / 自訂 → 不影響出席紀錄
-export const ABSENT_EVENT_TYPES = new Set<string>(["請假"]);
+export const LEAVE_EVENT_TYPES = new Set<string>(["請假"]);
+export const ABSENT_EVENT_TYPES = new Set<string>([]);
 export const OFFSITE_EVENT_TYPES = new Set<string>(["出差", "在家工作"]);
 
-export type AttendanceEffect = "absent" | "offsite";
+export type AttendanceEffect = "absent" | "offsite" | "leave";
 
 /** 該事件類型會如何影響出席月曆（null＝不影響）。 */
 export function eventAttendanceEffect(type: string): AttendanceEffect | null {
   const t = type.trim();
+  if (LEAVE_EVENT_TYPES.has(t)) return "leave";
   if (ABSENT_EVENT_TYPES.has(t)) return "absent";
   if (OFFSITE_EVENT_TYPES.has(t)) return "offsite";
   return null;

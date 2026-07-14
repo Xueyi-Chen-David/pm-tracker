@@ -5,9 +5,18 @@
  * 可見規則（配合 Organization.dailyReportChainVisible）：
  *   - chainVisible=false：報告只有作者本人 + 直屬主管看得到。
  *   - chainVisible=true ：往上整條主管鏈都看得到（上級的上級也可見）。
+ *
+ * 另有「額外（虛線）回報對象」secondaryManagerIds：被列為某人額外回報對象者，
+ * 與其直屬主管一樣看得到 / 可回饋該人的日報；但此可見性只給被指名的人，
+ * 不沿其自身主管鏈往上傳遞（與 chainVisible 無關）。
  */
 
-export type HierNode = { id: string; userId: string; managerId: string | null };
+export type HierNode = {
+  id: string;
+  userId: string;
+  managerId: string | null;
+  secondaryManagerIds?: string[];
+};
 
 /** managerId → 直屬下屬節點。 */
 export function childrenByManager(members: HierNode[]): Map<string, HierNode[]> {
@@ -52,7 +61,14 @@ export function visibleReportMemberIds(
   const nodes = chainVisible
     ? subtreeMembers(members, viewerMemberId)
     : directReports(members, viewerMemberId);
-  return new Set(nodes.map((n) => n.id));
+  const ids = new Set(nodes.map((n) => n.id));
+  // 額外（虛線）回報：把「將 viewer 列為額外回報對象」的成員直接納入（不往上傳遞）。
+  for (const m of members) {
+    if (m.id !== viewerMemberId && m.secondaryManagerIds?.includes(viewerMemberId)) {
+      ids.add(m.id);
+    }
+  }
+  return ids;
 }
 
 /** viewer 是否可看到 author 的每日報告（本人一律可）。 */
@@ -67,6 +83,7 @@ export function canViewReportOf(
   const author = byId.get(authorMemberId);
   if (!author) return false;
   if (author.managerId === viewerMemberId) return true; // 直屬主管
+  if (author.secondaryManagerIds?.includes(viewerMemberId)) return true; // 額外回報對象
   if (!chainVisible) return false;
   // 沿主管鏈往上找 viewer 是否為祖先。
   let cur = author.managerId ? byId.get(author.managerId) : undefined;

@@ -6,7 +6,12 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
 import { requireActiveOrg } from "@/server/org";
 import { todayUtc } from "@/lib/date";
-import { evaluateCheckIn, parseGeofences, pickClientIp } from "@/lib/checkin";
+import {
+  evaluateCheckIn,
+  parseGeofences,
+  parseMatchMode,
+  pickClientIp,
+} from "@/lib/checkin";
 
 const PunchInput = z.object({
   kind: z.enum(["in", "out"]),
@@ -28,6 +33,7 @@ export async function punch(input: z.input<typeof PunchInput>) {
       checkInEnabled: true,
       checkInAllowedIps: true,
       checkInGeofences: true,
+      checkInMatchMode: true,
     },
   });
   if (!orgRow?.checkInEnabled) {
@@ -48,6 +54,7 @@ export async function punch(input: z.input<typeof PunchInput>) {
     lng,
     allowedIps: orgRow.checkInAllowedIps,
     geofences: parseGeofences(orgRow.checkInGeofences),
+    matchMode: parseMatchMode(orgRow.checkInMatchMode),
   });
 
   if (!result.valid) {

@@ -3,11 +3,40 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
-import { requireActiveOrg, requireActiveOrgWithRole } from "@/server/org";
+import {
+  requireActiveOrg,
+  requireActiveOrgWithRole,
+  canManageMembers,
+} from "@/server/org";
 import { getMembershipGraph } from "@/server/queries";
 import { wouldCycle } from "@/server/hierarchy";
 
 export type TeamActionState = { error?: string; ok?: boolean } | null;
+
+const WorkDescriptionInput = z.object({
+  userId: z.string().min(1),
+  workDescription: z.string().max(4000),
+});
+
+/**
+ * 更新成員「工作描述」。本人可改自己的；管理者(OWNER/ADMIN)可改任何人的。
+ */
+export async function updateWorkDescription(
+  input: z.input<typeof WorkDescriptionInput>,
+) {
+  const { user, org, membership } = await requireActiveOrg();
+  const d = WorkDescriptionInput.parse(input);
+  if (!canManageMembers(membership.role) && d.userId !== user.id) {
+    throw new Error("你只能編輯自己的工作描述。");
+  }
+  const res = await db.organizationMember.updateMany({
+    where: { organizationId: org.id, userId: d.userId },
+    data: { workDescription: d.workDescription.trim() || null },
+  });
+  if (res.count === 0) throw new Error("找不到成員");
+  revalidatePath("/team");
+  return { ok: true as const };
+}
 
 const CreateInput = z.object({
   name: z.string().trim().min(1, "請輸入姓名").max(120),
@@ -309,6 +338,37 @@ export async function setMemberManager(
   revalidatePath("/daily");
 }
 
+/**
+ * 就地設定某成員的「額外回報對象」（虛線 / 矩陣式回報；組織架構頁用）。需擁有者 / 管理員。
+ * membershipIds＝額外回報對象的 membership id 陣列；會去重、排除自己與非本組織成員，上限 10。
+ * 這些人與正式上級主管一樣，可在每日報告看到並回饋這位成員的日報。
+ */
+export async function setMemberSecondaryManagers(
+  userId: string,
+  membershipIds: string[],
+) {
+  const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
+  const membership = await db.organizationMember.findUnique({
+    where: { organizationId_userId: { organizationId: org.id, userId } },
+    select: { id: true },
+  });
+  if (!membership) throw new Error("該成員不屬於目前組織。");
+
+  const graph = await getMembershipGraph(org.id);
+  const validIds = new Set(graph.map((m) => m.id));
+  const cleaned = Array.from(new Set(membershipIds))
+    .filter((id) => id && id !== membership.id && validIds.has(id))
+    .slice(0, 10);
+
+  await db.organizationMember.update({
+    where: { id: membership.id },
+    data: { secondaryManagerIds: cleaned },
+  });
+  revalidatePath("/team");
+  revalidatePath(`/me/${userId}`);
+  revalidatePath("/daily");
+}
+
 /** 就地設定某成員的部門（組織架構頁用）。空字串＝清除。需擁有者 / 管理員。 */
 export async function setMemberDepartment(userId: string, department: string) {
   const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
@@ -343,7 +403,20 @@ export async function deleteWorkspaceMember(id: string) {
   if (id === me.id) {
     throw new Error("不能移除自己。");
   }
+  // 該成員的 membership id：用來把它從其他成員的「額外回報對象」陣列中移除（無 FK，需手動）。
+  const membership = await db.organizationMember.findUnique({
+    where: { organizationId_userId: { organizationId: org.id, userId: id } },
+    select: { id: true },
+  });
   await db.$transaction([
+    ...(membership
+      ? [
+          db.$executeRaw`UPDATE "OrganizationMember"
+            SET "secondaryManagerIds" = array_remove("secondaryManagerIds", ${membership.id})
+            WHERE "organizationId" = ${org.id}
+              AND ${membership.id} = ANY("secondaryManagerIds")`,
+        ]
+      : []),
     db.project.updateMany({
       where: { organizationId: org.id, createdById: id },
       data: { createdById: me.id },

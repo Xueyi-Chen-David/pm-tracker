@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { MapPin, Plus, Trash2, Crosshair, Settings2 } from "lucide-react";
 import { setCheckInConfig } from "@/server/actions/org-settings";
-import type { Geofence } from "@/lib/checkin";
+import type { CheckInMatchMode, Geofence } from "@/lib/checkin";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,16 +39,19 @@ export function CheckInSettings({
   enabled: initialEnabled,
   allowedIps: initialIps,
   geofences: initialFences,
+  matchMode: initialMatchMode,
 }: {
   enabled: boolean;
   allowedIps: string[];
   geofences: Geofence[];
+  matchMode: CheckInMatchMode;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
 
   const [enabled, setEnabled] = useState(initialEnabled);
+  const [matchMode, setMatchMode] = useState<CheckInMatchMode>(initialMatchMode);
   const [ipsText, setIpsText] = useState(initialIps.join("\n"));
   const [fences, setFences] = useState<FenceDraft[]>(
     initialFences.map(toDraft),
@@ -110,10 +114,18 @@ export function CheckInSettings({
       toast.error("啟用打卡需至少設定一個允許 IP 或一個地點。");
       return;
     }
+    if (
+      enabled &&
+      matchMode === "all" &&
+      (allowedIps.length === 0 || geofences.length === 0)
+    ) {
+      toast.error("選擇「兩者皆須符合」時，需同時設定 IP／網段與地點。");
+      return;
+    }
 
     start(async () => {
       try {
-        await setCheckInConfig({ enabled, allowedIps, geofences });
+        await setCheckInConfig({ enabled, allowedIps, geofences, matchMode });
         toast.success("已儲存打卡設定");
         setOpen(false);
         router.refresh();
@@ -133,7 +145,9 @@ export function CheckInSettings({
           <DialogHeader>
             <DialogTitle>打卡設定</DialogTitle>
             <DialogDescription>
-              員工需符合「允許的 IP」或「地點範圍」任一才算有效打卡。
+              {matchMode === "all"
+                ? "員工需同時符合「允許的 IP」與「地點範圍」才算有效打卡。"
+                : "員工需符合「允許的 IP」或「地點範圍」任一即算有效打卡。"}
             </DialogDescription>
           </DialogHeader>
 
@@ -147,6 +161,47 @@ export function CheckInSettings({
               />
               啟用員工打卡
             </label>
+
+            <div className="space-y-1.5">
+              <Label>符合條件</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {(
+                  [
+                    {
+                      key: "any" as const,
+                      title: "任一符合",
+                      hint: "IP 或 地點",
+                    },
+                    {
+                      key: "all" as const,
+                      title: "兩者皆須符合",
+                      hint: "IP 且 地點",
+                    },
+                  ] satisfies { key: CheckInMatchMode; title: string; hint: string }[]
+                ).map((opt) => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setMatchMode(opt.key)}
+                    aria-pressed={matchMode === opt.key}
+                    className={cn(
+                      "rounded-md border px-3 py-2 text-left text-sm transition-colors",
+                      matchMode === opt.key
+                        ? "border-primary bg-primary/5 ring-primary/30 ring-1"
+                        : "border-input hover:bg-muted/50",
+                    )}
+                  >
+                    <div className="font-medium">{opt.title}</div>
+                    <div className="text-muted-foreground text-xs">{opt.hint}</div>
+                  </button>
+                ))}
+              </div>
+              <p className="text-muted-foreground text-xs">
+                {matchMode === "all"
+                  ? "需同時連上允許的網路（IP）並位於允許的地點範圍內。只設定其中一項時，等同只判該項。"
+                  : "只要在允許的網路（IP）內、或位於允許的地點範圍內，其中一項符合即可打卡。"}
+              </p>
+            </div>
 
             <div className="space-y-1.5">
               <Label htmlFor="ci-ips">允許的 IP / 網段（每行一個）</Label>

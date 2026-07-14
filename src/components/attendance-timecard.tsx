@@ -18,22 +18,39 @@ export type TimecardDay = {
 const WEEKDAY = ["日", "一", "二", "三", "四", "五", "六"];
 
 function fmtTime(iso: string | null): string {
-  return iso ? format(new Date(iso), "HH:mm") : "—";
+  return iso ? format(new Date(iso), "HH:mm:ss") : "—";
 }
 
-/** 在勤時段（最早上班 → 最晚下班的跨度）。 */
+/** 精確時長：H 小時 M 分 S 秒（時數為 0 時省略）。 */
+function fmtDuration(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return (h > 0 ? `${h} 小時 ` : "") + `${m} 分 ${s} 秒`;
+}
+
+/** 在勤時段（最早上班 → 最晚下班的跨度），精確到秒。 */
 function spanLabel(inAt: string | null, outAt: string | null): string {
   if (!inAt || !outAt) return "—";
   const ms = new Date(outAt).getTime() - new Date(inAt).getTime();
   if (ms <= 0) return "—";
-  const mins = Math.round(ms / 60000);
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return m > 0 ? `${h} 小時 ${m} 分` : `${h} 小時`;
+  return fmtDuration(ms);
 }
 
 function MethodIcon({ method }: { method: string | null }) {
   if (!method) return null;
+  if (method === "both") {
+    return (
+      <span
+        className="text-muted-foreground/70 inline-flex items-center gap-0.5"
+        title="定位＋IP"
+      >
+        <MapPin className="h-3 w-3" />
+        <Wifi className="h-3 w-3" />
+      </span>
+    );
+  }
   return (
     <span className="text-muted-foreground/70" title={method === "gps" ? "定位" : "IP"}>
       {method === "gps" ? (
@@ -57,23 +74,20 @@ export function AttendanceTimecard({
   todayStr: string;
 }) {
   const workedDays = days.filter((d) => d.inAt || d.outAt).length;
-  const totalMins = days.reduce((s, d) => {
+  const totalMs = days.reduce((sum, d) => {
     if (d.inAt && d.outAt) {
       const ms = new Date(d.outAt).getTime() - new Date(d.inAt).getTime();
-      if (ms > 0) return s + ms / 60000;
+      if (ms > 0) return sum + ms;
     }
-    return s;
+    return sum;
   }, 0);
-  const totalH = Math.floor(totalMins / 60);
-  const totalM = Math.round(totalMins % 60);
 
   return (
     <section className="bg-card overflow-hidden rounded-xl border shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
         <h2 className="text-base font-semibold">我的打卡紀錄</h2>
         <div className="text-muted-foreground text-xs">
-          出勤 {workedDays} 天 · 總在勤 {totalH} 小時
-          {totalM > 0 ? ` ${totalM} 分` : ""}
+          出勤 {workedDays} 天 · 總在勤 {totalMs > 0 ? fmtDuration(totalMs) : "0 分 0 秒"}
         </div>
       </div>
 
@@ -82,7 +96,7 @@ export function AttendanceTimecard({
           本月尚無打卡紀錄。到「每日報告」頁即可上/下班打卡。
         </p>
       ) : (
-        <div className="max-h-[60vh] overflow-auto">
+        <div className="max-h-[28rem] overflow-auto">
           <table className="w-full min-w-[420px] text-sm">
             <thead className="bg-muted/40 text-muted-foreground sticky top-0 text-[11px]">
               <tr>

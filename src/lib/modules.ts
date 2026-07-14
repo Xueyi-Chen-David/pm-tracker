@@ -15,6 +15,7 @@ export type ModuleKey =
   | "dashboard"
   | "daily"
   | "me"
+  | "todo"
   | "projects"
   | "company"
   | "crm"
@@ -39,6 +40,7 @@ export type AppModule = {
 export const MODULES: readonly AppModule[] = [
   { key: "dashboard", label: "總覽", href: "/dashboard" },
   { key: "daily", label: "每日報告", href: "/daily", alwaysVisible: true },
+  { key: "todo", label: "待辦 / 番茄鐘", href: "/todo", alwaysVisible: true },
   { key: "me", label: "個人資料", href: "/me", alwaysVisible: true },
   { key: "projects", label: "專案與任務", href: "/projects" },
   { key: "company", label: "公司OKR", href: "/company" },

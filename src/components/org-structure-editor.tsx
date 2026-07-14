@@ -3,8 +3,12 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Crown, Building2, CornerDownRight } from "lucide-react";
-import { setMemberManager, setMemberDepartment } from "@/server/actions/team";
+import { Crown, Building2, CornerDownRight, Users, X } from "lucide-react";
+import {
+  setMemberManager,
+  setMemberDepartment,
+  setMemberSecondaryManagers,
+} from "@/server/actions/team";
 import { displayName, displayInitial } from "@/lib/display";
 import { MemberName } from "@/components/member-name";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -62,7 +66,7 @@ export function OrgStructureEditor({
           <h3 className="text-sm font-semibold">部門與直屬關係</h3>
           {canManage && (
             <span className="text-muted-foreground text-xs">
-              就地設定每個人的部門與上級主管；主管可在「每日報告」看到下屬日報。
+              就地設定每個人的部門、上級主管與額外回報對象；被指定者皆可在「每日報告」看到其日報。
             </span>
           )}
         </div>
@@ -120,6 +124,22 @@ function MemberRow({
   const managerChoices = allMembers.filter(
     (x) => x.membershipId !== member.membershipId,
   );
+
+  // 額外（虛線）回報對象。
+  const secondaryIds = member.secondaryManagerIds ?? [];
+  const secondaryMembers = secondaryIds
+    .map((id) => allMembers.find((x) => x.membershipId === id))
+    .filter((x): x is OrgChartEntry => Boolean(x));
+  const secondaryChoices = allMembers.filter(
+    (x) =>
+      x.membershipId !== member.membershipId &&
+      x.membershipId !== member.managerId &&
+      !secondaryIds.includes(x.membershipId),
+  );
+
+  function setSecondary(ids: string[]) {
+    run(() => setMemberSecondaryManagers(member.id, ids));
+  }
 
   function run(fn: () => Promise<void>) {
     start(async () => {
@@ -198,11 +218,69 @@ function MemberRow({
               ))}
             </select>
           </label>
+
+          {/* 額外回報對象（虛線 / 矩陣式；可多位） */}
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <Users className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
+            <span className="text-muted-foreground">另外回報給</span>
+            {secondaryMembers.map((s) => (
+              <span
+                key={s.membershipId}
+                className="bg-muted inline-flex items-center gap-1 rounded-full py-0.5 pr-1 pl-2"
+              >
+                {displayName(s)}
+                <button
+                  type="button"
+                  disabled={pending}
+                  aria-label={`移除 ${displayName(s)}`}
+                  onClick={() =>
+                    setSecondary(
+                      secondaryIds.filter((id) => id !== s.membershipId),
+                    )
+                  }
+                  className="text-muted-foreground hover:text-foreground rounded-full disabled:opacity-50"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+            {secondaryChoices.length > 0 ? (
+              <select
+                value=""
+                disabled={pending}
+                onChange={(e) => {
+                  if (e.target.value)
+                    setSecondary([...secondaryIds, e.target.value]);
+                }}
+                className="border-input h-8 w-32 rounded-md border bg-transparent px-2 text-sm outline-none focus:border-ring"
+              >
+                <option value="">＋ 新增…</option>
+                {secondaryChoices.map((c) => (
+                  <option key={c.membershipId} value={c.membershipId}>
+                    {displayName(c)}
+                    {c.jobTitle ? `（${c.jobTitle}）` : ""}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              secondaryMembers.length === 0 && (
+                <span className="text-muted-foreground">—</span>
+              )
+            )}
+          </div>
         </>
       ) : (
-        <div className="text-muted-foreground flex items-center gap-1.5 text-xs">
-          <CornerDownRight className="h-3.5 w-3.5" />
-          回報給 {manager ? displayName(manager) : "—"}
+        <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+          <span className="flex items-center gap-1.5">
+            <CornerDownRight className="h-3.5 w-3.5" />
+            回報給 {manager ? displayName(manager) : "—"}
+          </span>
+          {secondaryMembers.length > 0 && (
+            <span className="flex items-center gap-1.5">
+              <Users className="h-3.5 w-3.5" />
+              另外回報給 {secondaryMembers.map((s) => displayName(s)).join("、")}
+            </span>
+          )}
         </div>
       )}
     </div>

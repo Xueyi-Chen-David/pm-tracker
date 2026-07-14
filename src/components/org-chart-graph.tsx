@@ -14,6 +14,7 @@ export function OrgChartGraph({ members }: { members: OrgChartEntry[] }) {
   if (members.length === 0) return null;
 
   const ids = new Set(members.map((m) => m.membershipId));
+  const nameById = new Map(members.map((m) => [m.membershipId, displayName(m)]));
   const byManager = new Map<string, OrgChartEntry[]>();
   const roots: OrgChartEntry[] = [];
   for (const m of members) {
@@ -30,10 +31,14 @@ export function OrgChartGraph({ members }: { members: OrgChartEntry[] }) {
     if (seen.has(node.membershipId)) return null; // 防環
     seen.add(node.membershipId);
     const children = byManager.get(node.membershipId) ?? [];
+    // 額外（虛線）回報對象（樹只畫正式主管鏈，這裡以節點下的小字標示）。
+    const secondaryNames = (node.secondaryManagerIds ?? [])
+      .map((id) => nameById.get(id))
+      .filter((n): n is string => Boolean(n));
     return (
       <li key={node.membershipId}>
         <div className={styles.node}>
-          <NodeCard node={node} />
+          <NodeCard node={node} secondaryNames={secondaryNames} />
         </div>
         {children.length > 0 && (
           <ul>{children.map((c) => renderNode(c, seen))}</ul>
@@ -54,11 +59,21 @@ export function OrgChartGraph({ members }: { members: OrgChartEntry[] }) {
   );
 }
 
-function NodeCard({ node }: { node: OrgChartEntry }) {
+function NodeCard({
+  node,
+  secondaryNames = [],
+}: {
+  node: OrgChartEntry;
+  secondaryNames?: string[];
+}) {
   return (
     <Link
       href={`/me/${node.id}`}
-      title={displayName(node)}
+      title={
+        secondaryNames.length > 0
+          ? `${displayName(node)} · 另外回報給 ${secondaryNames.join("、")}`
+          : displayName(node)
+      }
       className="bg-background hover:border-primary/50 hover:bg-muted/40 inline-flex w-40 flex-col items-center gap-1.5 rounded-xl border px-3 py-3 text-center shadow-sm transition-colors"
     >
       <Avatar className="h-11 w-11">
@@ -74,6 +89,11 @@ function NodeCard({ node }: { node: OrgChartEntry }) {
       {node.jobTitle && (
         <span className="text-muted-foreground max-w-full truncate text-xs">
           {node.jobTitle}
+        </span>
+      )}
+      {secondaryNames.length > 0 && (
+        <span className="text-muted-foreground max-w-full truncate text-[10px]">
+          ⇢ {secondaryNames.join("、")}
         </span>
       )}
     </Link>

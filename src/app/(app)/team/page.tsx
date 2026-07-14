@@ -12,6 +12,7 @@ import { OrgStructureEditor } from "@/components/org-structure-editor";
 import { ViewToggle } from "@/components/view-toggle";
 import { MemberName } from "@/components/member-name";
 import { LoginStatusBadge } from "@/components/login-status-badge";
+import { WorkDescriptionEditor } from "@/components/work-description-editor";
 import { displayName, displayInitial } from "@/lib/display";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Card } from "@/components/ui/card";
@@ -23,7 +24,7 @@ export default async function TeamPage({
 }: {
   searchParams: Promise<{ view?: string; tab?: string }>;
 }) {
-  const { org, canManage } = await requireManageContext();
+  const { org, user, canManage } = await requireManageContext();
   const { view: viewParam, tab: tabParam } = await searchParams;
   const view = viewParam === "card" ? "card" : "list";
   const tab = tabParam === "org" ? "org" : "members";
@@ -70,17 +71,21 @@ export default async function TeamPage({
             <ViewToggle view={view} basePath="/team" />
           </div>
           {view === "list" ? (
-            <PaginatedMemberList members={members} canManage={canManage} />
+            <PaginatedMemberList
+              members={members}
+              canManage={canManage}
+              viewerId={user.id}
+            />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               {members.map((m) => (
                 <Card
                   key={m.id}
-                  className="hover:bg-muted/30 relative flex h-full flex-row items-center gap-3 p-4 transition-colors"
+                  className="hover:bg-muted/30 relative flex h-full flex-col gap-2 p-4 transition-colors"
                 >
                   <Link
                     href={`/me/${m.id}`}
-                    className="flex min-w-0 flex-1 items-center gap-3"
+                    className="flex min-w-0 items-center gap-3"
                   >
                     <Avatar className="h-12 w-12" title={displayName(m)}>
                       {m.image && <AvatarImage src={m.image} alt="" />}
@@ -119,6 +124,17 @@ export default async function TeamPage({
                       </div>
                     </div>
                   </Link>
+                  <div className="border-t pt-2">
+                    <div className="text-muted-foreground mb-0.5 text-[11px] font-medium">
+                      工作描述
+                    </div>
+                    <WorkDescriptionEditor
+                      userId={m.id}
+                      value={m.workDescription}
+                      canEdit={canManage || m.id === user.id}
+                      className="w-full"
+                    />
+                  </div>
                   {canManage && (
                     <div className="absolute top-2 right-2">
                       <MemberDeleteButton

@@ -15,6 +15,7 @@ import {
   Library,
   NotebookPen,
   ClipboardList,
+  ListTodo,
   CircleUser,
   Handshake,
   Menu,
@@ -59,13 +60,13 @@ const NAV_SECTIONS: NavSection[] = [
       { key: "dashboard", href: "/dashboard", label: "總覽", icon: LayoutDashboard },
     ],
   },
-  // 目標與專案：從公司 OKR 目標，到時程藍圖，再到落地的專案與任務。
+  // 目標與專案：公司 OKR 目標 → 落地的專案與任務 → 時程藍圖。
   {
     title: "目標與專案",
     items: [
       { key: "company", href: "/company", label: "公司OKR", icon: Building2 },
-      { key: "timeline", href: "/timeline", label: "時程藍圖", icon: CalendarRange },
       { key: "projects", href: "/projects", label: "專案與任務", icon: FolderKanban },
+      { key: "timeline", href: "/timeline", label: "時程藍圖", icon: CalendarRange },
     ],
   },
   // 團隊協作：會議、團隊、出席，週報靠近底部，公司文件置於最底。
@@ -89,6 +90,7 @@ const NAV_SECTIONS: NavSection[] = [
     title: "個人",
     items: [
       { key: "daily", href: "/daily", label: "每日報告", icon: ClipboardList },
+      { key: "todo", href: "/todo", label: "待辦 / 番茄鐘", icon: ListTodo },
       { key: "me", href: "/me", label: "個人資料", icon: CircleUser },
     ],
   },

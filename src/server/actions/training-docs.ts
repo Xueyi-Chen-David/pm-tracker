@@ -3,18 +3,41 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
-import { requireActiveOrgWithRole } from "@/server/org";
+import {
+  requireActiveOrg,
+  requireActiveOrgWithRole,
+  canManageMembers,
+} from "@/server/org";
 
 // 員工教育訓練文件庫（Training Docs）的伺服器動作：資料夾 / 文件 CRUD。
-// 編輯權限：組織擁有者 / 管理員（OWNER / ADMIN）。讀取由頁面 requireModuleAccess 控管。
+// 結構性操作（資料夾 / 新增 / 刪除 / 搬移 / 權限）限管理者（OWNER / ADMIN）；
+// 單份文件內容則額外開放給該文件的「編輯白名單」。讀取由頁面 requireModuleAccess 控管。
 
 /** 巢狀資料夾的最大層數（含根層）——避免無意義的過深巢狀。 */
 const MAX_FOLDER_DEPTH = 8;
 
-/** 只有 OWNER / ADMIN 能編輯文件庫。回傳目前組織。 */
+/** 只有 OWNER / ADMIN 能做結構性編輯（資料夾 / 新增 / 刪除 / 搬移 / 權限）。 */
 async function requireDocEditor() {
   const { org, user } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
   return { org, user };
+}
+
+/**
+ * 可編輯「某一份文件」的權限：管理者(OWNER/ADMIN)一律可編輯，或本人在該文件的
+ * editorUserIds 白名單內。皆非則丟錯。
+ */
+async function requirePageEditor(pageId: string) {
+  const ctx = await requireActiveOrg();
+  if (canManageMembers(ctx.membership.role)) return ctx;
+  const page = await db.trainingDocPage.findFirst({
+    where: { id: pageId, organizationId: ctx.org.id },
+    select: { editorUserIds: true },
+  });
+  if (!page) throw new Error("找不到文件");
+  if (!page.editorUserIds.includes(ctx.user.id)) {
+    throw new Error("你沒有編輯這份文件的權限。");
+  }
+  return ctx;
 }
 
 /** 確認資料夾屬於本組織，並回傳其在樹中的深度（根層＝1）。找不到則丟錯。 */
@@ -144,8 +167,9 @@ const PageUpdate = z.object({
 });
 
 export async function updateDocPage(input: z.input<typeof PageUpdate>) {
-  const { org, user } = await requireDocEditor();
   const d = PageUpdate.parse(input);
+  // 管理者或該文件的編輯白名單成員皆可編輯內容 / 標題。
+  const { org, user } = await requirePageEditor(d.id);
   await db.trainingDocPage.updateMany({
     where: { id: d.id, organizationId: org.id },
     data: {
@@ -290,26 +314,29 @@ export async function moveDocPage(input: z.input<typeof PageMove>) {
   return { ok: true as const };
 }
 
-// ── 文件可見性權限（管理者限定）─────────────────────────────────
+// ── 文件權限：誰可以看 + 誰可以編輯（管理者限定設定）──────────────
 
-const VisibilityInput = z.object({
+const PermissionInput = z.object({
   id: z.string().min(1),
   // ALL＝所有人可見；RESTRICTED＝僅白名單（管理者一律可見）。
   visibility: z.enum(["ALL", "RESTRICTED"]),
   allowedUserIds: z.array(z.string()).default([]),
+  // 額外可編輯這份文件的成員（管理者一律可編輯，不受此限制）。
+  editorUserIds: z.array(z.string()).default([]),
 });
 
-/** 設定某文件由誰可見。管理者一律可見，不受此限制。 */
-export async function setDocPageVisibility(
-  input: z.input<typeof VisibilityInput>,
+/** 設定某文件由誰可見 / 誰可編輯。管理者一律可見 + 可編輯，不受此限制。 */
+export async function setDocPagePermissions(
+  input: z.input<typeof PermissionInput>,
 ) {
   const { org } = await requireDocEditor();
-  const d = VisibilityInput.parse(input);
+  const d = PermissionInput.parse(input);
   const res = await db.trainingDocPage.updateMany({
     where: { id: d.id, organizationId: org.id },
     data: {
       visibility: d.visibility,
       allowedUserIds: d.visibility === "RESTRICTED" ? d.allowedUserIds : [],
+      editorUserIds: d.editorUserIds,
     },
   });
   if (res.count === 0) throw new Error("找不到文件");

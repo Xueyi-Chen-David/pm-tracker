@@ -28,8 +28,8 @@ async function assertOrgMember(orgId: string, userId: string) {
 const SetInput = z.object({
   userId: z.string().min(1),
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日期格式錯誤"),
-  // present=出席、absent=缺席、offsite=在外工作（出差/在家工作）、holiday=休假/放假、clear=清除
-  status: z.enum(["present", "absent", "offsite", "holiday", "clear"]),
+  // present=出席、absent=缺席、offsite=在外工作（出差/在家工作）、holiday=休假/放假、leave=請假、clear=清除
+  status: z.enum(["present", "absent", "offsite", "holiday", "leave", "clear"]),
   reason: z.string().trim().max(100).optional(),
 });
 
@@ -50,10 +50,12 @@ export async function setAttendance(input: z.input<typeof SetInput>) {
     });
   } else {
     const holiday = d.status === "holiday";
+    const leave = d.status === "leave";
     const offsite = d.status === "offsite";
-    // 缺席與休假都不算出席；出差 / 在家工作算出席。
-    const present = d.status !== "absent" && d.status !== "holiday";
-    // 缺席與在外工作保留事由；出席 / 休假清空事由。
+    // 缺席 / 休假 / 請假都不算出席；出差 / 在家工作算出席。
+    const present =
+      d.status !== "absent" && d.status !== "holiday" && d.status !== "leave";
+    // 缺席 / 在外工作 / 請假保留事由；出席 / 休假清空事由。
     const reason = present && !offsite ? null : d.reason?.trim() || null;
     // 人工登記一律標為非自動：即使原本是事件帶出的，人工一改就「脫鉤」，
     // 之後刪除該事件也不會回收這筆，且不會被事件重新覆蓋。
@@ -70,6 +72,7 @@ export async function setAttendance(input: z.input<typeof SetInput>) {
         reason,
         offsite,
         holiday,
+        leave,
         auto: false,
         createdById: me.id,
       },
@@ -81,6 +84,7 @@ export async function setAttendance(input: z.input<typeof SetInput>) {
         reason,
         offsite,
         holiday,
+        leave,
         auto: false,
         createdById: me.id,
       },

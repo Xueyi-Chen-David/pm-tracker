@@ -39,19 +39,32 @@ const CheckInConfigInput = z.object({
   // 每行一個 IP / CIDR（前端以換行字串傳入亦可）。
   allowedIps: z.array(z.string().trim().max(64)).max(50),
   geofences: z.array(GeofenceInput).max(20),
+  // 網段與地點的組合方式："any"＝任一符合、"all"＝兩者皆須符合。
+  matchMode: z.enum(["any", "all"]).default("any"),
 });
 
-/** 設定打卡限制（啟用 + 允許 IP + 地理圍欄）。需管理者。 */
+/** 設定打卡限制（啟用 + 允許 IP + 地理圍欄 + 組合方式）。需管理者。 */
 export async function setCheckInConfig(input: z.input<typeof CheckInConfigInput>) {
   const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
   const d = CheckInConfigInput.parse(input);
   const allowedIps = d.allowedIps.map((s) => s.trim()).filter(Boolean);
+
+  // 「兩者皆須符合」需同時設有網段與地點，否則其實只判單一條件、易誤導。
+  if (d.enabled && d.matchMode === "all") {
+    if (allowedIps.length === 0 || d.geofences.length === 0) {
+      throw new Error(
+        "選擇「兩者皆須符合」時，需同時設定至少一個 IP／網段與一個地點。",
+      );
+    }
+  }
+
   await db.organization.update({
     where: { id: org.id },
     data: {
       checkInEnabled: d.enabled,
       checkInAllowedIps: allowedIps,
       checkInGeofences: d.geofences,
+      checkInMatchMode: d.matchMode,
     },
   });
   revalidatePath("/attendance");
