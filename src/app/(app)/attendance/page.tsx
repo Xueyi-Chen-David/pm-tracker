@@ -12,6 +12,10 @@ import {
 import { AttendanceMonthNav } from "@/components/attendance-month-nav";
 import { AttendanceTrackManager } from "@/components/attendance-track-manager";
 import { CheckInSettings } from "@/components/check-in-settings";
+import {
+  AttendanceTimecard,
+  type TimecardDay,
+} from "@/components/attendance-timecard";
 
 export const metadata = { title: "出席狀況 · Project Pulse" };
 
@@ -62,25 +66,36 @@ export default async function AttendancePage({
     };
   });
 
-  const [rows, trackable, orgConfig, firstCheckIn] = await Promise.all([
-    getAttendanceMonth(org.id, start, end),
-    canManage ? getTrackableMembers(org.id) : Promise.resolve([]),
-    db.organization.findUnique({
-      where: { id: org.id },
-      select: {
-        checkInEnabled: true,
-        checkInAllowedIps: true,
-        checkInGeofences: true,
-      },
-    }),
-    // 自動缺席的起算錨點：該企業第一次打卡的日期（在那之前不判缺席，避免把
-    // 尚未導入打卡的歷史日子全部誤標）。沒有任何打卡則不啟用自動缺席。
-    db.checkIn.findFirst({
-      where: { organizationId: org.id, valid: true },
-      orderBy: { date: "asc" },
-      select: { date: true },
-    }),
-  ]);
+  const [rows, trackable, orgConfig, firstCheckIn, myCheckIns] =
+    await Promise.all([
+      getAttendanceMonth(org.id, start, end),
+      canManage ? getTrackableMembers(org.id) : Promise.resolve([]),
+      db.organization.findUnique({
+        where: { id: org.id },
+        select: {
+          checkInEnabled: true,
+          checkInAllowedIps: true,
+          checkInGeofences: true,
+        },
+      }),
+      // 自動缺席的起算錨點：該企業第一次打卡的日期（在那之前不判缺席，避免把
+      // 尚未導入打卡的歷史日子全部誤標）。沒有任何打卡則不啟用自動缺席。
+      db.checkIn.findFirst({
+        where: { organizationId: org.id, valid: true },
+        orderBy: { date: "asc" },
+        select: { date: true },
+      }),
+      // 個人「打卡紙」：本人本月的所有打卡（依實際時間排序）。
+      db.checkIn.findMany({
+        where: {
+          organizationId: org.id,
+          userId: user.id,
+          date: { gte: start, lt: end },
+        },
+        orderBy: { at: "asc" },
+        select: { date: true, at: true, kind: true, method: true },
+      }),
+    ]);
 
   // 自動缺席規則：企業有開打卡、且某平日落在 [第一次打卡日, 今天) 之間、
   // 該成員當天完全沒有出席紀錄（沒打卡 / 請假 / 手動 / 出差）→ 視為缺席（未打卡）。
@@ -128,6 +143,38 @@ export default async function AttendancePage({
       marks,
     };
   });
+
+  // 個人打卡紙：把本人本月打卡依日期彙整（最早上班 / 最晚下班），只列到今天為止。
+  const punchesByDate = new Map<
+    string,
+    { at: Date; kind: string; method: string | null }[]
+  >();
+  for (const c of myCheckIns) {
+    const ds = c.date.toISOString().slice(0, 10);
+    const arr = punchesByDate.get(ds) ?? [];
+    arr.push(c);
+    punchesByDate.set(ds, arr);
+  }
+  const timecardDays: TimecardDay[] = days
+    .filter((d) => d.dateStr <= todayStr)
+    .map((d) => {
+      const punches = punchesByDate.get(d.dateStr) ?? [];
+      const ins = punches.filter((p) => p.kind === "in");
+      const outs = punches.filter((p) => p.kind === "out");
+      const firstIn = ins[0];
+      const lastOut = outs[outs.length - 1];
+      return {
+        day: d.day,
+        dateStr: d.dateStr,
+        weekday: d.weekday,
+        weekend: d.weekend,
+        inAt: firstIn?.at.toISOString() ?? null,
+        outAt: lastOut?.at.toISOString() ?? null,
+        inMethod: firstIn?.method ?? null,
+        outMethod: lastOut?.method ?? null,
+      };
+    });
+  const showTimecard = checkInEnabled || myCheckIns.length > 0;
 
   return (
     <div className="space-y-4">
@@ -194,6 +241,10 @@ export default async function AttendancePage({
           viewerUserId={user.id}
           canManage={canManage}
         />
+      )}
+
+      {showTimecard && (
+        <AttendanceTimecard days={timecardDays} todayStr={todayStr} />
       )}
     </div>
   );
