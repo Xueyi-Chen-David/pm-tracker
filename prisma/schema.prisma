@@ -52,6 +52,7 @@ model User {
   crmDealsOwned       CrmDeal[]            @relation("CrmDealOwner")
   todoItems           TodoItem[]
   pomodoroSessions    PomodoroSession[]
+  leaveRequests       LeaveRequest[]
 }
 
 model Account {
@@ -148,6 +149,8 @@ model Organization {
   leaveTypes          LeaveType[]
   salaryProfiles      SalaryProfile[]
   payslips            Payslip[]
+  leaveApprovalSteps  LeaveApprovalStep[]
+  leaveRequests       LeaveRequest[]
 }
 
 /**
@@ -190,6 +193,11 @@ model OrganizationMember {
   // 人資：薪資設定（每位成員一份）與歷月薪資單。
   salaryProfile SalaryProfile?
   payslips      Payslip[]
+
+  // 請假簽核：作為簽核關卡的指定簽核人 / 作為申請人 / 作為某申請某關的實際簽核人。
+  leaveStepApprovals LeaveApprovalStep[] @relation("LeaveStepApprover")
+  leaveRequests      LeaveRequest[]      @relation("LeaveRequestMember")
+  leaveApprovals     LeaveApproval[]     @relation("LeaveApprovalApprover")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1122,9 +1130,85 @@ model LeaveType {
   updatedAt       DateTime     @updatedAt
 
   attendanceRecords AttendanceRecord[]
+  leaveRequests     LeaveRequest[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
+}
+
+// ─────────────────────────────────────────────
+// 請假簽核（Leave approval）
+// 員工送出請假申請 → 依「組織設定的簽核關卡」逐關簽核 → 全部核准才寫入出席月曆。
+// 每關的簽核人可以是「申請人的直屬主管」(動態、送出時解析) 或「指定成員」。
+// 輪到哪一關，該關的簽核人就會收到站內通知；申請人也會在每次進度 / 定案時收到通知。
+// ─────────────────────────────────────────────
+
+/// 請假簽核關卡（每組織一組有序關卡）。approverType 決定該關簽核人如何解析。
+model LeaveApprovalStep {
+  id               String              @id @default(cuid())
+  organizationId   String
+  organization     Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sortOrder        Int                 @default(0) // 關卡順序（越小越先簽）
+  // 簽核人解析方式："MANAGER"＝申請人的直屬主管（送出時動態解析）；"MEMBER"＝下方指定成員。
+  approverType     String              @default("MANAGER")
+  // approverType="MEMBER" 時指定的簽核成員（OrganizationMember.id）。
+  approverMemberId String?
+  approverMember   OrganizationMember? @relation("LeaveStepApprover", fields: [approverMemberId], references: [id], onDelete: Cascade)
+  createdAt        DateTime            @default(now())
+
+  @@index([organizationId, sortOrder])
+  @@index([approverMemberId])
+}
+
+/// 請假申請。送出時把組織的簽核關卡解析成一串 LeaveApproval，依序簽核。
+model LeaveRequest {
+  id             String             @id @default(cuid())
+  organizationId String
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  // 申請人：membership（供組織內解析主管鏈）＋ userId（供通知 / 出席寫入）雙記。
+  memberId       String
+  member         OrganizationMember @relation("LeaveRequestMember", fields: [memberId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  leaveTypeId String?
+  leaveType   LeaveType? @relation(fields: [leaveTypeId], references: [id], onDelete: SetNull)
+  startDate   DateTime   @db.Date
+  endDate     DateTime   @db.Date
+  days        Float      @default(0) // 換算工作天（週末不計；顯示 / 統計用）
+  reason      String?    @db.Text
+
+  // PENDING（待簽核）| APPROVED（已核准）| REJECTED（已駁回）| CANCELLED（已取消）
+  status      String    @default("PENDING")
+  currentStep Int       @default(0) // 目前待簽核的關卡索引（0-based）
+  decidedAt   DateTime? // 最終定案（核准 / 駁回 / 取消）時間
+
+  approvals LeaveApproval[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, status])
+  @@index([memberId])
+  @@index([userId])
+}
+
+/// 單一請假申請的其中一關簽核（送出時由組織關卡解析而來，記錄實際簽核人與其決定）。
+model LeaveApproval {
+  id               String             @id @default(cuid())
+  requestId        String
+  request          LeaveRequest       @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  sortOrder        Int                @default(0) // 這關在本申請中的順序（0-based）
+  approverMemberId String
+  approverMember   OrganizationMember @relation("LeaveApprovalApprover", fields: [approverMemberId], references: [id], onDelete: Cascade)
+  // PENDING（待簽）| APPROVED（已核准）| REJECTED（已駁回）
+  status           String             @default("PENDING")
+  comment          String?            @db.Text
+  decidedAt        DateTime?
+  createdAt        DateTime           @default(now())
+
+  @@index([requestId, sortOrder])
+  @@index([approverMemberId, status])
 }
 
 /// 薪資設定（每位成員一份）。月薪制（MONTHLY）依出勤 / 請假比例計薪；時薪制（HOURLY）依打卡工時計薪。

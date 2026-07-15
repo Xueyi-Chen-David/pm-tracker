@@ -119,3 +119,55 @@ export async function createDefaultLeaveTypes() {
   revalidatePath("/payroll");
   revalidatePath("/attendance");
 }
+
+/**
+ * 請假「簽核流程」設定：一組有序關卡，決定請假送出後依序由誰簽核。需 `leave.manage`。
+ * 每關的簽核人可以是「直屬主管」(MANAGER，送出時動態解析) 或「指定成員」(MEMBER)。
+ * 整份覆寫（關卡數量小、順序即索引，刪除後重建最單純）。
+ */
+const FlowStepInput = z.object({
+  approverType: z.enum(["MANAGER", "MEMBER"]),
+  approverMemberId: z.string().min(1).optional().nullable(),
+});
+const FlowInput = z.object({
+  steps: z.array(FlowStepInput).max(10),
+});
+
+export async function setLeaveApprovalFlow(input: z.input<typeof FlowInput>) {
+  const { org } = await requireOrgPermission("leave.manage");
+  const { steps } = FlowInput.parse(input);
+
+  // 指定成員的關卡：驗證該成員屬於目前組織。
+  const memberIds = steps
+    .filter((s) => s.approverType === "MEMBER")
+    .map((s) => s.approverMemberId)
+    .filter((id): id is string => Boolean(id));
+  if (memberIds.length) {
+    const found = await db.organizationMember.count({
+      where: { id: { in: memberIds }, organizationId: org.id },
+    });
+    if (found !== new Set(memberIds).size) {
+      throw new Error("指定的簽核成員不屬於目前組織。");
+    }
+  }
+  // MEMBER 關卡一定要指定成員。
+  for (const s of steps) {
+    if (s.approverType === "MEMBER" && !s.approverMemberId) {
+      throw new Error("「指定成員」的關卡請選擇一位簽核人。");
+    }
+  }
+
+  await db.$transaction([
+    db.leaveApprovalStep.deleteMany({ where: { organizationId: org.id } }),
+    db.leaveApprovalStep.createMany({
+      data: steps.map((s, i) => ({
+        organizationId: org.id,
+        sortOrder: i,
+        approverType: s.approverType,
+        approverMemberId:
+          s.approverType === "MEMBER" ? (s.approverMemberId ?? null) : null,
+      })),
+    }),
+  ]);
+  revalidatePath("/leave");
+}

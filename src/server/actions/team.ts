@@ -438,6 +438,99 @@ export async function setMemberDepartment(userId: string, department: string) {
   revalidatePath(`/me/${userId}`);
 }
 
+// ── 批次設定（團隊清單多選）：一次對多位成員套用同一設定。需擁有者 / 管理員。 ──
+const BulkIds = z
+  .array(z.string().min(1))
+  .min(1, "請先選擇成員")
+  .max(1000);
+
+export type BulkResult = { ok: true; count: number; skipped?: number };
+
+/** 批次設定「在職 / 停用」。回傳實際更新筆數。 */
+export async function bulkSetMemberActive(
+  userIds: string[],
+  active: boolean,
+): Promise<BulkResult> {
+  const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
+  const ids = BulkIds.parse(userIds);
+  const res = await db.organizationMember.updateMany({
+    where: { organizationId: org.id, userId: { in: ids } },
+    data: { active },
+  });
+  revalidatePath("/team");
+  revalidatePath("/attendance");
+  revalidatePath("/daily");
+  return { ok: true, count: res.count };
+}
+
+/** 批次設定「是否納入出席追蹤」。回傳實際更新筆數。 */
+export async function bulkSetMemberTrackAttendance(
+  userIds: string[],
+  track: boolean,
+): Promise<BulkResult> {
+  const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
+  const ids = BulkIds.parse(userIds);
+  const res = await db.organizationMember.updateMany({
+    where: { organizationId: org.id, userId: { in: ids } },
+    data: { trackAttendance: track },
+  });
+  revalidatePath("/team");
+  revalidatePath("/attendance");
+  return { ok: true, count: res.count };
+}
+
+/**
+ * 批次設定「上級主管」。managerMembershipId 為空＝清除所有選取者的主管。
+ * 指派時逐一擋掉：主管不在組織、把某人設成自己的主管、會造成循環者（略過並回報 skipped）。
+ */
+export async function bulkSetMemberManager(
+  userIds: string[],
+  managerMembershipId: string | null,
+): Promise<BulkResult> {
+  const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
+  const ids = BulkIds.parse(userIds);
+
+  if (!managerMembershipId) {
+    const res = await db.organizationMember.updateMany({
+      where: { organizationId: org.id, userId: { in: ids } },
+      data: { managerId: null },
+    });
+    revalidatePath("/team");
+    revalidatePath("/daily");
+    return { ok: true, count: res.count };
+  }
+
+  const graph = await getMembershipGraph(org.id);
+  const manager = graph.find((m) => m.id === managerMembershipId);
+  if (!manager) throw new Error("指定的主管不在目前組織。");
+  const byUser = new Map(graph.map((m) => [m.userId, m]));
+
+  // 全部指向同一位主管：對每個選取成員以「原始圖」檢查即可（不會互相影響是否成環）。
+  const valid: string[] = [];
+  let skipped = 0;
+  for (const uid of ids) {
+    const node = byUser.get(uid);
+    if (!node || node.id === managerMembershipId) {
+      skipped++; // 不在組織 / 不能設成自己的主管
+      continue;
+    }
+    if (wouldCycle(graph, node.id, managerMembershipId)) {
+      skipped++; // 會造成主管關係循環
+      continue;
+    }
+    valid.push(uid);
+  }
+  if (valid.length) {
+    await db.organizationMember.updateMany({
+      where: { organizationId: org.id, userId: { in: valid } },
+      data: { managerId: managerMembershipId },
+    });
+  }
+  revalidatePath("/team");
+  revalidatePath("/daily");
+  return { ok: true, count: valid.length, skipped };
+}
+
 /** 設定成員在本組織是否在職 / 啟用。需擁有者 / 管理員。 */
 export async function setMemberActive(id: string, active: boolean) {
   const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);

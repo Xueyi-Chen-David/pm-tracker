@@ -162,6 +162,7 @@ export async function getOrgMembers(orgId: string) {
       jobTitle: true,
       department: true,
       attendance: true,
+      trackAttendance: true,
       workDescription: true,
       // accounts>0 ＝ 曾用 OAuth（Google）登入過（被邀請但沒登入的 stub User 為 0）。
       user: { select: { ...userIdentitySelect, _count: { select: { accounts: true } } } },
@@ -213,6 +214,7 @@ export async function getOrgMembers(orgId: string) {
       jobTitle: m.jobTitle,
       department: m.department,
       attendance: m.attendance,
+      trackAttendance: m.trackAttendance,
       workDescription: m.workDescription,
       hasLoggedIn: userCounts.accounts > 0, // 曾登入過
       _count: {
@@ -810,6 +812,109 @@ export async function getOrgLeaveTypes(orgId: string, activeOnly = false) {
 export type OrgLeaveType = Awaited<
   ReturnType<typeof getOrgLeaveTypes>
 >[number];
+
+// ─────────────────────────────────────────────
+// 請假簽核（Leave approval）
+// ─────────────────────────────────────────────
+
+/** 本組織的簽核關卡設定（依順序，含指定簽核人的身分）。 */
+export async function getLeaveApprovalFlow(orgId: string) {
+  return db.leaveApprovalStep.findMany({
+    where: { organizationId: orgId },
+    orderBy: { sortOrder: "asc" },
+    select: {
+      id: true,
+      sortOrder: true,
+      approverType: true,
+      approverMemberId: true,
+      approverMember: {
+        select: { id: true, active: true, user: { select: userIdentitySelect } },
+      },
+    },
+  });
+}
+
+export type LeaveApprovalFlowStep = Awaited<
+  ReturnType<typeof getLeaveApprovalFlow>
+>[number];
+
+/** 請假申請（含逐關簽核紀錄 + 申請人 / 各關簽核人身分）的共用 select。 */
+const leaveRequestSelect = {
+  id: true,
+  startDate: true,
+  endDate: true,
+  days: true,
+  reason: true,
+  status: true,
+  currentStep: true,
+  createdAt: true,
+  decidedAt: true,
+  leaveType: { select: { id: true, name: true, color: true } },
+  member: { select: { id: true, user: { select: userIdentitySelect } } },
+  approvals: {
+    orderBy: { sortOrder: "asc" },
+    select: {
+      id: true,
+      sortOrder: true,
+      status: true,
+      comment: true,
+      decidedAt: true,
+      approverMemberId: true,
+      approverMember: {
+        select: { id: true, user: { select: userIdentitySelect } },
+      },
+    },
+  },
+} as const;
+
+/** 我送出的請假申請（最新在前）。 */
+export async function getMyLeaveRequests(orgId: string, userId: string) {
+  return db.leaveRequest.findMany({
+    where: { organizationId: orgId, userId },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+    select: leaveRequestSelect,
+  });
+}
+
+export type LeaveRequestRow = Awaited<
+  ReturnType<typeof getMyLeaveRequests>
+>[number];
+
+/**
+ * 「待我簽核」：目前這一關正是我、且尚待簽核的請假申請（嚴格逐關——前面關卡未輪到我時先不顯示）。
+ * membershipId＝我在本組織的成員關係 id。
+ */
+export async function getPendingApprovalsForMember(
+  orgId: string,
+  membershipId: string,
+) {
+  const requests = await db.leaveRequest.findMany({
+    where: {
+      organizationId: orgId,
+      status: "PENDING",
+      approvals: { some: { approverMemberId: membershipId, status: "PENDING" } },
+    },
+    orderBy: { createdAt: "asc" },
+    select: leaveRequestSelect,
+  });
+  return requests.filter((r) => {
+    const current = r.approvals.find((a) => a.sortOrder === r.currentStep);
+    return (
+      current?.approverMemberId === membershipId && current.status === "PENDING"
+    );
+  });
+}
+
+/** 全體請假申請（HR / 管理者總覽，最新在前）。 */
+export async function getAllLeaveRequests(orgId: string, take = 100) {
+  return db.leaveRequest.findMany({
+    where: { organizationId: orgId },
+    orderBy: { createdAt: "desc" },
+    take,
+    select: leaveRequestSelect,
+  });
+}
 
 /**
  * 薪資頁總覽：本組織在職成員 + 其薪資設定 + 指定月份的薪資單（若已產生）。

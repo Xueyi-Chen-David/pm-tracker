@@ -23,6 +23,7 @@ export type ModuleKey =
   | "timeline"
   | "team"
   | "attendance"
+  | "leave"
   | "payroll"
   | "training"
   | "meetings"
@@ -55,6 +56,7 @@ export const MODULES: readonly AppModule[] = [
   { key: "timeline", label: "時程藍圖", href: "/timeline" },
   { key: "team", label: "團隊", href: "/team" },
   { key: "attendance", label: "出席狀況", href: "/attendance" },
+  { key: "leave", label: "請假簽核", href: "/leave", alwaysVisible: true },
   {
     key: "payroll",
     label: "薪資",

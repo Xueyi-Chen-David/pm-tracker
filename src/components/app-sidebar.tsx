@@ -12,6 +12,7 @@ import {
   FileText,
   Users,
   UserCheck,
+  ClipboardCheck,
   Library,
   NotebookPen,
   ClipboardList,
@@ -78,9 +79,16 @@ const NAV_SECTIONS: NavSection[] = [
       { key: "meetings", href: "/meetings", label: "會議記錄", icon: NotebookPen },
       { key: "team", href: "/team", label: "團隊", icon: Users },
       { key: "attendance", href: "/attendance", label: "出席狀況", icon: UserCheck },
-      { key: "payroll", href: "/payroll", label: "薪資", icon: Wallet },
       { key: "report", href: "/report", label: "週報", icon: FileText },
       { key: "training", href: "/training", label: "公司文件", icon: Library },
+    ],
+  },
+  // 人資 / 會計：請假簽核（alwaysVisible，人人可見）＋薪資（僅具 payroll.view 權限者可見）。
+  {
+    title: "人資/會計",
+    items: [
+      { key: "leave", href: "/leave", label: "請假簽核", icon: ClipboardCheck },
+      { key: "payroll", href: "/payroll", label: "薪資", icon: Wallet },
     ],
   },
   // 業務：客戶關係。

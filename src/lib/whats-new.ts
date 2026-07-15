@@ -46,6 +46,26 @@ export type WhatsNewRelease = {
  */
 export const RELEASES: WhatsNewRelease[] = [
   {
+    date: "2026-07-16",
+    title: "請假簽核流程",
+    items: [
+      {
+        tag: "new",
+        title: "全新「請假簽核」頁面",
+        detail:
+          "員工線上申請請假，依公司設定的關卡逐關簽核；輪到你簽核時會收到通知，全部核准後自動登記到出席月曆。",
+        href: "/leave",
+      },
+      {
+        tag: "new",
+        title: "可自訂簽核流程與順序",
+        detail:
+          "人資 / 管理者可在「請假簽核 → 簽核流程」設定由誰簽核、依什麼順序（直屬主管、指定成員），一關一關往下送。",
+        href: "/leave",
+      },
+    ],
+  },
+  {
     date: "2026-07-15",
     title: "個人生產力、CRM、文件庫、每日報告",
     items: [

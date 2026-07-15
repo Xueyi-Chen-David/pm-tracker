@@ -43,8 +43,9 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   },
   {
     key: "leave.manage",
-    label: "管理假別設定",
-    description: "可新增 / 編輯假別與其扣薪比例（特休、事假、病假…）。",
+    label: "管理假別與簽核流程",
+    description:
+      "可新增 / 編輯假別與其扣薪比例（特休、事假、病假…），並設定請假的簽核流程（由誰、依什麼順序簽核）與檢視全體請假。",
     group: "出勤差勤",
   },
   {

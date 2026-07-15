@@ -63,8 +63,8 @@ export function ViewAsMenu({
         </span>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="min-w-56">
-        <DropdownMenuLabel>以此視角預覽</DropdownMenuLabel>
         <DropdownMenuGroup>
+          <DropdownMenuLabel>以此視角預覽</DropdownMenuLabel>
           <DropdownMenuItem onClick={() => choose(null)}>
             <ShieldCheck className="text-muted-foreground h-4 w-4" />
             <span className="min-w-0 flex-1 truncate">我的真實身分</span>
@@ -81,8 +81,8 @@ export function ViewAsMenu({
         {roles.length > 0 && (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuLabel>自訂角色</DropdownMenuLabel>
             <DropdownMenuGroup>
+              <DropdownMenuLabel>自訂角色</DropdownMenuLabel>
               {roles.map((r) => {
                 const value = `role:${r.id}`;
                 return (

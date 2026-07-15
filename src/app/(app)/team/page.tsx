@@ -91,6 +91,10 @@ export default async function TeamPage({
               members={members}
               canManage={canManage}
               viewerId={user.id}
+              managerOptions={directory.map((d) => ({
+                membershipId: d.membershipId,
+                label: displayName(d),
+              }))}
             />
           ) : (
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
