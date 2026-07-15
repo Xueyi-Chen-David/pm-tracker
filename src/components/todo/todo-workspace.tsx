@@ -95,8 +95,8 @@ export function TodoWorkspace({
   }
 
   return (
-    <div className="grid gap-4 lg:grid-cols-3">
-      <div className="lg:col-span-2">
+    <div className="grid gap-4 lg:h-full lg:min-h-0 lg:auto-rows-fr lg:grid-cols-3">
+      <div className="lg:col-span-2 lg:min-h-0">
         <TodoList
           todos={todos}
           taskOptions={taskOptions}
@@ -104,7 +104,7 @@ export function TodoWorkspace({
           run={run}
         />
       </div>
-      <div className="space-y-4">
+      <div className="flex flex-col gap-4 lg:min-h-0">
         <Pomodoro todos={todos} />
         <PomodoroRecords pomodoros={pomodoros} pending={pending} run={run} />
       </div>
@@ -129,6 +129,7 @@ function TodoList({
   const [taskId, setTaskId] = useState("");
   const [startDate, setStartDate] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [tab, setTab] = useState<"open" | "done">("open");
 
   function add() {
     const t = title.trim();
@@ -149,9 +150,10 @@ function TodoList({
 
   const open = todos.filter((t) => !t.done);
   const done = todos.filter((t) => t.done);
+  const list = tab === "open" ? open : done;
 
   return (
-    <section className="bg-card overflow-hidden rounded-xl border shadow-sm">
+    <section className="bg-card flex flex-col overflow-hidden rounded-xl border shadow-sm lg:h-full lg:min-h-0">
       <div className="border-b px-4 py-3">
         <h2 className="text-base font-semibold">待辦清單</h2>
       </div>
@@ -215,27 +217,64 @@ function TodoList({
         </div>
       </div>
 
-      {/* 清單 */}
-      {todos.length === 0 ? (
-        <p className="text-muted-foreground px-4 py-8 text-center text-sm">
-          還沒有待辦。用上面的欄位新增第一筆。
-        </p>
-      ) : (
-        <div className="divide-y">
-          {open.map((t) => (
-            <TodoRow key={t.id} todo={t} taskOptions={taskOptions} pending={pending} run={run} />
-          ))}
-          {done.length > 0 && (
-            <div className="text-muted-foreground bg-muted/30 px-4 py-1.5 text-[11px]">
-              已完成 {done.length}
-            </div>
-          )}
-          {done.map((t) => (
-            <TodoRow key={t.id} todo={t} taskOptions={taskOptions} pending={pending} run={run} />
-          ))}
-        </div>
-      )}
+      {/* 分頁：未完成 / 已完成 */}
+      <div className="flex items-center gap-1 border-b px-2">
+        <TodoTab active={tab === "open"} onClick={() => setTab("open")}>
+          未完成 · {open.length}
+        </TodoTab>
+        <TodoTab active={tab === "done"} onClick={() => setTab("done")}>
+          已完成 · {done.length}
+        </TodoTab>
+      </div>
+
+      {/* 清單（超過高度就在區塊內上下捲動） */}
+      <div className="scroll-y divide-y overflow-y-auto lg:min-h-0 lg:flex-1">
+        {list.length === 0 ? (
+          <p className="text-muted-foreground px-4 py-8 text-center text-sm">
+            {tab === "open"
+              ? todos.length === 0
+                ? "還沒有待辦。用上面的欄位新增第一筆。"
+                : "沒有未完成的待辦 🎉"
+              : "還沒有已完成的待辦。"}
+          </p>
+        ) : (
+          list.map((t) => (
+            <TodoRow
+              key={t.id}
+              todo={t}
+              taskOptions={taskOptions}
+              pending={pending}
+              run={run}
+            />
+          ))
+        )}
+      </div>
     </section>
+  );
+}
+
+function TodoTab({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "-mb-px border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+        active
+          ? "border-primary text-foreground"
+          : "text-muted-foreground hover:text-foreground border-transparent",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -505,7 +544,7 @@ function Pomodoro({ todos }: { todos: TodoView[] }) {
   }
 
   return (
-    <section className="bg-card rounded-xl border p-4 shadow-sm">
+    <section className="bg-card rounded-xl border p-4 shadow-sm lg:shrink-0">
       <h2 className="mb-3 flex items-center gap-1.5 text-base font-semibold">
         <Timer className="h-4 w-4" /> 番茄鐘
       </h2>
@@ -637,7 +676,7 @@ function PomodoroRecords({
   );
 
   return (
-    <section className="bg-card overflow-hidden rounded-xl border shadow-sm">
+    <section className="bg-card flex flex-col overflow-hidden rounded-xl border shadow-sm lg:min-h-0 lg:flex-1">
       <div className="border-b px-4 py-3">
         <h2 className="text-base font-semibold">番茄鐘紀錄</h2>
         <div className="text-muted-foreground mt-0.5 text-xs">
@@ -649,7 +688,7 @@ function PomodoroRecords({
           還沒有番茄鐘紀錄。完成一個番茄鐘後會顯示在這裡。
         </p>
       ) : (
-        <div className="max-h-[24rem] divide-y overflow-auto">
+        <div className="scroll-y max-h-[24rem] divide-y overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1">
           {pomodoros.map((p) => (
             <div key={p.id} className="flex items-center gap-2 px-3 py-2 text-sm">
               <span className="shrink-0">🍅</span>

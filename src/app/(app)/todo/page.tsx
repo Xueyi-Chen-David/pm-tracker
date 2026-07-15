@@ -78,16 +78,20 @@ export default async function TodoPage() {
   const taskOptions = myTasks.map((t) => ({ id: t.id, label: taskLabel(t) }));
 
   return (
-    <div className="space-y-4">
+    // 桌機：填滿視窗高度（扣掉 AppContainer 的 py-6＝3rem），讓兩欄各自內部捲動、
+    // 與底部保持固定距離；手機維持一般文件捲動。
+    <div className="flex flex-col gap-4 lg:h-[calc(100dvh-3rem)] lg:overflow-hidden">
       <PageHeader
         title="待辦 / 番茄鐘"
         description="你個人的待辦清單與番茄鐘專注紀錄。"
       />
-      <TodoWorkspace
-        todos={todoView}
-        pomodoros={pomodoroView}
-        taskOptions={taskOptions}
-      />
+      <div className="min-h-0 lg:flex-1">
+        <TodoWorkspace
+          todos={todoView}
+          pomodoros={pomodoroView}
+          taskOptions={taskOptions}
+        />
+      </div>
     </div>
   );
 }
