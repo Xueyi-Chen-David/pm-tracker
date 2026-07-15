@@ -37,6 +37,7 @@ export default async function TodoPage() {
         id: true,
         startedAt: true,
         durationSec: true,
+        todoId: true,
         todo: { select: { title: true } },
       },
     }),
@@ -72,6 +73,7 @@ export default async function TodoPage() {
     id: p.id,
     startedAt: p.startedAt.toISOString(),
     durationSec: p.durationSec,
+    todoId: p.todoId,
     todoTitle: p.todo?.title ?? null,
   }));
 

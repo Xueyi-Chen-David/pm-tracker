@@ -20,6 +20,7 @@ import {
   createTodo,
   updateTodo,
   deleteTodo,
+  updatePomodoro,
   deletePomodoro,
 } from "@/server/actions/todo";
 import { cn } from "@/lib/utils";
@@ -49,6 +50,7 @@ export type PomodoroView = {
   id: string;
   startedAt: string;
   durationSec: number;
+  todoId: string | null;
   todoTitle: string | null;
 };
 export type TaskOption = { id: string; label: string };
@@ -106,7 +108,12 @@ export function TodoWorkspace({
       </div>
       <div className="flex flex-col gap-4 lg:min-h-0">
         <Pomodoro todos={todos} />
-        <PomodoroRecords pomodoros={pomodoros} pending={pending} run={run} />
+        <PomodoroRecords
+          pomodoros={pomodoros}
+          todos={todos}
+          pending={pending}
+          run={run}
+        />
       </div>
     </div>
   );
@@ -660,10 +667,12 @@ function Pomodoro({ todos }: { todos: TodoView[] }) {
 
 function PomodoroRecords({
   pomodoros,
+  todos,
   pending,
   run,
 }: {
   pomodoros: PomodoroView[];
+  todos: TodoView[];
   pending: boolean;
   run: (fn: () => Promise<unknown>, ok?: string) => void;
 }) {
@@ -690,28 +699,160 @@ function PomodoroRecords({
       ) : (
         <div className="scroll-y max-h-[24rem] divide-y overflow-y-auto lg:max-h-none lg:min-h-0 lg:flex-1">
           {pomodoros.map((p) => (
-            <div key={p.id} className="flex items-center gap-2 px-3 py-2 text-sm">
-              <span className="shrink-0">🍅</span>
-              <div className="min-w-0 flex-1">
-                <div className="tabular-nums">{fmtDuration(p.durationSec)}</div>
-                <div className="text-muted-foreground truncate text-[11px]">
-                  {format(new Date(p.startedAt), "yyyy/MM/dd HH:mm")}
-                  {p.todoTitle ? ` · ${p.todoTitle}` : ""}
-                </div>
-              </div>
-              <button
-                type="button"
-                disabled={pending}
-                title="刪除這筆紀錄"
-                onClick={() => run(() => deletePomodoro(p.id), "已刪除紀錄")}
-                className="text-muted-foreground hover:text-destructive rounded-md p-1"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            </div>
+            <PomodoroRow
+              key={p.id}
+              p={p}
+              todos={todos}
+              pending={pending}
+              run={run}
+            />
           ))}
         </div>
       )}
     </section>
+  );
+}
+
+function PomodoroRow({
+  p,
+  todos,
+  pending,
+  run,
+}: {
+  p: PomodoroView;
+  todos: TodoView[];
+  pending: boolean;
+  run: (fn: () => Promise<unknown>, ok?: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [min, setMin] = useState(Math.floor(p.durationSec / 60));
+  const [sec, setSec] = useState(p.durationSec % 60);
+  const [todoId, setTodoId] = useState(p.todoId ?? "");
+  const [startedAt, setStartedAt] = useState("");
+
+  function resetDraft() {
+    setMin(Math.floor(p.durationSec / 60));
+    setSec(p.durationSec % 60);
+    setTodoId(p.todoId ?? "");
+    setStartedAt(format(new Date(p.startedAt), "yyyy-MM-dd'T'HH:mm"));
+  }
+
+  function save() {
+    const durationSec = Math.max(1, min * 60 + sec);
+    run(
+      () =>
+        updatePomodoro({
+          id: p.id,
+          durationSec,
+          ...(todoId ? { todoId } : { clearTodo: true }),
+          startedAt,
+        }),
+      "已更新紀錄",
+    );
+    setOpen(false);
+  }
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 text-sm">
+      <span className="shrink-0">🍅</span>
+      <div className="min-w-0 flex-1">
+        <div className="tabular-nums">{fmtDuration(p.durationSec)}</div>
+        <div className="text-muted-foreground truncate text-[11px]">
+          {format(new Date(p.startedAt), "yyyy/MM/dd HH:mm")}
+          {p.todoTitle ? ` · ${p.todoTitle}` : ""}
+        </div>
+      </div>
+      <Popover
+        open={open}
+        onOpenChange={(o) => {
+          if (o) resetDraft();
+          setOpen(o);
+        }}
+      >
+        <PopoverTrigger
+          className="text-muted-foreground hover:bg-muted rounded-md p-1"
+          title="編輯這筆紀錄"
+        >
+          <Pencil className="h-4 w-4" />
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-64 space-y-2.5">
+          <div className="text-sm font-medium">編輯番茄鐘紀錄</div>
+          <div className="space-y-1">
+            <div className="text-muted-foreground text-xs">時長</div>
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min={0}
+                value={min}
+                disabled={pending}
+                onChange={(e) => setMin(Math.max(0, Number(e.target.value) || 0))}
+                className={dateCls + " w-16"}
+              />
+              <span className="text-muted-foreground text-xs">分</span>
+              <input
+                type="number"
+                min={0}
+                max={59}
+                value={sec}
+                disabled={pending}
+                onChange={(e) =>
+                  setSec(Math.min(59, Math.max(0, Number(e.target.value) || 0)))
+                }
+                className={dateCls + " w-16"}
+              />
+              <span className="text-muted-foreground text-xs">秒</span>
+            </div>
+          </div>
+          <div className="space-y-1">
+            <div className="text-muted-foreground text-xs">專注於</div>
+            <select
+              value={todoId}
+              disabled={pending}
+              onChange={(e) => setTodoId(e.target.value)}
+              className={selectCls + " w-full"}
+            >
+              <option value="">（不指定待辦）</option>
+              {todos.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.title}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="space-y-1">
+            <div className="text-muted-foreground text-xs">開始時間</div>
+            <input
+              type="datetime-local"
+              value={startedAt}
+              disabled={pending}
+              onChange={(e) => setStartedAt(e.target.value)}
+              className={dateCls + " w-full"}
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={pending}
+              onClick={() => setOpen(false)}
+            >
+              取消
+            </Button>
+            <Button size="sm" disabled={pending} onClick={save}>
+              <Save className="h-4 w-4" /> 儲存
+            </Button>
+          </div>
+        </PopoverContent>
+      </Popover>
+      <button
+        type="button"
+        disabled={pending}
+        title="刪除這筆紀錄"
+        onClick={() => run(() => deletePomodoro(p.id), "已刪除紀錄")}
+        className="text-muted-foreground hover:text-destructive rounded-md p-1"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+    </div>
   );
 }
