@@ -215,6 +215,7 @@ export function ProjectManageCard({
       {
         id: `tmp-${index}-${t}`,
         title: t,
+        description: null,
         note: null,
         startDate: null,
         dueDate: null,

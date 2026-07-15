@@ -615,6 +615,7 @@ model Task {
   projectId String
   project   Project @relation("ProjectTask", fields: [projectId], references: [id], onDelete: Cascade)
   title     String
+  description String? @db.Text // 任務說明（這個任務要做什麼）
 
   status    KrStatus  @default(NOT_STARTED)
   health    Health    @default(GREEN)

@@ -70,6 +70,7 @@ export async function createTask(input: z.input<typeof TaskCreateInput>) {
 
 const TaskPatch = z.object({
   title: z.string().trim().min(1).max(200).optional(),
+  description: z.string().max(5000).nullable().optional(),
   status: z
     .enum(["NOT_STARTED", "IN_PROGRESS", "DONE", "BLOCKED", "CANCELLED"])
     .optional(),
@@ -96,6 +97,9 @@ export async function updateTask(id: string, patch: z.input<typeof TaskPatch>) {
     where: { id },
     data: {
       ...(p.title !== undefined ? { title: p.title } : {}),
+      ...(p.description !== undefined
+        ? { description: p.description || null }
+        : {}),
       ...(p.status !== undefined ? { status: p.status } : {}),
       ...(p.health !== undefined ? { health: p.health } : {}),
       ...(p.progress !== undefined ? { progress: p.progress } : {}),
