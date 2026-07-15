@@ -367,7 +367,7 @@ function TodoRow({
       >
         <span
           className={cn(
-            "block text-sm",
+            "block text-sm break-words",
             todo.done && "text-muted-foreground line-through",
           )}
         >
@@ -393,7 +393,7 @@ function TodoRow({
           )}
         </span>
         {todo.note && (
-          <span className="text-muted-foreground mt-0.5 block text-xs whitespace-pre-wrap">
+          <span className="text-muted-foreground mt-0.5 block text-xs break-words whitespace-pre-wrap">
             {todo.note}
           </span>
         )}
