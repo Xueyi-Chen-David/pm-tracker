@@ -11,7 +11,12 @@ import {
 import { getMembershipGraph } from "@/server/queries";
 import { wouldCycle } from "@/server/hierarchy";
 
-export type TeamActionState = { error?: string; ok?: boolean } | null;
+export type TeamActionState = {
+  error?: string;
+  ok?: boolean;
+  /** 成功後要導向的路徑（例如把占位成員合併進既有帳號後，跳到那個人的頁面）。 */
+  redirectTo?: string;
+} | null;
 
 const WorkDescriptionInput = z.object({
   userId: z.string().min(1),
@@ -338,8 +343,11 @@ export async function updateProfileAction(
   const currentLower = (targetUser?.email ?? "").toLowerCase();
   const emailChanged = lowerEmail !== undefined && lowerEmail !== currentLower;
 
-  // email 改成「別的既有帳號」時：把這位成員改連到那個帳號（＝這個成員其實就是本人，
-  // 例如對方早已登入過 / 在別的組織）。不報「已被使用」，直接連過去，讓已有帳號的人也能加入。
+  // email 改成「別的既有帳號」的 email 時（唯一性擋住、無法直接改）：
+  //   - 若這位成員是「還沒登入過的占位帳號」→ 視為「其實就是本人」，把此成員合併連到既有
+  //     帳號（例如你先用占位 email 建了人，對方其實早已用該 email 登入 / 在別的組織）。
+  //     合併後跳到本人頁面，不會留下舊 email 的殘影。
+  //   - 若這位成員本身也已登入過（是真人帳號）→ 兩個真人不能合併，清楚報錯。
   if (emailChanged) {
     const existingOther = await db.user.findFirst({
       where: { email: { equals: lowerEmail, mode: "insensitive" }, id: { not: d.id } },
@@ -355,17 +363,27 @@ export async function updateProfileAction(
       if (already) {
         return { error: "這個 Email 對應的帳號已經是組織成員了。" };
       }
-      // 改連到既有帳號：只動這位成員的 userId 與組織內欄位；不覆蓋對方本人的姓名 / email。
+      // 目前這位成員有沒有登入過？（有 OAuth Account ＝ 真人，不能被合併掉。）
+      const current = await db.user.findUnique({
+        where: { id: d.id },
+        select: { _count: { select: { accounts: true } } },
+      });
+      if ((current?._count.accounts ?? 0) > 0) {
+        return {
+          error:
+            "這個 Email 屬於另一個已登入的帳號，無法把目前這位成員改成該 Email。",
+        };
+      }
+      // 占位帳號 → 合併：把成員改連到既有帳號（不覆蓋對方本人的姓名 / email），跳到本人頁。
       await db.organizationMember.update({
         where: { id: membership.id },
         data: { userId: existingOther.id, email: lowerEmail, ...memberData },
       });
       revalidatePath("/team");
       revalidatePath(`/me/${existingOther.id}`);
-      revalidatePath(`/me/${d.id}`);
       revalidatePath("/attendance");
       revalidatePath("/daily");
-      return { ok: true };
+      return { ok: true, redirectTo: `/me/${existingOther.id}` };
     }
   }
 
