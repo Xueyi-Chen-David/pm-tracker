@@ -70,18 +70,25 @@ export default async function DailyPage() {
   const checkInMatchMode = parseMatchMode(orgRow?.checkInMatchMode);
 
   // 我的資料。
-  const [myReports, graph, directory, todayPunches] = await Promise.all([
-    getDailyReportsForUsers(org.id, [user.id], mySince),
-    getMembershipGraph(org.id),
-    getOrgMemberDirectory(org.id),
-    checkInEnabled
-      ? db.checkIn.findMany({
-          where: { organizationId: org.id, userId: user.id, date: today },
-          orderBy: { at: "asc" },
-          select: { id: true, kind: true, at: true, method: true },
-        })
-      : Promise.resolve([]),
-  ]);
+  const [myReports, graph, directory, todayPunches, myTodos] =
+    await Promise.all([
+      getDailyReportsForUsers(org.id, [user.id], mySince),
+      getMembershipGraph(org.id),
+      getOrgMemberDirectory(org.id),
+      checkInEnabled
+        ? db.checkIn.findMany({
+            where: { organizationId: org.id, userId: user.id, date: today },
+            orderBy: { at: "asc" },
+            select: { id: true, kind: true, at: true, method: true },
+          })
+        : Promise.resolve([]),
+      // 未完成的待辦——供今日報告「從待辦加入」直接帶入，免得複製貼上。
+      db.todoItem.findMany({
+        where: { userId: user.id, organizationId: org.id, done: false },
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        select: { id: true, title: true },
+      }),
+    ]);
 
   const todayReport = myReports.find((r) => r.date.getTime() === today.getTime());
 
@@ -173,6 +180,7 @@ export default async function DailyPage() {
         </CardHeader>
         <CardContent>
           <DailyReportForm
+            todos={myTodos}
             initial={
               todayReport
                 ? {
