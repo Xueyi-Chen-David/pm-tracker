@@ -66,22 +66,40 @@ export async function createWorkspaceMemberAction(
   const { name, nickname, email, jobTitle } = parsed.data;
   const lower = email.toLowerCase();
 
-  // 身分（全域）：建立 / 更新 User。
-  const user = await db.user.upsert({
-    where: { email: lower },
-    update: { name, nickname: nickname || null },
-    create: { email: lower, name, nickname: nickname || null },
+  // 身分（全域）：先以「不分大小寫」找既有帳號。對方若曾登入過（例如 Google 登入），
+  // DB 的 email 可能是大小寫混合，用小寫精準比對會漏掉、進而重複建立或撞唯一性。
+  // 找到既有帳號就直接沿用（把他加進本組織），不覆蓋他本人的姓名 / email。
+  const existing = await db.user.findFirst({
+    where: { email: { equals: lower, mode: "insensitive" } },
+    select: { id: true, name: true },
   });
+
+  let userId: string;
+  if (existing) {
+    userId = existing.id;
+    // 既有帳號只在他原本沒有姓名時補上，避免蓋掉本人資料。
+    if (!existing.name && name) {
+      await db.user.update({
+        where: { id: existing.id },
+        data: { name, nickname: nickname || null },
+      });
+    }
+  } else {
+    const created = await db.user.create({
+      data: { email: lower, name, nickname: nickname || null },
+    });
+    userId = created.id;
+  }
 
   // 組織成員關係：加入本組織（已存在則更新職稱）。
   await db.organizationMember.upsert({
     where: {
-      organizationId_userId: { organizationId: org.id, userId: user.id },
+      organizationId_userId: { organizationId: org.id, userId },
     },
     update: { jobTitle: jobTitle || null },
     create: {
       organizationId: org.id,
-      userId: user.id,
+      userId,
       email: lower,
       role: "MEMBER",
       jobTitle: jobTitle || null,
@@ -172,6 +190,11 @@ export async function updateMyProfileAction(
     select: { id: true },
   });
 
+  // 只有 email 真的變更時才寫入（不分大小寫比對目前值），避免修改其他資料時誤觸唯一性。
+  const emailUpdate = await resolveEmailUpdate(user.id, lowerEmail);
+  if (emailUpdate.error) return { error: emailUpdate.error };
+  const setEmail = emailUpdate.email !== undefined;
+
   try {
     await db.$transaction([
       db.user.update({
@@ -180,27 +203,56 @@ export async function updateMyProfileAction(
           name: d.name ?? null,
           nickname: d.nickname || null,
           useNickname: d.useNickname ?? false,
-          email: lowerEmail,
+          ...(setEmail ? { email: emailUpdate.email } : {}),
         },
       }),
       ...(membership
         ? [
             db.organizationMember.update({
               where: { id: membership.id },
-              data: { email: lowerEmail, bio: d.bio || null },
+              data: {
+                ...(setEmail ? { email: emailUpdate.email } : {}),
+                bio: d.bio || null,
+              },
             }),
           ]
         : []),
     ]);
   } catch (e) {
     if ((e as { code?: string })?.code === "P2002") {
-      return { error: "此 Email 已被其他成員使用。" };
+      return { error: "此 Email 已被其他帳號使用，請改用其他 Email。" };
     }
     throw e;
   }
   revalidatePath("/me");
   revalidatePath("/team");
   return { ok: true };
+}
+
+/**
+ * 解析「要不要更新 email」。
+ * - 表單沒帶 email（undefined）→ 不動。
+ * - 與目前 email 相同（不分大小寫）→ 不動（避免修改其他資料時誤觸唯一性檢查）。
+ * - 真的要改 → 先確認沒被「別的帳號」使用（不分大小寫）；被用則回錯誤訊息。
+ */
+async function resolveEmailUpdate(
+  userId: string,
+  lowerEmail: string | undefined,
+): Promise<{ email?: string; error?: string }> {
+  if (lowerEmail === undefined) return {};
+  const current = await db.user.findUnique({
+    where: { id: userId },
+    select: { email: true },
+  });
+  if ((current?.email ?? "").toLowerCase() === lowerEmail) return {}; // 沒變
+  const clash = await db.user.findFirst({
+    where: { email: { equals: lowerEmail, mode: "insensitive" }, id: { not: userId } },
+    select: { id: true },
+  });
+  if (clash) {
+    return { error: "此 Email 已被其他帳號使用，請改用其他 Email。" };
+  }
+  return { email: lowerEmail };
 }
 
 const ProfileInput = z.object({
@@ -264,17 +316,13 @@ export async function updateProfileAction(
     managerId = d.managerId;
   }
 
-  // 指派的自訂角色（多選）：只接受屬於本組織的角色 id。
-  const requestedRoleIds = formData.getAll("roleId").map(String).filter(Boolean);
-  const validRoles = requestedRoleIds.length
-    ? await db.orgRoleDef.findMany({
-        where: { organizationId: org.id, id: { in: requestedRoleIds } },
-        select: { id: true },
-      })
-    : [];
-
   const trackAttendance = formData.get("trackAttendance") === "on";
   const lowerEmail = d.email ? d.email.toLowerCase() : undefined;
+
+  // 只有 email 真的變更時才寫入（不分大小寫比對目前值），避免修改職稱 / 部門等資料時誤觸唯一性。
+  const emailUpdate = await resolveEmailUpdate(d.id, lowerEmail);
+  if (emailUpdate.error) return { error: emailUpdate.error };
+  const setEmail = emailUpdate.email !== undefined;
 
   try {
     await db.$transaction([
@@ -285,14 +333,14 @@ export async function updateProfileAction(
           name: d.name ?? null,
           nickname: d.nickname || null,
           useNickname: d.useNickname ?? false,
-          email: lowerEmail, // 提供才更新
+          ...(setEmail ? { email: emailUpdate.email } : {}),
         },
       }),
       // 組織內欄位
       db.organizationMember.update({
         where: { id: membership.id },
         data: {
-          email: lowerEmail, // 與 User email 同步
+          ...(setEmail ? { email: emailUpdate.email } : {}), // 與 User email 同步
           jobTitle: d.jobTitle || null,
           department: d.department || null,
           attendance: d.attendance || null,
@@ -300,14 +348,12 @@ export async function updateProfileAction(
           active: d.active ?? true,
           trackAttendance,
           managerId,
-          // 自訂角色（人資 / 會計…）：整組覆蓋。
-          roleDefs: { set: validRoles.map((r) => ({ id: r.id })) },
         },
       }),
     ]);
   } catch (e) {
     if ((e as { code?: string })?.code === "P2002") {
-      return { error: "此 Email 已被其他成員使用。" };
+      return { error: "此 Email 已被其他帳號使用，請改用其他 Email。" };
     }
     throw e;
   }
