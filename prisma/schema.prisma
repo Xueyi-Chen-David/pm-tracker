@@ -25,31 +25,31 @@ model User {
   // 註：組織內欄位（isBoss / jobTitle / 權限 / 出席追蹤 / profile 文字）已改掛在
   // OrganizationMember 上，讓同一人可在不同組織有不同角色與設定（多租戶隔離）。
 
-  accounts      Account[]
-  sessions      Session[]
+  accounts Account[]
+  sessions Session[]
 
   // 組織成員資格（多組織）。
   organizationMemberships OrganizationMember[]
 
-  ownedProjects   Project[]        @relation("ProjectOwner")
-  createdProjects Project[]        @relation("ProjectCreator")
-  memberships     ProjectMember[]
-  weeklyUpdates   WeeklyUpdate[]
-  activities      Activity[]
-  memberEvents    MemberEvent[]
-  weeklyTasks     WeeklyTask[]
+  ownedProjects     Project[]          @relation("ProjectOwner")
+  createdProjects   Project[]          @relation("ProjectCreator")
+  memberships       ProjectMember[]
+  weeklyUpdates     WeeklyUpdate[]
+  activities        Activity[]
+  memberEvents      MemberEvent[]
+  weeklyTasks       WeeklyTask[]
   attendanceRecords AttendanceRecord[]
-  objectivesOwned Objective[] @relation("ObjectiveOwner")
-  keyResultsOwned KeyResult[] @relation("KrOwners")
-  tasksOwned      Task[]      @relation("TaskOwners")
+  objectivesOwned   Objective[]        @relation("ObjectiveOwner")
+  keyResultsOwned   KeyResult[]        @relation("KrOwners")
+  tasksOwned        Task[]             @relation("TaskOwners")
 
   dailyReports        DailyReport[]
   dailyReportComments DailyReportComment[]
   notifications       Notification[]
   checkIns            CheckIn[]
   trainingAssignments TrainingAssignment[]
-  crmContactsOwned    CrmContact[] @relation("CrmContactOwner")
-  crmDealsOwned       CrmDeal[]    @relation("CrmDealOwner")
+  crmContactsOwned    CrmContact[]         @relation("CrmContactOwner")
+  crmDealsOwned       CrmDeal[]            @relation("CrmDealOwner")
   todoItems           TodoItem[]
   pomodoroSessions    PomodoroSession[]
 }
@@ -120,18 +120,18 @@ model Organization {
   // 只設定其中一種條件時，兩種模式行為相同（只需該條件通過）。
   checkInMatchMode  String   @default("any")
 
-  members           OrganizationMember[]
-  projects          Project[]
-  projectViews      ProjectView[]
-  weeklyReports     WeeklyReport[]
-  reportImages      ReportImage[]
-  meetings          Meeting[]
-  attendanceRecords AttendanceRecord[]
-  memberEvents      MemberEvent[]
-  objectives        Objective[]
-  dailyReports      DailyReport[]
-  notifications     Notification[]
-  checkIns          CheckIn[]
+  members             OrganizationMember[]
+  projects            Project[]
+  projectViews        ProjectView[]
+  weeklyReports       WeeklyReport[]
+  reportImages        ReportImage[]
+  meetings            Meeting[]
+  attendanceRecords   AttendanceRecord[]
+  memberEvents        MemberEvent[]
+  objectives          Objective[]
+  dailyReports        DailyReport[]
+  notifications       Notification[]
+  checkIns            CheckIn[]
   trainingCourses     TrainingCourse[]
   trainingAssignments TrainingAssignment[]
   trainingDocFolders  TrainingDocFolder[]
@@ -143,6 +143,11 @@ model Organization {
   crmEvents           CrmEvent[]
   todoItems           TodoItem[]
   pomodoroSessions    PomodoroSession[]
+  // 人資：自訂角色 / 假別 / 薪資設定 / 薪資單。
+  roleDefs            OrgRoleDef[]
+  leaveTypes          LeaveType[]
+  salaryProfiles      SalaryProfile[]
+  payslips            Payslip[]
 }
 
 /**
@@ -179,6 +184,12 @@ model OrganizationMember {
   // 這些人與正式上級主管一樣，可在每日報告看到並回饋這位成員的日報，但可見性不沿其
   // 自身主管鏈往上傳遞。純 id 陣列（無 FK）；成員被移除時由 deleteWorkspaceMember 清掉殘留 id。
   secondaryManagerIds String[] @default([])
+
+  // 人資：指派的自訂角色（多對多，如 人資 / 會計）；權限取聯集。刪除角色時自動解除指派。
+  roleDefs      OrgRoleDef[]   @relation("MemberRoles")
+  // 人資：薪資設定（每位成員一份）與歷月薪資單。
+  salaryProfile SalaryProfile?
+  payslips      Payslip[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -268,8 +279,8 @@ model Project {
   milestones    Milestone[]
   releases      ProjectRelease[]
   activities    Activity[]
-  keyResults    KeyResult[]     @relation("KrProject")
-  tasks         Task[]          @relation("ProjectTask")
+  keyResults    KeyResult[]      @relation("KrProject")
+  tasks         Task[]           @relation("ProjectTask")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -300,14 +311,14 @@ model WeeklyUpdate {
   projectId String
   weekStart DateTime @db.Date // 該週週一（唯一鍵，用於去重 / 排序）
 
-  progress       Int     @default(0) // 該週整體進度 0-100
-  health         Health  @default(GREEN) // 該週狀態（RAG）
-  thisWeekGoals  String? @db.Text // 本週目標
-  thisWeekDone   String? @db.Text // 本週完成
-  nextWeekGoals  String? @db.Text // 下週目標
-  risks          String? @db.Text // 風險 / 阻礙
-  needsDecision  String? @db.Text // 需要老闆決策（空＝無）
-  note           String? @db.Text // 其他備註
+  progress      Int     @default(0) // 該週整體進度 0-100
+  health        Health  @default(GREEN) // 該週狀態（RAG）
+  thisWeekGoals String? @db.Text // 本週目標
+  thisWeekDone  String? @db.Text // 本週完成
+  nextWeekGoals String? @db.Text // 下週目標
+  risks         String? @db.Text // 風險 / 阻礙
+  needsDecision String? @db.Text // 需要老闆決策（空＝無）
+  note          String? @db.Text // 其他備註
 
   project  Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
   authorId String?
@@ -348,14 +359,14 @@ enum ReleaseStatus {
  * 發布日期、狀態與變更說明（notes 支援 Markdown）。最新版本顯示在專案摘要 Hero。
  */
 model ProjectRelease {
-  id        String        @id @default(cuid())
-  projectId String
-  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  version   String // 版本號，如 v1.2.0
-  title     String? // 摘要標題（選填）
-  notes     String?       @db.Text // 變更說明（Markdown）
-  status    ReleaseStatus @default(RELEASED)
-  releasedAt DateTime?    @db.Date // 發布日（規劃中可空）
+  id         String        @id @default(cuid())
+  projectId  String
+  project    Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  version    String // 版本號，如 v1.2.0
+  title      String? // 摘要標題（選填）
+  notes      String?       @db.Text // 變更說明（Markdown）
+  status     ReleaseStatus @default(RELEASED)
+  releasedAt DateTime?     @db.Date // 發布日（規劃中可空）
 
   sortOrder   Int      @default(0)
   createdById String? // 建立者（顯示用，不設關聯）
@@ -425,10 +436,14 @@ model Activity {
 model ProjectView {
   id        String          @id @default(cuid())
   name      String
-  /** 篩選條件：狀態 / 類型（空陣列＝不限）。 */
+  /**
+   * 篩選條件：狀態 / 類型（空陣列＝不限）。
+   */
   statuses  ProjectStatus[]
   types     ProjectType[]
-  /** true＝反向：顯示「不符合」上述條件的專案（排除某些）。 */
+  /**
+   * true＝反向：顯示「不符合」上述條件的專案（排除某些）。
+   */
   exclude   Boolean         @default(false)
   isSystem  Boolean         @default(false) // 「全體」＝true，不可刪除
   sortOrder Int             @default(0)
@@ -494,19 +509,22 @@ model Meeting {
 /// 每日出席紀錄（每人每日最多一筆；present=有出席，false=缺席）。
 /// 只追蹤 User.trackAttendance = true 的成員，供出席月曆一眼檢視。
 model AttendanceRecord {
-  id          String   @id @default(cuid())
+  id          String     @id @default(cuid())
   userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  date        DateTime @db.Date
-  present     Boolean  @default(true) // true=出席 / false=缺席（offsite 時 present 不看，另以圈圈呈現）
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date        DateTime   @db.Date
+  present     Boolean    @default(true) // true=出席 / false=缺席（offsite 時 present 不看，另以圈圈呈現）
   reason      String? // 事由（請假 / 出差 / 在家工作…；選填）
-  offsite     Boolean  @default(false) // 出差 / 在家工作（在外工作）：出席月曆顯示為圈圈
-  holiday     Boolean  @default(false) // 休假 / 放假：既不算出席也不算缺席（週末預設放假不寫入，這是人工指定的休）
-  leave       Boolean  @default(false) // 請假（特休 / 事假 / 病假…）：既不算出席也不算缺席，事由記在 reason
-  auto        Boolean  @default(false) // 由成員事件自動產生（vs 人工登記）；人工編輯會清為 false
+  offsite     Boolean    @default(false) // 出差 / 在家工作（在外工作）：出席月曆顯示為圈圈
+  holiday     Boolean    @default(false) // 休假 / 放假：既不算出席也不算缺席（週末預設放假不寫入，這是人工指定的休）
+  leave       Boolean    @default(false) // 請假（特休 / 事假 / 病假…）：既不算出席也不算缺席，事由記在 reason
+  // 請假時對應的假別（決定薪資扣薪比例）。null＝未指定假別的一般請假（薪資視為無薪，可由 HR 補指派）。
+  leaveTypeId String?
+  leaveType   LeaveType? @relation(fields: [leaveTypeId], references: [id], onDelete: SetNull)
+  auto        Boolean    @default(false) // 由成員事件自動產生（vs 人工登記）；人工編輯會清為 false
   createdById String? // 登記者
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -514,6 +532,7 @@ model AttendanceRecord {
   @@unique([organizationId, userId, date])
   @@index([organizationId])
   @@index([date])
+  @@index([leaveTypeId])
 }
 
 /// 成員事件（請假 / 出差 / 在家工作 等），記在個人 profile。
@@ -583,21 +602,21 @@ model Objective {
 /// 關鍵成果（Key Result）。連到 Project 時＝即時鏡子（狀態/進度讀專案）；
 /// 未連時用自身 status/progress/health（供非專案的檢查點：律師看過合約、名片…）。
 model KeyResult {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   objectiveId String
   objective   Objective @relation(fields: [objectiveId], references: [id], onDelete: Cascade)
   title       String
-  kind        String   @default("kr") // "kr" | "todo"
+  kind        String    @default("kr") // "kr" | "todo"
 
   // 連到專案（可選）＝即時抓專案當下狀態；null＝手動。
   projectId String?
   project   Project? @relation("KrProject", fields: [projectId], references: [id], onDelete: SetNull)
 
   // 手動 KR 用（連了專案就改讀專案的，這些被忽略）。
-  status   KrStatus @default(NOT_STARTED)
-  health   Health   @default(GREEN)
-  progress Int      @default(0) // 0-100
-  note     String?  @db.Text // 這週目標 / 備註
+  status   KrStatus  @default(NOT_STARTED)
+  health   Health    @default(GREEN)
+  progress Int       @default(0) // 0-100
+  note     String?   @db.Text // 這週目標 / 備註
   dueDate  DateTime? @db.Date
 
   owners     User[]  @relation("KrOwners") // 多負責人（組織成員）
@@ -619,12 +638,16 @@ model Task {
   project   Project @relation("ProjectTask", fields: [projectId], references: [id], onDelete: Cascade)
   title     String
 
-  status   KrStatus @default(NOT_STARTED)
-  health   Health   @default(GREEN)
-  progress Int      @default(0) // 0-100
-  note     String?  @db.Text // 這週目標 / 備註
+  status    KrStatus  @default(NOT_STARTED)
+  health    Health    @default(GREEN)
+  progress  Int       @default(0) // 0-100
+  note      String?   @db.Text // 這週目標 / 備註
   startDate DateTime? @db.Date // 開始日
   dueDate   DateTime? @db.Date // 結束 / 到期日
+
+  // 到期提醒：到期日「前 N 天」提醒（天數自由設定，可多個，如 [7,3,1]）。
+  // 每日 cron 依此發站內通知給任務負責人。空＝不提醒。
+  reminderDays Int[] @default([])
 
   owners     User[]  @relation("TaskOwners") // 多負責人（組織成員）
   ownerLabel String? // 外部非成員自由文字
@@ -644,10 +667,10 @@ model Task {
 // ─────────────────────────────────────────────
 
 model DailyReport {
-  id     String   @id @default(cuid())
-  date   DateTime @db.Date // 報告日（UTC 午夜；每人每日唯一）
-  score  Int      @default(0) // 自評完成度 0–100（量化）
-  note   String? // 今日重點（≤50 字，於 action 驗證）
+  id    String   @id @default(cuid())
+  date  DateTime @db.Date // 報告日（UTC 午夜；每人每日唯一）
+  score Int      @default(0) // 自評完成度 0–100（量化）
+  note  String? // 今日重點（≤50 字，於 action 驗證）
 
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -686,27 +709,27 @@ model DailyReportItem {
 
 /// 每日報告的留言（主管回饋）。新增後會通知報告作者。
 model DailyReportComment {
-  id       String      @id @default(cuid())
-  reportId String
-  report   DailyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
-  authorId String
-  author   User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
-  body     String      @db.Text
-  createdAt DateTime   @default(now())
+  id        String      @id @default(cuid())
+  reportId  String
+  report    DailyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User        @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  body      String      @db.Text
+  createdAt DateTime    @default(now())
 
   @@index([reportId])
 }
 
 /// 站內通知（例：主管回饋你的每日報告）。read=已讀。
 model Notification {
-  id      String  @id @default(cuid())
-  userId  String // 收件者
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type    String // 例：daily_comment
-  title   String
-  body    String? @db.Text
-  link    String? // 點擊前往的頁面
-  read    Boolean @default(false)
+  id        String   @id @default(cuid())
+  userId    String // 收件者
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String // 例：daily_comment
+  title     String
+  body      String?  @db.Text
+  link      String? // 點擊前往的頁面
+  read      Boolean  @default(false)
   createdAt DateTime @default(now())
 
   organizationId String
@@ -783,20 +806,20 @@ model TrainingCourse {
 
 /// 課程指派（每位成員每門課一筆）＝該員的訓練紀錄（狀態 / 到期日 / 完成日 / 分數）。
 model TrainingAssignment {
-  id          String         @id @default(cuid())
-  courseId    String
-  course      TrainingCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  userId      String
-  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status      TrainingStatus @default(NOT_STARTED)
-  dueDate     DateTime?      @db.Date // 應完成日
-  startedAt   DateTime?
-  completedAt DateTime?
-  score       Int? // 測驗分數（選填 0–100）
-  note        String?        @db.Text
+  id           String         @id @default(cuid())
+  courseId     String
+  course       TrainingCourse @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status       TrainingStatus @default(NOT_STARTED)
+  dueDate      DateTime?      @db.Date // 應完成日
+  startedAt    DateTime?
+  completedAt  DateTime?
+  score        Int? // 測驗分數（選填 0–100）
+  note         String?        @db.Text
   assignedById String?
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
 
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -816,9 +839,9 @@ model TrainingAssignment {
 
 /// 文件資料夾（可多層巢狀）。刪除資料夾會連同子資料夾與其中文件一併移除（DB 層級聯串）。
 model TrainingDocFolder {
-  id             String  @id @default(cuid())
+  id             String       @id @default(cuid())
   name           String
-  sortOrder      Int     @default(0)
+  sortOrder      Int          @default(0)
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
@@ -839,10 +862,10 @@ model TrainingDocFolder {
 
 /// 文件（樹葉節點）：內容以 markdown 純文字儲存。folderId 為 null＝放在根層。
 model TrainingDocPage {
-  id             String  @id @default(cuid())
-  title          String
-  content        String  @default("") @db.Text // markdown 原文
-  sortOrder      Int     @default(0)
+  id        String @id @default(cuid())
+  title     String
+  content   String @default("") @db.Text // markdown 原文
+  sortOrder Int    @default(0)
 
   // 可見性：ALL＝所有人可見（預設）；RESTRICTED＝僅 allowedUserIds 內的人可見。
   // 管理者(OWNER/ADMIN/老闆)一律可見，不受此限制。
@@ -1025,9 +1048,9 @@ model CrmEvent {
 
 /// 個人待辦事項。可選擇性關聯到某個專案任務(Task)；有開始 / 結束日。
 model TodoItem {
-  id     String  @id @default(cuid())
+  id     String @id @default(cuid())
   userId String
-  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1073,4 +1096,112 @@ model PomodoroSession {
   @@index([userId])
   @@index([organizationId])
   @@index([todoId])
+}
+
+// ─────────────────────────────────────────────
+// 人資（HR）：自訂角色 / 權限、假別、薪資設定、薪資單
+// 角色是「職能角色」（人資 / 會計…），與 OrgRole（OWNER/ADMIN/MEMBER，決定誰是管理者）
+// 正交：管理者(OWNER/ADMIN)天生擁有全部權限；一般成員的權限＝其被指派角色權限的聯集。
+// permissions 存權限 key（見 src/lib/permissions.ts），非硬編碼列舉，方便日後擴充。
+// ─────────────────────────────────────────────
+
+/// 自訂角色（每組織）。只有管理者可建立 / 編輯 / 指派。permissions＝該角色授予的權限 key 清單。
+model OrgRoleDef {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name           String // 角色名稱（人資 / 會計…）
+  description    String? // 說明
+  color          String? // 標籤顏色（hex）
+  permissions    String[]     @default([]) // 權限 key 清單
+  sortOrder      Int          @default(0)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  members OrganizationMember[] @relation("MemberRoles")
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+/// 假別（每組織）。paidPercent 決定該假別的薪資給付比例（100＝全薪、0＝無薪、50＝半薪）。
+model LeaveType {
+  id              String       @id @default(cuid())
+  organizationId  String
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name            String // 特休 / 事假 / 病假 / 公假…
+  paidPercent     Int          @default(100) // 薪資給付比例 0–100
+  annualQuotaDays Float? // 年度可用天數（額度；選填，供顯示 / 未來扣抵）
+  color           String?
+  sortOrder       Int          @default(0)
+  active          Boolean      @default(true)
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  attendanceRecords AttendanceRecord[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+/// 薪資設定（每位成員一份）。月薪制（MONTHLY）依出勤 / 請假比例計薪；時薪制（HOURLY）依打卡工時計薪。
+model SalaryProfile {
+  id             String             @id @default(cuid())
+  organizationId String
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String             @unique // OrganizationMember.id
+  member         OrganizationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  payType             String   @default("MONTHLY") // MONTHLY（月薪）| HOURLY（時薪）
+  baseAmount          Decimal  @default(0) @db.Decimal(12, 2) // 月薪金額 或 時薪金額
+  currency            String   @default("TWD")
+  standardWorkDays    Int      @default(22) // 月薪制：每月標準工作天（換算日薪 / 扣薪用）
+  standardHoursPerDay Float    @default(8) // 每日標準工時（加班判定 / 時薪換算）
+  overtimeMultiplier  Float    @default(1.34) // 加班費倍率（勞基法平日前 2 小時 1.34）
+  allowances          Json? // 固定加給 [{ name, amount }]（交通 / 伙食…）
+  deductions          Json? // 固定扣除 [{ name, amount }]（勞保 / 健保自付 / 勞退…）
+  note                String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@index([organizationId])
+}
+
+/// 薪資單（每位成員每月一張）。由 HR 產生時依當月出勤 + 薪資設定即時計算並落庫，明細存 breakdown。
+model Payslip {
+  id             String             @id @default(cuid())
+  organizationId String
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         OrganizationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  periodYear  Int
+  periodMonth Int // 1–12
+
+  payType         String
+  baseAmount      Decimal  @default(0) @db.Decimal(12, 2)
+  currency        String   @default("TWD")
+  // 出勤彙總（供顯示 / 稽核）
+  workedDays      Float    @default(0) // 出勤天（含出差 / 在家工作）
+  leaveDays       Float    @default(0) // 請假天（各假別合計）
+  absentDays      Float    @default(0) // 缺席天
+  overtimeHours   Float    @default(0) // 加班時數
+  // 金額（TWD，二位小數）
+  grossPay        Decimal  @default(0) @db.Decimal(12, 2) // 應發（本薪＋加給＋加班 − 請假/缺席扣薪）
+  overtimePay     Decimal  @default(0) @db.Decimal(12, 2)
+  allowanceTotal  Decimal  @default(0) @db.Decimal(12, 2)
+  leaveDeduction  Decimal  @default(0) @db.Decimal(12, 2) // 請假扣薪合計
+  absentDeduction Decimal  @default(0) @db.Decimal(12, 2) // 缺席扣薪合計
+  deductionTotal  Decimal  @default(0) @db.Decimal(12, 2) // 固定扣除合計（勞健保…）
+  netPay          Decimal  @default(0) @db.Decimal(12, 2) // 實發
+  breakdown       Json? // 逐項明細（給薪資單呈現）
+  status          String   @default("draft") // draft（草稿）| finalized（已核定）
+  note            String?
+  computedAt      DateTime @default(now())
+  createdById     String?
+  updatedAt       DateTime @updatedAt
+
+  @@unique([organizationId, memberId, periodYear, periodMonth])
+  @@index([organizationId, periodYear, periodMonth])
+  @@index([memberId])
 }

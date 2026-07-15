@@ -15,7 +15,11 @@ import {
 import { cn } from "@/lib/utils";
 import { db } from "@/server/db";
 import { requireManageContext } from "@/server/org";
-import { getMemberProfile, getOrgMemberDirectory } from "@/server/queries";
+import {
+  getMemberProfile,
+  getOrgMemberDirectory,
+  getOrgRoles,
+} from "@/server/queries";
 import { fmtDateShort } from "@/lib/date";
 import { displayName, displayInitial } from "@/lib/display";
 import { MemberName } from "@/components/member-name";
@@ -41,6 +45,8 @@ export default async function MemberProfilePage({
 
   // 名錄：主管下拉選單（僅管理者用）＋ 解析「額外回報對象」的顯示名稱（所有人可見）。
   const directory = await getOrgMemberDirectory(org.id);
+  // 自訂角色（僅管理者指派用）。
+  const roles = canManage ? await getOrgRoles(org.id) : [];
   const memberOptions = directory.map((d) => ({
     membershipId: d.membershipId,
     label: d.jobTitle ? `${displayName(d)}（${d.jobTitle}）` : displayName(d),
@@ -280,8 +286,14 @@ export default async function MemberProfilePage({
                     allowedModules: m.allowedModules,
                     trackAttendance: m.trackAttendance,
                     managerId: m.managerId,
+                    roleIds: m.roleDefs.map((r) => r.id),
                   }}
                   memberOptions={memberOptions}
+                  roleOptions={roles.map((r) => ({
+                    id: r.id,
+                    name: r.name,
+                    color: r.color,
+                  }))}
                   departments={Array.from(
                     new Set(
                       directory

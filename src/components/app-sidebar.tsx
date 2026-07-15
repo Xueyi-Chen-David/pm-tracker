@@ -18,6 +18,7 @@ import {
   ListTodo,
   CircleUser,
   Handshake,
+  Wallet,
   Menu,
   LogOut,
   Plus,
@@ -35,7 +36,7 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/s
 import { NewProjectButton } from "@/components/new-project-button";
 import { OrgSwitcher } from "@/components/org-switcher";
 import { NotificationBell, type NotificationItem } from "@/components/notification-bell";
-import { ViewAsToggle } from "@/components/view-as-toggle";
+import { ViewAsMenu, type PreviewRole } from "@/components/view-as-menu";
 import type { ModuleKey } from "@/lib/modules";
 
 type NavItem = {
@@ -76,6 +77,7 @@ const NAV_SECTIONS: NavSection[] = [
       { key: "meetings", href: "/meetings", label: "會議記錄", icon: NotebookPen },
       { key: "team", href: "/team", label: "團隊", icon: Users },
       { key: "attendance", href: "/attendance", label: "出席狀況", icon: UserCheck },
+      { key: "payroll", href: "/payroll", label: "薪資", icon: Wallet },
       { key: "report", href: "/report", label: "週報", icon: FileText },
       { key: "training", href: "/training", label: "公司文件", icon: Library },
     ],
@@ -216,8 +218,9 @@ export function AppSidebar({
   moduleKeys,
   activeOrg,
   orgs,
-  canPreviewAsEmployee,
-  previewingAsEmployee,
+  canPreview,
+  previewRoles,
+  previewValue,
   notifications,
   unread,
 }: {
@@ -226,8 +229,9 @@ export function AppSidebar({
   moduleKeys: ModuleKey[];
   activeOrg: Org;
   orgs: Org[];
-  canPreviewAsEmployee: boolean;
-  previewingAsEmployee: boolean;
+  canPreview: boolean;
+  previewRoles: PreviewRole[];
+  previewValue: string | null;
   notifications: NotificationItem[];
   unread: number;
 }) {
@@ -235,32 +239,35 @@ export function AppSidebar({
 
   return (
     <>
-      {/* 桌機固定側欄 */}
-      <aside className="bg-card no-print fixed inset-y-0 left-0 z-30 hidden w-60 flex-col gap-4 border-r p-3 lg:flex">
-        <div className="flex items-center justify-between pt-2">
-          <Brand />
-          <NotificationBell items={notifications} unread={unread} />
+      {/* 桌機固定側欄：頂部 / 底部固定，中間導覽可捲動（視窗太矮也不會被截掉）。 */}
+      <aside className="bg-card no-print fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r lg:flex">
+        {/* 頂部（固定） */}
+        <div className="flex flex-col gap-4 p-3 pb-2">
+          <div className="flex items-center justify-between pt-2">
+            <Brand />
+            <NotificationBell items={notifications} unread={unread} />
+          </div>
+          <div className="px-1">
+            <OrgSwitcher activeOrg={activeOrg} orgs={orgs} />
+          </div>
+          <NewProjectButton
+            users={users}
+            trigger={
+              <Button size="sm" className="mx-1 w-[calc(100%-0.5rem)] gap-1.5">
+                <Plus className="h-4 w-4" /> 新增專案 / 任務
+              </Button>
+            }
+          />
         </div>
-        <div className="px-1">
-          <OrgSwitcher activeOrg={activeOrg} orgs={orgs} />
-        </div>
-        <NewProjectButton
-          users={users}
-          trigger={
-            <Button size="sm" className="mx-1 w-[calc(100%-0.5rem)] gap-1.5">
-              <Plus className="h-4 w-4" /> 新增專案 / 任務
-            </Button>
-          }
-        />
-        <div className="px-1">
+        {/* 導覽（可捲動） */}
+        <div className="scroll-y min-h-0 flex-1 overflow-y-auto px-3 py-1">
           <NavLinks moduleKeys={moduleKeys} />
         </div>
-        {canPreviewAsEmployee && (
-          <div className="px-1">
-            <ViewAsToggle previewing={previewingAsEmployee} />
-          </div>
-        )}
-        <div className="mt-auto">
+        {/* 底部（固定） */}
+        <div className="flex flex-col gap-2 border-t p-3">
+          {canPreview && (
+            <ViewAsMenu roles={previewRoles} previewValue={previewValue} />
+          )}
           <UserCard user={user} />
         </div>
       </aside>
@@ -284,17 +291,22 @@ export function AppSidebar({
             >
               <Menu className="h-5 w-5" />
             </SheetTrigger>
-            <SheetContent side="left" className="w-64 p-3">
+            <SheetContent side="left" className="w-64 gap-0 p-0">
               <SheetTitle className="sr-only">導覽選單</SheetTitle>
-              <div className="mt-6 flex h-full flex-col gap-4">
+              {/* 頂部（固定，pt-12 讓開組織切換不被右上關閉鈕蓋住） */}
+              <div className="p-3 pt-12">
                 <OrgSwitcher activeOrg={activeOrg} orgs={orgs} />
+              </div>
+              {/* 導覽（可捲動：視窗太矮 / 項目太多也能滑動） */}
+              <div className="scroll-y min-h-0 flex-1 overflow-y-auto px-3 py-1">
                 <NavLinks moduleKeys={moduleKeys} onNavigate={() => setOpen(false)} />
-                {canPreviewAsEmployee && (
-                  <ViewAsToggle previewing={previewingAsEmployee} />
+              </div>
+              {/* 底部（固定） */}
+              <div className="flex flex-col gap-2 border-t p-3">
+                {canPreview && (
+                  <ViewAsMenu roles={previewRoles} previewValue={previewValue} />
                 )}
-                <div className="mt-auto">
-                  <UserCard user={user} />
-                </div>
+                <UserCard user={user} />
               </div>
             </SheetContent>
           </Sheet>

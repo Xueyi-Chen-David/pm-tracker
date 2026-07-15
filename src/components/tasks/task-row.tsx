@@ -3,7 +3,15 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CalendarDays, GripVertical, MoreHorizontal, Trash2 } from "lucide-react";
+import {
+  Bell,
+  CalendarDays,
+  GripVertical,
+  MoreHorizontal,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import { updateTask, setTaskOwners, deleteTask } from "@/server/actions/tasks";
 import { TASK_STATUS } from "@/lib/tasks";
 import { fmtDateShort } from "@/lib/date";
@@ -31,6 +39,8 @@ export type TaskView = {
   health: Health;
   progress: number;
   owners: OwnerLite[];
+  /** 到期提醒天數（前 N 天），由大到小。空＝不提醒。 */
+  reminderDays: number[];
 };
 
 const HEALTH_CYCLE: Record<Health, Health> = {
@@ -69,6 +79,9 @@ export function TaskRow({
   const [ownerIds, setOwnerIds] = useState<Set<string>>(
     () => new Set(task.owners.map((o) => o.id)),
   );
+  // 到期提醒天數（前 N 天）。本機維護，改動即存。
+  const [reminders, setReminders] = useState<number[]>(task.reminderDays);
+  const [customDay, setCustomDay] = useState("");
 
   function run(fn: () => Promise<void>) {
     start(async () => {
@@ -91,6 +104,21 @@ export function TaskRow({
     else next.delete(id);
     setOwnerIds(next);
     run(() => setTaskOwners(task.id, [...next]));
+  }
+
+  function saveReminders(next: number[]) {
+    const cleaned = [...new Set(next.filter((n) => n > 0 && n <= 365))].sort(
+      (a, b) => b - a,
+    );
+    setReminders(cleaned);
+    run(() => updateTask(task.id, { reminderDays: cleaned }));
+  }
+  function addReminder(n: number) {
+    if (!n || reminders.includes(n)) return;
+    saveReminders([...reminders, n]);
+  }
+  function removeReminder(n: number) {
+    saveReminders(reminders.filter((x) => x !== n));
   }
 
   return (
@@ -168,8 +196,17 @@ export function TaskRow({
             ) : (
               <span>設定日期</span>
             )}
+            {reminders.length > 0 && (
+              <span
+                className="inline-flex items-center gap-0.5 text-amber-600"
+                title={`到期前 ${reminders.join("、")} 天提醒`}
+              >
+                <Bell className="h-3 w-3 shrink-0" />
+                {reminders.join(",")}
+              </span>
+            )}
           </PopoverTrigger>
-          <PopoverContent align="start" className="w-56">
+          <PopoverContent align="start" className="w-64">
             <div className="space-y-1">
               <div className="text-muted-foreground text-xs">開始日</div>
               <input
@@ -195,6 +232,83 @@ export function TaskRow({
                 }
                 className={inputCls}
               />
+            </div>
+
+            {/* 到期提醒（前 N 天）：天數自由設定，可多個。 */}
+            <div className="mt-3 space-y-1.5 border-t pt-2">
+              <div className="text-muted-foreground flex items-center gap-1 text-xs">
+                <Bell className="h-3 w-3" /> 到期提醒（前 N 天）
+              </div>
+              {!task.dueDate && (
+                <p className="text-muted-foreground/70 text-[11px]">
+                  設定到期日後，會在指定天數前發通知給負責人。
+                </p>
+              )}
+              {reminders.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {reminders.map((n) => (
+                    <span
+                      key={n}
+                      className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] text-amber-700"
+                    >
+                      前 {n} 天
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => removeReminder(n)}
+                        className="hover:text-amber-900"
+                        title="移除"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-1">
+                {[7, 3, 1].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    disabled={pending || reminders.includes(n)}
+                    onClick={() => addReminder(n)}
+                    className="rounded-md border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted disabled:opacity-40"
+                  >
+                    前 {n} 天
+                  </button>
+                ))}
+                <span className="inline-flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={1}
+                    max={365}
+                    value={customDay}
+                    disabled={pending}
+                    placeholder="天"
+                    onChange={(e) => setCustomDay(e.currentTarget.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addReminder(Number(customDay));
+                        setCustomDay("");
+                      }
+                    }}
+                    className="border-input h-7 w-14 rounded-md border bg-transparent px-1.5 text-xs outline-none focus:border-ring"
+                  />
+                  <button
+                    type="button"
+                    disabled={pending || !customDay}
+                    onClick={() => {
+                      addReminder(Number(customDay));
+                      setCustomDay("");
+                    }}
+                    className="hover:bg-muted rounded-md border p-1 disabled:opacity-40"
+                    title="新增自訂天數"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </span>
+              </div>
             </div>
           </PopoverContent>
         </Popover>

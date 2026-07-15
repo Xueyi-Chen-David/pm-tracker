@@ -8,14 +8,16 @@ import { Button } from "@/components/ui/button";
 export function AttendanceMonthNav({
   month,
   thisMonth,
+  basePath = "/attendance",
 }: {
   month: string; // yyyy-MM
   thisMonth: string; // yyyy-MM
+  basePath?: string;
 }) {
   const router = useRouter();
 
   function go(m: string) {
-    router.push(`/attendance?month=${m}`);
+    router.push(`${basePath}?month=${m}`);
   }
 
   function shift(n: number) {

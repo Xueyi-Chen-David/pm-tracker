@@ -79,6 +79,8 @@ const TaskPatch = z.object({
   startDate: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),
   ownerLabel: z.string().max(200).nullable().optional(),
+  // 到期提醒天數（前 N 天）：去重、正整數、最多 10 個，由大到小排序。
+  reminderDays: z.array(z.number().int().min(1).max(365)).max(10).optional(),
 });
 
 export async function updateTask(id: string, patch: z.input<typeof TaskPatch>) {
@@ -101,6 +103,12 @@ export async function updateTask(id: string, patch: z.input<typeof TaskPatch>) {
       ...(p.startDate !== undefined ? { startDate: toUtcDate(p.startDate) } : {}),
       ...(p.dueDate !== undefined ? { dueDate: toUtcDate(p.dueDate) } : {}),
       ...(p.ownerLabel !== undefined ? { ownerLabel: p.ownerLabel || null } : {}),
+      ...(p.reminderDays !== undefined
+        ? {
+            // 去重 + 由大到小（前 7 天、前 3 天…）排序後儲存。
+            reminderDays: [...new Set(p.reminderDays)].sort((a, b) => b - a),
+          }
+        : {}),
     },
   });
   // 狀態/進度/健康度變動才需重算專案彙總

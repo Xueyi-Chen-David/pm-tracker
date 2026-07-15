@@ -1,6 +1,11 @@
 import { requireManageContext } from "@/server/org";
 import { db } from "@/server/db";
-import { getAttendanceMonth, getTrackableMembers } from "@/server/queries";
+import {
+  getAttendanceMonth,
+  getSelfAttendanceMonth,
+  getTrackableMembers,
+  getOrgLeaveTypes,
+} from "@/server/queries";
 import { parseGeofences, parseMatchMode } from "@/lib/checkin";
 import { todayUtc } from "@/lib/date";
 import { PageHeader } from "@/components/page-header";
@@ -42,7 +47,11 @@ export default async function AttendancePage({
 }: {
   searchParams: Promise<{ month?: string }>;
 }) {
-  const { org, user, canManage } = await requireManageContext();
+  const { org, user, can } = await requireManageContext();
+  // 出勤可見範圍：具「查看全體出勤」權限者（人資 / 管理者）看全部；否則只看自己。
+  const canViewAll = can("attendance.view_all");
+  // 出勤管理權限：可登記 / 修改他人、管理追蹤成員與打卡設定。
+  const canManageAtt = can("attendance.manage");
   const { month: monthParam } = await searchParams;
 
   const now = new Date();
@@ -66,10 +75,13 @@ export default async function AttendancePage({
     };
   });
 
-  const [rows, trackable, orgConfig, firstCheckIn, myCheckIns] =
+  const [rows, trackable, leaveTypes, orgConfig, firstCheckIn, myCheckIns] =
     await Promise.all([
-      getAttendanceMonth(org.id, start, end),
-      canManage ? getTrackableMembers(org.id) : Promise.resolve([]),
+      canViewAll
+        ? getAttendanceMonth(org.id, start, end)
+        : getSelfAttendanceMonth(org.id, user.id, start, end),
+      canManageAtt ? getTrackableMembers(org.id) : Promise.resolve([]),
+      getOrgLeaveTypes(org.id, true),
       db.organization.findUnique({
         where: { id: org.id },
         select: {
@@ -183,13 +195,17 @@ export default async function AttendancePage({
     <div className="space-y-4">
       <PageHeader
         title="出席狀況"
-        description={`${year} 年 ${month} 月 · 追蹤 ${members.length} 位成員`}
+        description={
+          canViewAll
+            ? `${year} 年 ${month} 月 · 追蹤 ${members.length} 位成員`
+            : `${year} 年 ${month} 月 · 我的出勤`
+        }
       >
         <AttendanceMonthNav
           month={ym(year, month)}
           thisMonth={ym(thisMonth.year, thisMonth.month)}
         />
-        {canManage && orgConfig && (
+        {canManageAtt && orgConfig && (
           <CheckInSettings
             enabled={orgConfig.checkInEnabled}
             allowedIps={orgConfig.checkInAllowedIps}
@@ -197,7 +213,7 @@ export default async function AttendancePage({
             matchMode={parseMatchMode(orgConfig.checkInMatchMode)}
           />
         )}
-        {canManage && <AttendanceTrackManager members={trackable} />}
+        {canManageAtt && <AttendanceTrackManager members={trackable} />}
       </PageHeader>
 
       <div className="text-muted-foreground flex flex-wrap items-center gap-4 text-xs">
@@ -239,17 +255,35 @@ export default async function AttendancePage({
         </span>
       </div>
 
+      {!canViewAll && (
+        <p className="text-muted-foreground text-xs">
+          你目前只看得到自己的出勤。若需查看 / 管理全體出勤，請由管理者指派具「查看全體出勤」權限的角色（如人資）。
+        </p>
+      )}
+
       {members.length === 0 ? (
         <div className="text-muted-foreground rounded-xl border border-dashed py-16 text-center">
-          尚未選擇任何追蹤成員。<br />
-          點右上「追蹤成員」勾選要記錄出席的人。
+          {canViewAll ? (
+            <>
+              尚未選擇任何追蹤成員。
+              <br />
+              點右上「追蹤成員」勾選要記錄出席的人。
+            </>
+          ) : (
+            <>找不到你的出勤資料。</>
+          )}
         </div>
       ) : (
         <AttendanceGrid
           members={members}
           days={days}
           viewerUserId={user.id}
-          canManage={canManage}
+          canManage={canManageAtt}
+          leaveTypes={leaveTypes.map((lt) => ({
+            id: lt.id,
+            name: lt.name,
+            color: lt.color,
+          }))}
         />
       )}
 

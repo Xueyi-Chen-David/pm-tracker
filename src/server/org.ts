@@ -10,12 +10,21 @@ import {
   isAdminRole,
   type ModuleKey,
 } from "@/lib/modules";
+import {
+  resolvePermissions,
+  hasPermission,
+  type PermissionKey,
+} from "@/lib/permissions";
 
-/** 模組可見性用的存取資訊（角色 / 老闆 / 細分權限）。 */
+/** 模組可見性 / 權限判定用的存取資訊（角色 / 老闆 / 模組白名單 / 已解析權限）。 */
 export type ModuleAccess = {
   role: OrgRole;
   isBoss: boolean;
   allowedModules: string[];
+  /** 已解析的有效權限 key（管理者含全部；一般成員＝各角色 permissions 聯集）。 */
+  permissions: PermissionKey[];
+  /** 供進一步 hasPermission 判定的角色 permissions 原料。 */
+  roleDefs: { permissions: string[] }[];
 };
 
 /** 記住「目前組織」的 cookie 名稱。 */
@@ -38,7 +47,14 @@ export const ACTIVE_ORG_COOKIE_OPTS = {
 export const getMyMemberships = cache(async (userId: string) => {
   return db.organizationMember.findMany({
     where: { userId },
-    include: { organization: { select: { id: true, name: true } } },
+    include: {
+      organization: { select: { id: true, name: true } },
+      // 自訂角色（人資 / 會計…）：解析權限用。
+      roleDefs: {
+        select: { id: true, name: true, color: true, permissions: true },
+        orderBy: { sortOrder: "asc" },
+      },
+    },
     orderBy: [{ organization: { name: "asc" } }],
   });
 });
@@ -115,40 +131,152 @@ export function isManagerOrBoss(m: {
   return isAdminRole(m.role) || m.isBoss;
 }
 
-/** 讀「以員工視角預覽」cookie（是否啟用）。 */
-export async function getViewAsEmployee(): Promise<boolean> {
-  const store = await cookies();
-  return store.get(VIEW_AS_COOKIE)?.value === "employee";
-}
-
 /**
- * 計算「有效存取」：管理者 / 老闆開啟員工視角預覽時，一律降級成一般員工
- * （role=MEMBER、非老闆、無額外授權），讓側欄與頁面存取都呈現員工實際看到的樣子。
+ * 「以…視角預覽」的狀態（管理者專用）：
+ * - self：真實身分（未預覽）
+ * - employee：一般員工（無任何自訂角色）
+ * - role：某個自訂角色（如 人資）的視角——權限＝該角色 permissions
  */
-export function effectiveAccess(
-  m: MyMembership,
-  previewEmployee: boolean,
-): ModuleAccess {
-  if (previewEmployee && isManagerOrBoss(m)) {
-    return { role: "MEMBER", isBoss: false, allowedModules: [] };
+export type ViewAs =
+  | { mode: "self" }
+  | { mode: "employee" }
+  | { mode: "role"; roleId: string };
+
+/** 讀「以…視角預覽」cookie 並解析成 ViewAs。 */
+export async function getViewAs(): Promise<ViewAs> {
+  const store = await cookies();
+  const v = store.get(VIEW_AS_COOKIE)?.value;
+  if (v === "employee") return { mode: "employee" };
+  if (v && v.startsWith("role:")) {
+    const roleId = v.slice("role:".length);
+    if (roleId) return { mode: "role", roleId };
   }
-  return { role: m.role, isBoss: m.isBoss, allowedModules: m.allowedModules };
+  return { mode: "self" };
+}
+
+/** 舊介面相容：是否處於「員工視角」預覽。 */
+export async function getViewAsEmployee(): Promise<boolean> {
+  return (await getViewAs()).mode === "employee";
+}
+
+/** 一般員工的存取（無任何角色 / 白名單 / 權限）。 */
+const EMPLOYEE_ACCESS: ModuleAccess = {
+  role: "MEMBER",
+  isBoss: false,
+  allowedModules: [],
+  permissions: [],
+  roleDefs: [],
+};
+
+/** 真實身分的有效存取（含自訂角色權限聯集）。 */
+export function selfAccess(m: MyMembership): ModuleAccess {
+  const roleDefs = m.roleDefs.map((r) => ({ permissions: r.permissions }));
+  return {
+    role: m.role,
+    isBoss: m.isBoss,
+    allowedModules: m.allowedModules,
+    permissions: [...resolvePermissions({ role: m.role, roleDefs })],
+    roleDefs,
+  };
+}
+
+/** 以「單一自訂角色」視角的存取（一般員工 + 該角色權限）。 */
+function roleAccess(role: { permissions: string[] }): ModuleAccess {
+  return {
+    role: "MEMBER",
+    isBoss: false,
+    allowedModules: [],
+    permissions: [...resolvePermissions({ role: "MEMBER", roleDefs: [role] })],
+    roleDefs: [{ permissions: role.permissions }],
+  };
+}
+
+export type ResolvedAccess = {
+  access: ModuleAccess;
+  /** 管理者正處於預覽（員工或角色視角）。 */
+  previewing: boolean;
+  preview: ViewAs;
+  /** 預覽角色名稱（banner 顯示用；role 模式且角色存在時才有）。 */
+  previewRoleName?: string;
+};
+
+/**
+ * 解析「有效存取」，套用管理者的視角預覽。非管理者 / 老闆一律用真實身分。
+ * 預覽只影響「看得到什麼」；伺服器端 action 仍以真實身分（requireOrgPermission）驗證。
+ */
+export async function resolveAccess(
+  ctx: ActiveOrgContext,
+): Promise<ResolvedAccess> {
+  const view = await getViewAs();
+  const manager = isManagerOrBoss(ctx.membership);
+  if (view.mode === "self" || !manager) {
+    return {
+      access: selfAccess(ctx.membership),
+      previewing: false,
+      preview: { mode: "self" },
+    };
+  }
+  if (view.mode === "employee") {
+    return { access: EMPLOYEE_ACCESS, previewing: true, preview: view };
+  }
+  // 角色視角：載入該角色（限本組織）；角色已不存在則退回員工視角。
+  const role = await db.orgRoleDef.findFirst({
+    where: { id: view.roleId, organizationId: ctx.org.id },
+    select: { name: true, permissions: true },
+  });
+  if (!role) {
+    return { access: EMPLOYEE_ACCESS, previewing: true, preview: { mode: "employee" } };
+  }
+  return {
+    access: roleAccess(role),
+    previewing: true,
+    preview: view,
+    previewRoleName: role.name,
+  };
+}
+
+/** access 是否具備某權限（permissions 已解析，管理者含全部）。 */
+export function accessHas(access: ModuleAccess, key: PermissionKey): boolean {
+  return access.permissions.includes(key);
 }
 
 /**
- * 要求登入 + 目前組織 + 該模組可見權限（細分權限，讀 membership）。
- * 會套用「員工視角預覽」：管理者預覽中造訪管理者專屬頁會被導開（退出預覽即可回來）。
- * 無權限時導向使用者第一個可見模組。每次都讀最新 membership，調整立即生效。
+ * 要求登入 + 目前組織 + 該模組可見權限。套用視角預覽（管理者預覽中造訪看不到的頁會被導開）。
+ * 無權限時導向使用者第一個可見模組。每次都讀最新 membership / 角色，調整立即生效。
  */
 export async function requireModuleAccess(
   key: ModuleKey,
 ): Promise<ActiveOrgContext> {
   const ctx = await requireActiveOrg();
-  const access = effectiveAccess(ctx.membership, await getViewAsEmployee());
+  const { access } = await resolveAccess(ctx);
   if (!canSeeModule(access, key)) {
     redirect(firstAllowedHref(access));
   }
   return ctx;
+}
+
+/**
+ * 伺服器端 action 用：要求目前使用者（**真實身分**，不受預覽影響）具備某權限，否則丟錯。
+ * 管理者(OWNER/ADMIN)一律通過。
+ */
+export async function requireOrgPermission(
+  key: PermissionKey,
+): Promise<ActiveOrgContext> {
+  const ctx = await requireActiveOrg();
+  if (
+    !hasPermission(
+      { role: ctx.membership.role, roleDefs: ctx.membership.roleDefs },
+      key,
+    )
+  ) {
+    throw new Error("你沒有執行此操作的權限。");
+  }
+  return ctx;
+}
+
+/** 真實身分是否具備某權限（供 action 內就地判斷「自己 vs 他人」等）。 */
+export function membershipHas(m: MyMembership, key: PermissionKey): boolean {
+  return hasPermission({ role: m.role, roleDefs: m.roleDefs }, key);
 }
 
 /** 要求目前組織 + 指定角色（成員管理等敏感操作用）。 */
@@ -168,18 +296,32 @@ export function canManageMembers(role: OrgRole): boolean {
 }
 
 /**
- * requireActiveOrg + UI 用的「有效可管理」。
- * - `canManage`：真實為管理者(OWNER/ADMIN)**且未**處於員工視角預覽。
- * - `previewing`：管理者正以員工視角預覽中。
- * 用於「頁面該不該顯示管理者專屬 UI」；伺服器端各 action 仍以真實角色驗證權限，
+ * requireActiveOrg + UI 用的「有效可管理」與「有效存取」。
+ * - `canManage`：真實為管理者(OWNER/ADMIN)**且未**處於預覽。
+ * - `previewing`：管理者正以員工 / 角色視角預覽中。
+ * - `access`：套用預覽後的有效存取（含 permissions），頁面用它決定顯示範圍。
+ * - `can(key)`：便捷判定 access 是否具某權限。
+ * 用於「頁面該不該顯示管理者專屬 UI / 全體資料」；伺服器端各 action 仍以真實身分驗證權限，
  * 預覽只影響呈現，不會真的放大或縮小實際權限。
  */
 export async function requireManageContext(): Promise<
-  ActiveOrgContext & { canManage: boolean; previewing: boolean }
+  ActiveOrgContext & {
+    canManage: boolean;
+    previewing: boolean;
+    access: ModuleAccess;
+    previewRoleName?: string;
+    can: (key: PermissionKey) => boolean;
+  }
 > {
   const ctx = await requireActiveOrg();
-  const previewing =
-    (await getViewAsEmployee()) && isManagerOrBoss(ctx.membership);
+  const { access, previewing, previewRoleName } = await resolveAccess(ctx);
   const canManage = !previewing && canManageMembers(ctx.membership.role);
-  return { ...ctx, canManage, previewing };
+  return {
+    ...ctx,
+    canManage,
+    previewing,
+    access,
+    previewRoleName,
+    can: (key) => accessHas(access, key),
+  };
 }

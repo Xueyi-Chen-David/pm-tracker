@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
-import { requireActiveOrg } from "@/server/org";
+import { requireActiveOrg, membershipHas } from "@/server/org";
 import { eventAttendanceEffect } from "@/lib/constants";
 import { recomputeAttendance, weekdaysInRange } from "@/lib/attendance-sync";
 
@@ -23,8 +23,12 @@ function toDate(v: string): Date {
 }
 
 export async function createMemberEvent(input: z.input<typeof EventInput>) {
-  const { user, org } = await requireActiveOrg();
+  const { user, org, membership } = await requireActiveOrg();
   const d = EventInput.parse(input);
+  // 只能替自己登記事件；替他人登記需出勤管理權限（人資 / 管理者）。
+  if (d.userId !== user.id && !membershipHas(membership, "attendance.manage")) {
+    throw new Error("只能替自己登記請假 / 事件；需具備出勤管理權限才能替他人登記。");
+  }
   const member = await db.organizationMember.findUnique({
     where: { organizationId_userId: { organizationId: org.id, userId: d.userId } },
     select: { id: true },
@@ -65,12 +69,17 @@ export async function createMemberEvent(input: z.input<typeof EventInput>) {
 }
 
 export async function deleteMemberEvent(input: { id: string; userId: string }) {
-  const { user, org } = await requireActiveOrg();
+  const { user, org, membership } = await requireActiveOrg();
   // 先讀出事件（需要範圍 + 類型來回收自動出席紀錄），再刪除。
   const event = await db.memberEvent.findFirst({
     where: { id: input.id, organizationId: org.id },
     select: { userId: true, type: true, startDate: true, endDate: true },
   });
+  if (!event) return;
+  // 只能刪自己的事件；刪他人需出勤管理權限。
+  if (event.userId !== user.id && !membershipHas(membership, "attendance.manage")) {
+    throw new Error("只能刪除自己的事件；需具備出勤管理權限才能刪除他人的。");
+  }
   await db.memberEvent.deleteMany({
     where: { id: input.id, organizationId: org.id },
   });

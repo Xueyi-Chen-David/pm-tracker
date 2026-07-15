@@ -19,7 +19,11 @@ export type DeadlineSummary = {
   projectsDue: number;
   notificationsCreated: number;
   itemsSkipped: number;
+  /** 任務「前 N 天」到期提醒建立的通知數。 */
+  remindersCreated: number;
 };
+
+const DAY_MS = 24 * 3600 * 1000;
 
 type NoticeItem = { key: string; title: string; body: string; link: string };
 
@@ -41,6 +45,7 @@ export async function runDeadlineNotifications(
     projectsDue: 0,
     notificationsCreated: 0,
     itemsSkipped: 0,
+    remindersCreated: 0,
   };
 
   for (const { id: organizationId } of orgs) {
@@ -147,6 +152,69 @@ export async function runDeadlineNotifications(
     if (rows.length > 0) {
       await db.notification.createMany({ data: rows });
       summary.notificationsCreated += rows.length;
+    }
+
+    // ── 任務「前 N 天」到期提醒 ──────────────────────────
+    // 今天已發過的提醒（依 type 去重），避免 cron 同日重跑重複轟炸。
+    const remindedRows = await db.notification.findMany({
+      where: {
+        organizationId,
+        type: { startsWith: "reminder:task:" },
+        createdAt: { gte: todayStart },
+      },
+      select: { type: true },
+      distinct: ["type"],
+    });
+    const reminded = new Set(remindedRows.map((n) => n.type));
+
+    // 未到期、未完成、且有設定提醒天數的任務。
+    const remindTasks = await db.task.findMany({
+      where: {
+        project: { organizationId },
+        dueDate: { gte: todayStart },
+        status: { notIn: ["DONE", "CANCELLED"] },
+        reminderDays: { isEmpty: false },
+      },
+      select: {
+        id: true,
+        title: true,
+        dueDate: true,
+        reminderDays: true,
+        owners: { select: { id: true } },
+        project: { select: { id: true, name: true } },
+      },
+    });
+
+    const reminderRows: typeof rows = [];
+    for (const t of remindTasks) {
+      if (!t.dueDate) continue;
+      // 收件人：任務負責人；無負責人則退回全體在職成員（避免提醒沒人收到）。
+      const recipients = t.owners.length
+        ? [...new Set(t.owners.map((o) => o.id))]
+        : userIds;
+      for (const n of t.reminderDays) {
+        // dueDate 與 todayStart 皆為 UTC 午夜；提醒日＝到期日往前 n 天。
+        if (t.dueDate.getTime() - n * DAY_MS !== todayStart.getTime()) continue;
+        const key = `reminder:task:${t.id}:${n}`;
+        if (reminded.has(key)) {
+          summary.itemsSkipped++;
+          continue;
+        }
+        for (const userId of recipients) {
+          reminderRows.push({
+            organizationId,
+            userId,
+            type: key,
+            title: `任務將於 ${n} 天後到期：${t.title}`,
+            body: `專案「${t.project.name}」的任務「${t.title}」將於 ${n} 天後到期。`,
+            link: `/projects/${t.project.id}`,
+          });
+        }
+      }
+    }
+    if (reminderRows.length > 0) {
+      await db.notification.createMany({ data: reminderRows });
+      summary.remindersCreated += reminderRows.length;
     }
   }
 

@@ -219,6 +219,15 @@ export async function updateProfileAction(
     managerId = d.managerId;
   }
 
+  // 指派的自訂角色（多選）：只接受屬於本組織的角色 id。
+  const requestedRoleIds = formData.getAll("roleId").map(String).filter(Boolean);
+  const validRoles = requestedRoleIds.length
+    ? await db.orgRoleDef.findMany({
+        where: { organizationId: org.id, id: { in: requestedRoleIds } },
+        select: { id: true },
+      })
+    : [];
+
   const trackAttendance = formData.get("trackAttendance") === "on";
   const lowerEmail = d.email ? d.email.toLowerCase() : undefined;
 
@@ -246,6 +255,8 @@ export async function updateProfileAction(
           active: d.active ?? true,
           trackAttendance,
           managerId,
+          // 自訂角色（人資 / 會計…）：整組覆蓋。
+          roleDefs: { set: validRoles.map((r) => ({ id: r.id })) },
         },
       }),
     ]);

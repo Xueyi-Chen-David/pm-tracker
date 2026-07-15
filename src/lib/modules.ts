@@ -10,6 +10,7 @@
  *   註：出席狀況雖人人可見，頁內的編輯 / 設定仍以 role 於各頁 canManage 控管。
  */
 import type { OrgRole } from "@prisma/client";
+import type { PermissionKey } from "@/lib/permissions";
 
 export type ModuleKey =
   | "dashboard"
@@ -22,6 +23,7 @@ export type ModuleKey =
   | "timeline"
   | "team"
   | "attendance"
+  | "payroll"
   | "training"
   | "meetings"
   | "report";
@@ -34,6 +36,11 @@ export type AppModule = {
   alwaysVisible?: boolean;
   /** 管理者專屬：預設只有 OWNER/ADMIN/老闆可見；其他人需被額外授權（key 列入 allowedModules）。 */
   adminOnly?: boolean;
+  /**
+   * 權限專屬：只有具備此權限者可見（管理者因擁有全部權限故一律可見）。
+   * 與 allowedModules 白名單無關——連老闆都需具備該權限才看得到（如薪資頁）。
+   */
+  requiresPermission?: PermissionKey;
 };
 
 /** 顯示順序＝側欄順序。firstAllowedHref 也依此順序挑第一個可見頁。 */
@@ -48,6 +55,12 @@ export const MODULES: readonly AppModule[] = [
   { key: "timeline", label: "時程藍圖", href: "/timeline" },
   { key: "team", label: "團隊", href: "/team" },
   { key: "attendance", label: "出席狀況", href: "/attendance" },
+  {
+    key: "payroll",
+    label: "薪資",
+    href: "/payroll",
+    requiresPermission: "payroll.view",
+  },
   { key: "training", label: "公司文件", href: "/training" },
   { key: "meetings", label: "會議記錄", href: "/meetings" },
   { key: "report", label: "週報", href: "/report" },
@@ -86,12 +99,18 @@ type AccessInput = {
   isBoss?: boolean | null;
   allowedModules?: string[] | null;
   role?: OrgRole | null;
+  /** 已解析的有效權限 key（管理者含全部）。供 requiresPermission 模組判定。 */
+  permissions?: string[] | null;
 };
 
 /** 該成員能否看到某模組。 */
 export function canSeeModule(user: AccessInput, key: ModuleKey): boolean {
   const mod = MODULE_BY_KEY.get(key);
   if (mod?.alwaysVisible) return true; // 一律可見
+  if (mod?.requiresPermission) {
+    // 權限專屬：只看有效權限（管理者的權限集合已含全部），不吃老闆 / 白名單捷徑。
+    return (user.permissions ?? []).includes(mod.requiresPermission);
+  }
   if (user.isBoss) return true; // 老闆一律全開
   if (isAdminRole(user.role)) return true; // 管理者一律全開
   const allowed = user.allowedModules ?? [];

@@ -14,6 +14,7 @@ import {
   CalendarDays,
   Link2,
   Save,
+  Pencil,
 } from "lucide-react";
 import {
   createTodo,
@@ -249,6 +250,45 @@ function TodoRow({
   pending: boolean;
   run: (fn: () => Promise<unknown>, ok?: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
+  // 編輯表單的本機草稿；每次開啟時由目前值重置。
+  const [title, setTitle] = useState(todo.title);
+  const [note, setNote] = useState(todo.note ?? "");
+  const [taskId, setTaskId] = useState(todo.taskId ?? "");
+  const [startDate, setStartDate] = useState(todo.startDate ?? "");
+  const [dueDate, setDueDate] = useState(todo.dueDate ?? "");
+
+  function resetDraft() {
+    setTitle(todo.title);
+    setNote(todo.note ?? "");
+    setTaskId(todo.taskId ?? "");
+    setStartDate(todo.startDate ?? "");
+    setDueDate(todo.dueDate ?? "");
+  }
+  function openEdit() {
+    resetDraft();
+    setOpen(true);
+  }
+
+  function save() {
+    const t = title.trim();
+    if (!t) {
+      toast.error("請輸入待辦內容");
+      return;
+    }
+    run(async () => {
+      await updateTodo({
+        id: todo.id,
+        title: t,
+        note,
+        ...(taskId ? { taskId } : { clearTask: true }),
+        ...(startDate ? { startDate } : { clearStart: true }),
+        ...(dueDate ? { dueDate } : { clearDue: true }),
+      });
+      setOpen(false);
+    }, "已更新待辦");
+  }
+
   return (
     <div className={cn("flex items-start gap-2 px-3 py-2", todo.done && "opacity-60")}>
       <input
@@ -258,20 +298,22 @@ function TodoRow({
         onChange={(e) => run(() => updateTodo({ id: todo.id, done: e.target.checked }))}
         className="accent-primary mt-1 h-4 w-4 shrink-0"
       />
-      <div className="min-w-0 flex-1">
-        <input
-          defaultValue={todo.title}
-          disabled={pending}
-          onBlur={(e) => {
-            const v = e.currentTarget.value.trim();
-            if (v && v !== todo.title) run(() => updateTodo({ id: todo.id, title: v }));
-          }}
+      {/* 點內容即可編輯（整筆：內容 / 備註 / 關聯任務 / 日期） */}
+      <button
+        type="button"
+        onClick={openEdit}
+        className="min-w-0 flex-1 rounded-md px-1 py-0.5 text-left hover:bg-muted/50"
+        title="點擊編輯這筆待辦"
+      >
+        <span
           className={cn(
-            "hover:bg-muted/50 focus:bg-muted/50 w-full rounded-md bg-transparent px-1 py-0.5 text-sm outline-none",
+            "block text-sm",
             todo.done && "text-muted-foreground line-through",
           )}
-        />
-        <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 px-1 text-[11px]">
+        >
+          {todo.title}
+        </span>
+        <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
           {todo.taskLabel && (
             <span className="bg-muted inline-flex max-w-[16rem] items-center gap-1 rounded-full px-2 py-0.5">
               <Link2 className="h-3 w-3 shrink-0" />
@@ -289,50 +331,63 @@ function TodoRow({
           {todo.pomodoroCount > 0 && (
             <span className="text-muted-foreground">🍅 {todo.pomodoroCount}</span>
           )}
-        </div>
+        </span>
         {todo.note && (
-          <p className="text-muted-foreground mt-0.5 px-1 text-xs whitespace-pre-wrap">
+          <span className="text-muted-foreground mt-0.5 block text-xs whitespace-pre-wrap">
             {todo.note}
-          </p>
+          </span>
         )}
-      </div>
+      </button>
 
-      {/* 編輯（備註 / 關聯任務 / 日期） */}
-      <Popover>
-        <PopoverTrigger className="text-muted-foreground hover:bg-muted mt-0.5 rounded-md p-1" title="編輯備註 / 關聯任務 / 日期">
-          <CalendarDays className="h-4 w-4" />
+      {/* 編輯（整筆一次存） */}
+      <Popover
+        open={open}
+        onOpenChange={(o) => {
+          if (o) resetDraft();
+          setOpen(o);
+        }}
+      >
+        <PopoverTrigger
+          className="text-muted-foreground hover:bg-muted mt-0.5 rounded-md p-1"
+          title="編輯"
+        >
+          <Pencil className="h-4 w-4" />
         </PopoverTrigger>
         <PopoverContent align="end" className="w-72 space-y-3">
+          <div className="text-sm font-medium">編輯待辦</div>
+          <div className="space-y-1">
+            <div className="text-muted-foreground text-xs">內容</div>
+            <Input
+              value={title}
+              disabled={pending}
+              onChange={(e) => setTitle(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  save();
+                }
+              }}
+              placeholder="要做什麼…"
+              className="h-8 text-sm"
+            />
+          </div>
           <div className="space-y-1">
             <div className="text-muted-foreground text-xs">備註</div>
             <Textarea
-              defaultValue={todo.note ?? ""}
+              value={note}
               disabled={pending}
               placeholder="備註（選填）"
               rows={3}
-              onBlur={(e) => {
-                const v = e.currentTarget.value;
-                if (v !== (todo.note ?? ""))
-                  run(() => updateTodo({ id: todo.id, note: v }));
-              }}
+              onChange={(e) => setNote(e.target.value)}
               className="text-sm"
             />
           </div>
           <div className="space-y-1">
             <div className="text-muted-foreground text-xs">關聯任務</div>
             <select
-              defaultValue={todo.taskId ?? ""}
+              value={taskId}
               disabled={pending}
-              onChange={(e) => {
-                const v = e.target.value;
-                run(() =>
-                  updateTodo(
-                    v
-                      ? { id: todo.id, taskId: v }
-                      : { id: todo.id, clearTask: true },
-                  ),
-                );
-              }}
+              onChange={(e) => setTaskId(e.target.value)}
               className={selectCls + " w-full"}
             >
               <option value="">（不關聯任務）</option>
@@ -343,43 +398,42 @@ function TodoRow({
               ))}
             </select>
           </div>
-          <div className="space-y-1">
-            <div className="text-muted-foreground text-xs">開始日</div>
-            <input
-              type="date"
-              defaultValue={todo.startDate ?? ""}
-              max={todo.dueDate ?? undefined}
-              disabled={pending}
-              onChange={(e) =>
-                run(() =>
-                  updateTodo(
-                    e.target.value
-                      ? { id: todo.id, startDate: e.target.value }
-                      : { id: todo.id, clearStart: true },
-                  ),
-                )
-              }
-              className={dateCls + " w-full"}
-            />
+          <div className="flex gap-2">
+            <div className="flex-1 space-y-1">
+              <div className="text-muted-foreground text-xs">開始日</div>
+              <input
+                type="date"
+                value={startDate}
+                max={dueDate || undefined}
+                disabled={pending}
+                onChange={(e) => setStartDate(e.target.value)}
+                className={dateCls + " w-full"}
+              />
+            </div>
+            <div className="flex-1 space-y-1">
+              <div className="text-muted-foreground text-xs">結束 / 到期日</div>
+              <input
+                type="date"
+                value={dueDate}
+                min={startDate || undefined}
+                disabled={pending}
+                onChange={(e) => setDueDate(e.target.value)}
+                className={dateCls + " w-full"}
+              />
+            </div>
           </div>
-          <div className="space-y-1">
-            <div className="text-muted-foreground text-xs">結束 / 到期日</div>
-            <input
-              type="date"
-              defaultValue={todo.dueDate ?? ""}
-              min={todo.startDate ?? undefined}
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              size="sm"
+              variant="ghost"
               disabled={pending}
-              onChange={(e) =>
-                run(() =>
-                  updateTodo(
-                    e.target.value
-                      ? { id: todo.id, dueDate: e.target.value }
-                      : { id: todo.id, clearDue: true },
-                  ),
-                )
-              }
-              className={dateCls + " w-full"}
-            />
+              onClick={() => setOpen(false)}
+            >
+              取消
+            </Button>
+            <Button size="sm" disabled={pending || !title.trim()} onClick={save}>
+              <Save className="h-4 w-4" /> 儲存
+            </Button>
           </div>
         </PopoverContent>
       </Popover>

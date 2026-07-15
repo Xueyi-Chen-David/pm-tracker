@@ -25,9 +25,16 @@ export type ProfileValues = {
   allowedModules: string[];
   trackAttendance: boolean;
   managerId: string | null; // 目前上級主管的 membership id
+  roleIds: string[]; // 目前指派的自訂角色 id
 };
 
 export type MemberOption = { membershipId: string; label: string };
+
+export type RoleOption = {
+  id: string;
+  name: string;
+  color: string | null;
+};
 
 /**
  * 成員 profile 編輯表單（僅管理者可見／可用）。
@@ -36,10 +43,12 @@ export type MemberOption = { membershipId: string; label: string };
 export function ProfileForm({
   values,
   memberOptions,
+  roleOptions = [],
   departments = [],
 }: {
   values: ProfileValues;
   memberOptions: MemberOption[];
+  roleOptions?: RoleOption[];
   departments?: string[];
 }) {
   const router = useRouter();
@@ -174,6 +183,41 @@ export function ProfileForm({
         </select>
         <p className="text-muted-foreground text-xs">
           設定後，該主管可在「每日報告」看到此成員的日報並回饋。
+        </p>
+      </div>
+
+      {/* 人資：指派自訂角色（權限）。可多選；管理者天生擁有全部權限、不需指派。 */}
+      <div className="space-y-1.5">
+        <Label>角色 / 權限</Label>
+        {roleOptions.length === 0 ? (
+          <p className="text-muted-foreground text-xs">
+            尚未建立任何角色。到「團隊 → 角色權限」新增角色（如 人資、會計）後即可在此指派。
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {roleOptions.map((r) => (
+              <label
+                key={r.id}
+                className="hover:bg-muted flex cursor-pointer items-center gap-2 rounded-full border px-3 py-1 text-sm"
+              >
+                <input
+                  type="checkbox"
+                  name="roleId"
+                  value={r.id}
+                  defaultChecked={values.roleIds.includes(r.id)}
+                  className="accent-primary h-3.5 w-3.5"
+                />
+                <span
+                  className="h-2.5 w-2.5 rounded-full"
+                  style={{ backgroundColor: r.color ?? "#64748b" }}
+                />
+                {r.name}
+              </label>
+            ))}
+          </div>
+        )}
+        <p className="text-muted-foreground text-xs">
+          指派角色即授予該角色的權限（例如「人資」可查看全體出勤、管理請假與薪資）。
         </p>
       </div>
 

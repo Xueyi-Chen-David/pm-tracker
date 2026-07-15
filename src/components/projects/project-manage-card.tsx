@@ -228,6 +228,7 @@ export function ProjectManageCard({
         health: "GREEN",
         progress: 0,
         owners: [],
+        reminderDays: [],
       },
     ]);
     startAction(async () => {

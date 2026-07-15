@@ -143,6 +143,7 @@ export default async function ProjectsPage({
       health: t.health,
       progress: t.progress,
       owners: t.owners,
+      reminderDays: t.reminderDays,
     })),
     milestones: p.milestones.map((m) => ({
       id: m.id,

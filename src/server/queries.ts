@@ -243,6 +243,42 @@ export type AttendanceMonthMember = Awaited<
   ReturnType<typeof getAttendanceMonth>
 >[number];
 
+/**
+ * 個人出席（無 attendance.view_all 權限者只看自己）：指定月份、單一成員的每日出席紀錄。
+ * 不受 trackAttendance 限制——本人一定看得到自己的出勤。回傳與 getAttendanceMonth 相同的元素形狀。
+ */
+export async function getSelfAttendanceMonth(
+  orgId: string,
+  userId: string,
+  start: Date,
+  end: Date,
+) {
+  const member = await db.organizationMember.findUnique({
+    where: { organizationId_userId: { organizationId: orgId, userId } },
+    select: {
+      isBoss: true,
+      user: {
+        select: {
+          ...userIdentitySelect,
+          attendanceRecords: {
+            where: { organizationId: orgId, date: { gte: start, lt: end } },
+            select: {
+              date: true,
+              present: true,
+              reason: true,
+              offsite: true,
+              holiday: true,
+              leave: true,
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!member) return [];
+  return [{ ...member.user, isBoss: member.isBoss }];
+}
+
 /** 出席追蹤成員管理：本組織所有在職成員 + 是否已納入追蹤。 */
 export async function getTrackableMembers(orgId: string) {
   const members = await db.organizationMember.findMany({
@@ -277,6 +313,7 @@ export async function getMemberProfile(orgId: string, userId: string) {
       trackAttendance: true,
       managerId: true,
       secondaryManagerIds: true,
+      roleDefs: { select: { id: true }, orderBy: { sortOrder: "asc" } },
       manager: {
         select: { userId: true, user: { select: userIdentitySelect } },
       },
@@ -681,6 +718,169 @@ export async function getOrgMemberDirectory(orgId: string) {
 
 export type OrgMemberDirectoryEntry = Awaited<
   ReturnType<typeof getOrgMemberDirectory>
+>[number];
+
+// ─────────────────────────────────────────────
+// 人資：角色 / 假別
+// ─────────────────────────────────────────────
+
+/** 本組織的自訂角色（含權限與指派人數），依 sortOrder。 */
+export async function getOrgRoles(orgId: string) {
+  const roles = await db.orgRoleDef.findMany({
+    where: { organizationId: orgId },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    select: {
+      id: true,
+      name: true,
+      description: true,
+      color: true,
+      permissions: true,
+      _count: { select: { members: true } },
+    },
+  });
+  return roles.map((r) => ({
+    id: r.id,
+    name: r.name,
+    description: r.description,
+    color: r.color,
+    permissions: r.permissions,
+    memberCount: r._count.members,
+  }));
+}
+
+export type OrgRoleEntry = Awaited<ReturnType<typeof getOrgRoles>>[number];
+
+/** 本組織的假別（差勤 / 薪資共用）。activeOnly＝只取啟用中的。 */
+export async function getOrgLeaveTypes(orgId: string, activeOnly = false) {
+  return db.leaveType.findMany({
+    where: { organizationId: orgId, ...(activeOnly ? { active: true } : {}) },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    select: {
+      id: true,
+      name: true,
+      paidPercent: true,
+      annualQuotaDays: true,
+      color: true,
+      active: true,
+    },
+  });
+}
+
+export type OrgLeaveType = Awaited<
+  ReturnType<typeof getOrgLeaveTypes>
+>[number];
+
+/**
+ * 薪資頁總覽：本組織在職成員 + 其薪資設定 + 指定月份的薪資單（若已產生）。
+ * Decimal 一律轉成 number，讓資料可安全傳給 client 元件。
+ */
+export async function getPayrollOverview(
+  orgId: string,
+  year: number,
+  month: number,
+) {
+  const members = await db.organizationMember.findMany({
+    where: { organizationId: orgId, active: true },
+    orderBy: [{ isBoss: "desc" }, { user: { name: "asc" } }],
+    select: {
+      id: true,
+      jobTitle: true,
+      isBoss: true,
+      user: { select: userIdentitySelect },
+      salaryProfile: {
+        select: {
+          payType: true,
+          baseAmount: true,
+          currency: true,
+          standardWorkDays: true,
+          standardHoursPerDay: true,
+          overtimeMultiplier: true,
+          allowances: true,
+          deductions: true,
+          note: true,
+        },
+      },
+      payslips: {
+        where: { periodYear: year, periodMonth: month },
+        take: 1,
+        select: {
+          id: true,
+          payType: true,
+          baseAmount: true,
+          currency: true,
+          workedDays: true,
+          leaveDays: true,
+          absentDays: true,
+          overtimeHours: true,
+          grossPay: true,
+          overtimePay: true,
+          allowanceTotal: true,
+          leaveDeduction: true,
+          absentDeduction: true,
+          deductionTotal: true,
+          netPay: true,
+          breakdown: true,
+          status: true,
+          computedAt: true,
+        },
+      },
+    },
+  });
+
+  return members.map((m) => {
+    const sp = m.salaryProfile;
+    const ps = m.payslips[0];
+    return {
+      membershipId: m.id,
+      userId: m.user.id,
+      name: m.user.name,
+      nickname: m.user.nickname,
+      useNickname: m.user.useNickname,
+      email: m.user.email,
+      image: m.user.image,
+      jobTitle: m.jobTitle,
+      isBoss: m.isBoss,
+      salary: sp
+        ? {
+            payType: sp.payType,
+            baseAmount: Number(sp.baseAmount),
+            currency: sp.currency,
+            standardWorkDays: sp.standardWorkDays,
+            standardHoursPerDay: sp.standardHoursPerDay,
+            overtimeMultiplier: sp.overtimeMultiplier,
+            allowances: sp.allowances,
+            deductions: sp.deductions,
+            note: sp.note,
+          }
+        : null,
+      payslip: ps
+        ? {
+            id: ps.id,
+            payType: ps.payType,
+            baseAmount: Number(ps.baseAmount),
+            currency: ps.currency,
+            workedDays: ps.workedDays,
+            leaveDays: ps.leaveDays,
+            absentDays: ps.absentDays,
+            overtimeHours: ps.overtimeHours,
+            grossPay: Number(ps.grossPay),
+            overtimePay: Number(ps.overtimePay),
+            allowanceTotal: Number(ps.allowanceTotal),
+            leaveDeduction: Number(ps.leaveDeduction),
+            absentDeduction: Number(ps.absentDeduction),
+            deductionTotal: Number(ps.deductionTotal),
+            netPay: Number(ps.netPay),
+            breakdown: ps.breakdown,
+            status: ps.status,
+            computedAt: ps.computedAt,
+          }
+        : null,
+    };
+  });
+}
+
+export type PayrollMember = Awaited<
+  ReturnType<typeof getPayrollOverview>
 >[number];
 
 // ─────────────────────────────────────────────
