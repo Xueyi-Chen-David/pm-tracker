@@ -9,10 +9,16 @@ import {
   GripVertical,
   MoreHorizontal,
   Plus,
+  Star,
   Trash2,
   X,
 } from "lucide-react";
-import { updateTask, setTaskOwners, deleteTask } from "@/server/actions/tasks";
+import {
+  updateTask,
+  setTaskOwners,
+  setTaskPrimaryOwner,
+  deleteTask,
+} from "@/server/actions/tasks";
 import { TASK_STATUS } from "@/lib/tasks";
 import { fmtDateShort } from "@/lib/date";
 import { cn } from "@/lib/utils";
@@ -39,6 +45,8 @@ export type TaskView = {
   health: Health;
   progress: number;
   owners: OwnerLite[];
+  /** 主負責人 userId（owners 之一）；null＝未指定。 */
+  primaryOwnerId: string | null;
   /** 到期提醒天數（前 N 天），由大到小。空＝不提醒。 */
   reminderDays: number[];
 };
@@ -79,6 +87,10 @@ export function TaskRow({
   const [ownerIds, setOwnerIds] = useState<Set<string>>(
     () => new Set(task.owners.map((o) => o.id)),
   );
+  // 主負責人 userId（owners 之一）。本機維護，改動即存。
+  const [primaryId, setPrimaryId] = useState<string | null>(
+    task.primaryOwnerId,
+  );
   // 到期提醒天數（前 N 天）。本機維護，改動即存。
   const [reminders, setReminders] = useState<number[]>(task.reminderDays);
   const [customDay, setCustomDay] = useState("");
@@ -103,7 +115,17 @@ export function TaskRow({
     if (on) next.add(id);
     else next.delete(id);
     setOwnerIds(next);
+    // 移除的若是主負責人，本機一併清除（伺服器端 setTaskOwners 也會清）。
+    if (!on && primaryId === id) setPrimaryId(null);
     run(() => setTaskOwners(task.id, [...next]));
+  }
+
+  /** 設定 / 取消主負責人（再點一次同一人＝取消）。只有負責人能被設為主負責人。 */
+  function togglePrimary(id: string) {
+    if (!ownerIds.has(id)) return;
+    const next = primaryId === id ? null : id;
+    setPrimaryId(next);
+    run(() => setTaskPrimaryOwner(task.id, next));
   }
 
   function saveReminders(next: number[]) {
@@ -120,6 +142,13 @@ export function TaskRow({
   function removeReminder(n: number) {
     saveReminders(reminders.filter((x) => x !== n));
   }
+
+  // 顯示時把主負責人排到最前面。
+  const orderedOwners = primaryId
+    ? [...task.owners].sort(
+        (a, b) => Number(b.id === primaryId) - Number(a.id === primaryId),
+      )
+    : task.owners;
 
   return (
     <tr
@@ -324,24 +353,29 @@ export function TaskRow({
               <span className="flex min-w-0 flex-wrap items-center gap-1.5">
                 {task.owners.length > 0 && (
                   <span className="flex items-center">
-                    {task.owners.slice(0, 3).map((o, i) => (
-                      <Avatar
+                    {orderedOwners.slice(0, 3).map((o, i) => (
+                      <span
                         key={o.id}
-                        className={cn(
-                          "h-6 w-6 border-2 border-white",
-                          i > 0 && "-ml-2",
-                        )}
+                        className={cn("relative", i > 0 && "-ml-2")}
                       >
-                        {o.image && <AvatarImage src={o.image} alt="" />}
-                        <AvatarFallback className="text-[9px]">
-                          {displayInitial(o)}
-                        </AvatarFallback>
-                      </Avatar>
+                        <Avatar className="h-6 w-6 border-2 border-white">
+                          {o.image && <AvatarImage src={o.image} alt="" />}
+                          <AvatarFallback className="text-[9px]">
+                            {displayInitial(o)}
+                          </AvatarFallback>
+                        </Avatar>
+                        {primaryId === o.id && (
+                          <Star
+                            className="absolute -top-1 -right-0.5 h-3 w-3 fill-amber-400 text-amber-500"
+                            aria-label="主負責人"
+                          />
+                        )}
+                      </span>
                     ))}
                   </span>
                 )}
                 <span className="min-w-0 text-left text-xs leading-tight break-words">
-                  {task.owners.map((o) => displayName(o)).join("、")}
+                  {orderedOwners.map((o) => displayName(o)).join("、")}
                   {task.owners.length > 0 && task.ownerLabel && "、"}
                   {task.ownerLabel && (
                     <span className="text-muted-foreground">{task.ownerLabel}</span>
@@ -350,24 +384,50 @@ export function TaskRow({
               </span>
             )}
           </PopoverTrigger>
-          <PopoverContent align="start" className="w-60">
+          <PopoverContent align="start" className="w-64">
             <div className="text-sm font-medium">負責人</div>
+            <p className="text-muted-foreground text-[11px]">
+              勾選負責人；點 ☆ 設為主負責人（僅一位）。
+            </p>
             <div className="scroll-y max-h-56 space-y-0.5 overflow-y-auto">
-              {members.map((m) => (
-                <label
-                  key={m.id}
-                  className="hover:bg-muted flex items-center gap-2 rounded-md px-1.5 py-1 text-sm"
-                >
-                  <input
-                    type="checkbox"
-                    checked={ownerIds.has(m.id)}
-                    disabled={pending}
-                    onChange={(e) => toggleOwner(m.id, e.currentTarget.checked)}
-                    className="accent-primary h-4 w-4"
-                  />
-                  <MemberName u={m} className="min-w-0" />
-                </label>
-              ))}
+              {members.map((m) => {
+                const isOwner = ownerIds.has(m.id);
+                const isPrimary = primaryId === m.id;
+                return (
+                  <div
+                    key={m.id}
+                    className="hover:bg-muted flex items-center gap-2 rounded-md px-1.5 py-1 text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isOwner}
+                      disabled={pending}
+                      onChange={(e) => toggleOwner(m.id, e.currentTarget.checked)}
+                      className="accent-primary h-4 w-4"
+                    />
+                    <MemberName u={m} className="min-w-0 flex-1" />
+                    {/* 主負責人星標：只有已勾選的負責人可設。 */}
+                    {isOwner && (
+                      <button
+                        type="button"
+                        disabled={pending}
+                        onClick={() => togglePrimary(m.id)}
+                        title={isPrimary ? "取消主負責人" : "設為主負責人"}
+                        className="shrink-0 rounded p-0.5 hover:bg-muted"
+                      >
+                        <Star
+                          className={cn(
+                            "h-4 w-4",
+                            isPrimary
+                              ? "fill-amber-400 text-amber-500"
+                              : "text-muted-foreground/40",
+                          )}
+                        />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             <div className="space-y-1 border-t pt-2">
               <div className="text-muted-foreground text-xs">

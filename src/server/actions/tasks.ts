@@ -152,7 +152,7 @@ export async function setTaskOwners(id: string, userIds: string[]) {
   const { org } = await requireActiveOrg();
   const task = await db.task.findFirst({
     where: { id, project: { organizationId: org.id } },
-    select: { id: true },
+    select: { id: true, primaryOwnerId: true },
   });
   if (!task) throw new Error("找不到任務");
   // 僅接受本組織成員
@@ -161,9 +161,33 @@ export async function setTaskOwners(id: string, userIds: string[]) {
     select: { userId: true },
   });
   const validIds = members.map((m) => m.userId);
+  // 主負責人若被移出負責人清單，一併清除。
+  const clearPrimary =
+    task.primaryOwnerId != null && !validIds.includes(task.primaryOwnerId);
   await db.task.update({
     where: { id },
-    data: { owners: { set: validIds.map((uid) => ({ id: uid })) } },
+    data: {
+      owners: { set: validIds.map((uid) => ({ id: uid })) },
+      ...(clearPrimary ? { primaryOwnerId: null } : {}),
+    },
+  });
+  revalidate();
+}
+
+/** 設定 / 清除任務主負責人。userId 需為任務現有負責人之一；null＝清除。 */
+export async function setTaskPrimaryOwner(id: string, userId: string | null) {
+  const { org } = await requireActiveOrg();
+  const task = await db.task.findFirst({
+    where: { id, project: { organizationId: org.id } },
+    select: { id: true, owners: { select: { id: true } } },
+  });
+  if (!task) throw new Error("找不到任務");
+  if (userId !== null && !task.owners.some((o) => o.id === userId)) {
+    throw new Error("主負責人必須是任務的負責人之一。");
+  }
+  await db.task.update({
+    where: { id },
+    data: { primaryOwnerId: userId },
   });
   revalidate();
 }

@@ -3,7 +3,6 @@ import type {
   Priority,
   ProjectStatus,
   ProjectType,
-  MemberRole,
   MilestoneStatus,
 } from "@prisma/client";
 import { cn } from "@/lib/utils";
@@ -12,7 +11,6 @@ import {
   PRIORITY,
   PROJECT_STATUS,
   PROJECT_TYPE,
-  MEMBER_ROLE,
   MILESTONE_STATUS,
 } from "@/lib/constants";
 
@@ -73,20 +71,6 @@ export function PriorityBadge({ priority }: { priority: Priority }) {
 
 export function TypeBadge({ type }: { type: ProjectType }) {
   return <Pill className={PROJECT_TYPE[type].badge}>{PROJECT_TYPE[type].label}</Pill>;
-}
-
-export function MemberRoleBadge({
-  role,
-  label,
-}: {
-  role: MemberRole;
-  label?: string | null;
-}) {
-  return (
-    <Pill className={MEMBER_ROLE[role].badge}>
-      {label?.trim() ? label : MEMBER_ROLE[role].label}
-    </Pill>
-  );
 }
 
 export function MilestoneStatusBadge({ status }: { status: MilestoneStatus }) {

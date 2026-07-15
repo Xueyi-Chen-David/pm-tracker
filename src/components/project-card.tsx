@@ -60,8 +60,8 @@ export function ProjectCard({ project }: { project: ProjectOverview }) {
 
       <div className="text-muted-foreground mt-3 flex items-center justify-between gap-2 text-xs">
         <div className="flex items-center gap-2">
-          {project.members.length > 0 ? (
-            <MemberAvatars members={project.members} />
+          {project.team.length > 0 ? (
+            <MemberAvatars members={project.team.map((u) => ({ user: u }))} />
           ) : (
             <span>未指派成員</span>
           )}

@@ -13,6 +13,7 @@ import { visibleModules } from "@/lib/modules";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppContainer } from "@/components/app-container";
 import { ViewAsBanner } from "@/components/view-as-banner";
+import { WhatsNew } from "@/components/whats-new";
 
 export default async function AppLayout({
   children,
@@ -93,6 +94,8 @@ export default async function AppLayout({
         )}
         <AppContainer>{children}</AppContainer>
       </main>
+      {/* 「本週更新」彈窗：全 App 掛載一次，使用者下次開網頁時自動秀出新功能。 */}
+      <WhatsNew />
     </div>
   );
 }

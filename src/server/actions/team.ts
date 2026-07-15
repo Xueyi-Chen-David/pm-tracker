@@ -451,7 +451,7 @@ export async function setMemberActive(id: string, active: boolean) {
 
 /**
  * 從目前組織移除成員（不刪除全域 User）。先把該成員在「本組織」建立 / 負責的專案
- * 轉給操作者（避免必填外鍵 createdBy 的限制），並清掉其在本組織的專案成員關係 /
+ * 轉給操作者（避免必填外鍵 createdBy 的限制），解除其在本組織專案的任務負責人關聯 /
  * 出席 / 事件，最後刪除組織成員關係。不能移除自己。需擁有者 / 管理員。
  */
 export async function deleteWorkspaceMember(id: string) {
@@ -464,7 +464,21 @@ export async function deleteWorkspaceMember(id: string) {
     where: { organizationId_userId: { organizationId: org.id, userId: id } },
     select: { id: true },
   });
+  // 該成員在本組織專案中負責的任務（用來解除 Task.owners 關聯，避免移除後仍算「參與」）。
+  const ownedTasks = await db.task.findMany({
+    where: { project: { organizationId: org.id }, owners: { some: { id } } },
+    select: { id: true },
+  });
   await db.$transaction([
+    // 解除任務負責人關聯（m2m）與主負責人。
+    db.user.update({
+      where: { id },
+      data: { tasksOwned: { disconnect: ownedTasks.map((t) => ({ id: t.id })) } },
+    }),
+    db.task.updateMany({
+      where: { project: { organizationId: org.id }, primaryOwnerId: id },
+      data: { primaryOwnerId: null },
+    }),
     ...(membership
       ? [
           db.$executeRaw`UPDATE "OrganizationMember"
@@ -481,9 +495,7 @@ export async function deleteWorkspaceMember(id: string) {
       where: { organizationId: org.id, ownerId: id },
       data: { ownerId: me.id },
     }),
-    db.projectMember.deleteMany({
-      where: { userId: id, project: { organizationId: org.id } },
-    }),
+    // 任務負責人（Task.owners）是 m2m：移除該 User 時由 FK 自動解除關聯，毋須手動清。
     db.attendanceRecord.deleteMany({
       where: { organizationId: org.id, userId: id },
     }),

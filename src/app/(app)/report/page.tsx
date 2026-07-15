@@ -295,21 +295,12 @@ export default async function ReportPage({
                       </td>
                       <td className="py-2 pr-3 text-slate-600">
                         {(() => {
-                          const seen = new Set<string>();
+                          // 負責人＝專案負責人；成員＝任務負責人（排除專案負責人本身）。
                           const owners: string[] = [];
-                          if (r.p.owner) {
-                            owners.push(primaryName(r.p.owner));
-                            seen.add(r.p.owner.id);
-                          }
-                          for (const m of r.p.members) {
-                            if (m.role === "OWNER" && !seen.has(m.user.id)) {
-                              owners.push(primaryName(m.user));
-                              seen.add(m.user.id);
-                            }
-                          }
-                          const team = r.p.members
-                            .filter((m) => m.role === "MEMBER")
-                            .map((m) => primaryName(m.user));
+                          if (r.p.owner) owners.push(primaryName(r.p.owner));
+                          const team = r.p.team
+                            .filter((u) => u.id !== r.p.owner?.id)
+                            .map((u) => primaryName(u));
                           return (
                             <>
                               <div>{firstTwo(owners)}</div>

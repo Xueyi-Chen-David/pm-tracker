@@ -74,16 +74,6 @@ export async function createProjectAction(
       color: d.color || null,
       ownerId,
       createdById: user.id,
-      members: {
-        create: [
-          // 負責人自動成為 OWNER 成員
-          { userId: ownerId, role: "OWNER" },
-          // 建立者若不同於負責人，加為成員
-          ...(ownerId !== user.id
-            ? [{ userId: user.id, role: "MEMBER" as const }]
-            : []),
-        ],
-      },
     },
   });
 

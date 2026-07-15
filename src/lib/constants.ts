@@ -3,7 +3,6 @@ import type {
   ProjectStatus,
   Health,
   Priority,
-  MemberRole,
   MilestoneStatus,
 } from "@prisma/client";
 
@@ -67,12 +66,6 @@ export const PRIORITY: Record<Priority, Meta> = {
   URGENT: { label: "緊急", badge: "bg-red-100 text-red-700 border-red-200" },
 };
 
-export const MEMBER_ROLE: Record<MemberRole, Meta> = {
-  OWNER: { label: "負責人", badge: "bg-violet-100 text-violet-700 border-violet-200" },
-  MEMBER: { label: "成員", badge: "bg-slate-100 text-slate-600 border-slate-200" },
-  VIEWER: { label: "檢視者", badge: "bg-zinc-100 text-zinc-500 border-zinc-200" },
-};
-
 export const MILESTONE_STATUS: Record<MilestoneStatus, Meta> = {
   PLANNED: { label: "規劃中", badge: "bg-slate-100 text-slate-600 border-slate-200", dot: "bg-slate-400" },
   IN_PROGRESS: { label: "進行中", badge: "bg-blue-100 text-blue-700 border-blue-200", dot: "bg-blue-500" },
@@ -96,10 +89,6 @@ export const HEALTH_OPTIONS = (Object.keys(HEALTH) as Health[]).map((v) => ({
 export const PRIORITY_OPTIONS = (Object.keys(PRIORITY) as Priority[]).map((v) => ({
   value: v,
   label: PRIORITY[v].label,
-}));
-export const MEMBER_ROLE_OPTIONS = (Object.keys(MEMBER_ROLE) as MemberRole[]).map((v) => ({
-  value: v,
-  label: MEMBER_ROLE[v].label,
 }));
 export const MILESTONE_STATUS_OPTIONS = (Object.keys(MILESTONE_STATUS) as MilestoneStatus[]).map(
   (v) => ({ value: v, label: MILESTONE_STATUS[v].label }),

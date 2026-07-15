@@ -83,8 +83,33 @@ export const GATED_ADMIN_MODULES: readonly AppModule[] = GATED_MODULES.filter(
   (m) => m.adminOnly,
 );
 
+/**
+ * 可由「自訂角色頁面可見性」控制的頁面：排除一律可見（每日 / 待辦 / 個人）、
+ * 管理者專屬、以及需權限的頁（如薪資由 payroll.view 權限控管，不走頁面白名單）。
+ * 角色編輯頁的「可見頁面」勾選清單即依此。
+ */
+export const ROLE_VISIBLE_MODULES: readonly AppModule[] = MODULES.filter(
+  (m) => !m.alwaysVisible && !m.adminOnly && !m.requiresPermission,
+);
+
 const MODULE_BY_KEY = new Map(MODULES.map((m) => [m.key, m]));
 const ADMIN_ONLY_KEYS = new Set<string>(GATED_ADMIN_MODULES.map((m) => m.key));
+const ROLE_VISIBLE_MODULE_KEYS = new Set<string>(
+  ROLE_VISIBLE_MODULES.map((m) => m.key),
+);
+
+/** 過濾出合法的「角色可見頁面」key（丟棄未知 / 不可由角色控制 / 重複），保留原順序。 */
+export function sanitizeVisibleModules(keys: string[]): ModuleKey[] {
+  const out: ModuleKey[] = [];
+  const seen = new Set<string>();
+  for (const k of keys) {
+    if (ROLE_VISIBLE_MODULE_KEYS.has(k) && !seen.has(k)) {
+      seen.add(k);
+      out.push(k as ModuleKey);
+    }
+  }
+  return out;
+}
 
 export function isModuleKey(v: string): v is ModuleKey {
   return (MODULE_KEYS as readonly string[]).includes(v);

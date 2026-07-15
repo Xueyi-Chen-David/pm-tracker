@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
 import { requireActiveOrgWithRole } from "@/server/org";
 import { sanitizePermissions } from "@/lib/permissions";
+import { sanitizeVisibleModules } from "@/lib/modules";
 
 /**
  * 自訂角色（人資 / 會計…）CRUD 與指派。皆需管理者（OWNER / ADMIN）。
@@ -20,6 +21,8 @@ const RoleInput = z.object({
     .regex(/^#[0-9a-fA-F]{6}$/, "顏色需為 #RRGGBB")
     .optional(),
   permissions: z.array(z.string()).default([]),
+  // 此角色可見的頁面（module key）。空＝可見全部頁面。
+  visibleModules: z.array(z.string()).default([]),
 });
 
 export type RoleActionState = { error?: string; ok?: boolean } | null;
@@ -36,6 +39,7 @@ export async function createRole(input: z.input<typeof RoleInput>) {
         description: d.description || null,
         color: d.color || null,
         permissions: sanitizePermissions(d.permissions),
+        visibleModules: sanitizeVisibleModules(d.visibleModules),
         sortOrder: count,
       },
     });
@@ -68,6 +72,7 @@ export async function updateRole(input: z.input<typeof UpdateRoleInput>) {
         description: d.description || null,
         color: d.color || null,
         permissions: sanitizePermissions(d.permissions),
+        visibleModules: sanitizeVisibleModules(d.visibleModules),
       },
     });
   } catch (e) {

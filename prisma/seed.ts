@@ -341,13 +341,6 @@ async function main() {
       targetDate: s.target ? D(s.target) : null,
       owner: { connect: { id: s.owner } },
       createdBy: { connect: { id: david.id } },
-      members: {
-        create: s.members.map((m) => ({
-          user: { connect: { id: m.id } },
-          role: m.role,
-          roleLabel: m.label ?? null,
-        })),
-      },
       milestones: s.milestones
         ? {
             create: s.milestones.map((m, i) => ({

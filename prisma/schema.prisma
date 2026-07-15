@@ -33,7 +33,6 @@ model User {
 
   ownedProjects     Project[]          @relation("ProjectOwner")
   createdProjects   Project[]          @relation("ProjectCreator")
-  memberships       ProjectMember[]
   weeklyUpdates     WeeklyUpdate[]
   activities        Activity[]
   memberEvents      MemberEvent[]
@@ -42,6 +41,7 @@ model User {
   objectivesOwned   Objective[]        @relation("ObjectiveOwner")
   keyResultsOwned   KeyResult[]        @relation("KrOwners")
   tasksOwned        Task[]             @relation("TaskOwners")
+  tasksPrimaryOwned Task[]             @relation("TaskPrimaryOwner")
 
   dailyReports        DailyReport[]
   dailyReportComments DailyReportComment[]
@@ -232,12 +232,6 @@ enum Priority {
   URGENT
 }
 
-enum MemberRole {
-  OWNER // 負責人
-  MEMBER // 成員
-  VIEWER // 檢視者
-}
-
 enum MilestoneStatus {
   PLANNED // 規劃中
   IN_PROGRESS // 進行中
@@ -274,7 +268,6 @@ model Project {
   createdById String
   createdBy   User   @relation("ProjectCreator", fields: [createdById], references: [id])
 
-  members       ProjectMember[]
   weeklyUpdates WeeklyUpdate[]
   milestones    Milestone[]
   releases      ProjectRelease[]
@@ -288,22 +281,6 @@ model Project {
   @@index([organizationId])
   @@index([type])
   @@index([status])
-}
-
-model ProjectMember {
-  id        String     @id @default(cuid())
-  projectId String
-  userId    String
-  role      MemberRole @default(MEMBER)
-  roleLabel String? // 自訂角色文字（例：PM / 工程 / 設計）
-
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-
-  @@unique([projectId, userId])
-  @@index([userId])
 }
 
 model WeeklyUpdate {
@@ -651,6 +628,10 @@ model Task {
 
   owners     User[]  @relation("TaskOwners") // 多負責人（組織成員）
   ownerLabel String? // 外部非成員自由文字
+
+  // 主負責人：owners 之中被指定為「主要負責」的一位（可空）。移除該負責人時一併清除。
+  primaryOwnerId String?
+  primaryOwner   User?   @relation("TaskPrimaryOwner", fields: [primaryOwnerId], references: [id], onDelete: SetNull)
 
   todoItems TodoItem[] // 個人待辦可關聯到此任務
 
@@ -1114,6 +1095,8 @@ model OrgRoleDef {
   description    String? // 說明
   color          String? // 標籤顏色（hex）
   permissions    String[]     @default([]) // 權限 key 清單
+  // 此角色可見的頁面（module key 清單）。空＝可見全部頁面（不限制）；非空＝只可見列出的頁面（+ 一律可見頁）。
+  visibleModules String[]     @default([])
   sortOrder      Int          @default(0)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt

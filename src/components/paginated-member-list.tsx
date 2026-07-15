@@ -12,11 +12,13 @@ import { MemberDeleteButton } from "@/components/member-delete-button";
 import { LoginStatusBadge } from "@/components/login-status-badge";
 import { WorkDescriptionEditor } from "@/components/work-description-editor";
 
-/** 每列估計高度（px），用來由可用視窗高度換算每頁筆數。 */
+/** 每列估計高度（px），用來由可用視窗高度換算每頁筆數，並固定清單高度。 */
 const ROW_H = 53;
 /** 表頭 + 搜尋 + 頁尾控制列預留高度（px）。 */
 const RESERVED = 150;
 const MIN_PAGE = 4;
+/** 手動每頁筆數選項（＋「自動」依視窗高度）。 */
+const PAGE_SIZE_OPTIONS = [8, 12, 16, 24, 40] as const;
 
 export function PaginatedMemberList({
   members,
@@ -30,10 +32,12 @@ export function PaginatedMemberList({
 }) {
   const [q, setQ] = useState("");
   const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState(12);
+  // "auto"＝依視窗高度自動；數字＝使用者指定每頁筆數。
+  const [sizeMode, setSizeMode] = useState<"auto" | number>("auto");
+  const [autoSize, setAutoSize] = useState(12);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // 依可用視窗高度動態算每頁筆數：清單最高不超過當前視窗，超出改分頁。
+  // 依可用視窗高度動態算每頁筆數（僅「自動」模式套用）：清單最高不超過當前視窗，超出改分頁。
   useEffect(() => {
     function recompute() {
       const el = listRef.current;
@@ -41,12 +45,14 @@ export function PaginatedMemberList({
       const top = el.getBoundingClientRect().top;
       const avail = window.innerHeight - top - RESERVED;
       const fit = Math.floor(avail / ROW_H);
-      setPageSize(Math.max(MIN_PAGE, fit));
+      setAutoSize(Math.max(MIN_PAGE, fit));
     }
     recompute();
     window.addEventListener("resize", recompute);
     return () => window.removeEventListener("resize", recompute);
   }, []);
+
+  const pageSize = sizeMode === "auto" ? autoSize : sizeMode;
 
   const filtered = useMemo(() => {
     const kw = q.trim().toLowerCase();
@@ -63,21 +69,45 @@ export function PaginatedMemberList({
   const safePage = Math.min(page, totalPages - 1);
   const start = safePage * pageSize;
   const pageItems = filtered.slice(start, start + pageSize);
+  // 固定清單高度：多頁時每頁一律預留 pageSize 列高——翻到不足一頁的最後一頁也不縮短，
+  // 讓分頁列與距底距離維持固定；單頁（無需分頁）時依內容高度，避免小團隊留大片空白。
+  const reserveRows = totalPages > 1 ? pageSize : pageItems.length;
 
   return (
     <div className="space-y-2">
-      {/* 搜尋 */}
-      <div className="relative max-w-xs">
-        <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2" />
-        <input
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            setPage(0);
-          }}
-          placeholder="搜尋姓名 / Email / 部門 / 職稱…"
-          className="border-input h-9 w-full rounded-md border bg-transparent pr-3 pl-8 text-sm outline-none focus:border-ring"
-        />
+      {/* 搜尋 + 每頁筆數 */}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="relative w-full max-w-xs">
+          <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2" />
+          <input
+            value={q}
+            onChange={(e) => {
+              setQ(e.target.value);
+              setPage(0);
+            }}
+            placeholder="搜尋姓名 / Email / 部門 / 職稱…"
+            className="border-input h-9 w-full rounded-md border bg-transparent pr-3 pl-8 text-sm outline-none focus:border-ring"
+          />
+        </div>
+        <label className="text-muted-foreground flex shrink-0 items-center gap-1.5 text-xs">
+          每頁顯示
+          <select
+            value={sizeMode === "auto" ? "auto" : String(sizeMode)}
+            onChange={(e) => {
+              const v = e.target.value;
+              setSizeMode(v === "auto" ? "auto" : Number(v));
+              setPage(0);
+            }}
+            className="border-input h-8 rounded-md border bg-transparent px-2 text-sm outline-none focus:border-ring"
+          >
+            <option value="auto">自動</option>
+            {PAGE_SIZE_OPTIONS.map((n) => (
+              <option key={n} value={n}>
+                {n} 人
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
       <div className="bg-card overflow-x-auto rounded-xl border">
@@ -94,8 +124,12 @@ export function PaginatedMemberList({
             <div className="w-9 shrink-0" />
           </div>
 
-          {/* 列 */}
-          <div ref={listRef} className="divide-y">
+          {/* 列（固定高度：翻頁時分頁列位置不跳動、距底距離一致） */}
+          <div
+            ref={listRef}
+            className="divide-y"
+            style={{ minHeight: reserveRows * ROW_H }}
+          >
             {pageItems.length === 0 ? (
               <div className="text-muted-foreground px-3 py-10 text-center text-sm">
                 找不到符合的成員。

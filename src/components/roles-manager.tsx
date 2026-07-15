@@ -10,6 +10,7 @@ import {
   deleteRole,
 } from "@/server/actions/roles";
 import { permissionsByGroup, type PermissionKey } from "@/lib/permissions";
+import { ROLE_VISIBLE_MODULES } from "@/lib/modules";
 import type { OrgRoleEntry } from "@/server/queries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -165,6 +166,12 @@ function RoleCard({
           ))
         )}
       </div>
+      <div className="text-muted-foreground text-[11px]">
+        可見頁面：
+        {role.visibleModules.length === 0
+          ? "全部"
+          : `${role.visibleModules.length} 頁`}
+      </div>
     </Card>
   );
 }
@@ -186,6 +193,10 @@ function RoleDialog({
   const [perms, setPerms] = useState<Set<string>>(
     () => new Set(existing?.permissions ?? []),
   );
+  // 可見頁面白名單（空＝可見全部頁面）。
+  const [pages, setPages] = useState<Set<string>>(
+    () => new Set(existing?.visibleModules ?? []),
+  );
 
   function togglePerm(key: string, on: boolean) {
     setPerms((prev) => {
@@ -195,6 +206,17 @@ function RoleDialog({
       return next;
     });
   }
+
+  function togglePage(key: string, on: boolean) {
+    setPages((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }
+
+  const restrictPages = pages.size > 0;
 
   function submit() {
     if (!name.trim()) {
@@ -206,6 +228,7 @@ function RoleDialog({
       description: description.trim() || undefined,
       color,
       permissions: [...perms],
+      visibleModules: [...pages],
     };
     start(async () => {
       try {
@@ -277,6 +300,35 @@ function RoleDialog({
                 className="h-6 w-8 cursor-pointer rounded border"
                 title="自訂顏色"
               />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <Label>可見頁面</Label>
+              <span className="text-muted-foreground text-xs">
+                {restrictPages ? `只顯示 ${pages.size} 個頁面` : "可見全部頁面"}
+              </span>
+            </div>
+            <p className="text-muted-foreground text-xs">
+              預設可見全部頁面。若只想讓此角色看到部分頁面，勾選要顯示的頁面即可
+              （不勾＝全部顯示）。每日報告 / 待辦 / 個人資料一律可見，不受此限。
+            </p>
+            <div className="grid grid-cols-2 gap-1">
+              {ROLE_VISIBLE_MODULES.map((m) => (
+                <label
+                  key={m.key}
+                  className="hover:bg-muted flex items-center gap-2 rounded-md px-2 py-1.5 text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    checked={pages.has(m.key)}
+                    onChange={(e) => togglePage(m.key, e.currentTarget.checked)}
+                    className="accent-primary h-4 w-4"
+                  />
+                  <span className="min-w-0 truncate">{m.label}</span>
+                </label>
+              ))}
             </div>
           </div>
 

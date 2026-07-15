@@ -1,27 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { Flag, Users, SlidersHorizontal } from "lucide-react";
+import { Flag, SlidersHorizontal } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { MilestonesPanel } from "@/components/milestones-panel";
-import { MembersPanel } from "@/components/members-panel";
 
-// 由各子面板反推 prop 型別，避免重複定義又保證一致。
+// 由子面板反推 prop 型別，避免重複定義又保證一致。
 type Milestones = React.ComponentProps<typeof MilestonesPanel>["milestones"];
-type Members = React.ComponentProps<typeof MembersPanel>["members"];
-type AllUsers = React.ComponentProps<typeof MembersPanel>["allUsers"];
 
 export function ProjectDetailTabs({
   projectId,
   canEdit,
   milestones,
-  team,
   settings,
 }: {
   projectId: string;
   canEdit: boolean;
   milestones: Milestones;
-  team: { ownerId: string | null; members: Members; allUsers: AllUsers };
   /** 選填「設定」分頁內容（就地展開管理時傳入專案設定表單）。 */
   settings?: React.ReactNode;
 }) {
@@ -32,7 +27,6 @@ export function ProjectDetailTabs({
       ? [{ value: "settings", label: "設定", icon: SlidersHorizontal }]
       : []),
     { value: "milestones", label: "里程碑", icon: Flag },
-    { value: "team", label: "團隊", icon: Users },
   ];
 
   return (
@@ -42,11 +36,7 @@ export function ProjectDetailTabs({
           {TAB_META.map((t) => {
             const Icon = t.icon;
             const count =
-              t.value === "milestones"
-                ? milestones.length
-                : t.value === "team"
-                  ? team.members.length
-                  : undefined;
+              t.value === "milestones" ? milestones.length : undefined;
             return (
               <TabsTrigger key={t.value} value={t.value}>
                 <Icon className="h-4 w-4" />
@@ -73,18 +63,6 @@ export function ProjectDetailTabs({
           <MilestonesPanel
             projectId={projectId}
             milestones={milestones}
-            canEdit={canEdit}
-          />
-        </Section>
-      </TabsContent>
-
-      <TabsContent value="team" className="mt-4">
-        <Section title="團隊成員">
-          <MembersPanel
-            projectId={projectId}
-            ownerId={team.ownerId}
-            members={team.members}
-            allUsers={team.allUsers}
             canEdit={canEdit}
           />
         </Section>

@@ -36,6 +36,7 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/s
 import { NewProjectButton } from "@/components/new-project-button";
 import { OrgSwitcher } from "@/components/org-switcher";
 import { NotificationBell, type NotificationItem } from "@/components/notification-bell";
+import { WhatsNewTrigger } from "@/components/whats-new";
 import { ViewAsMenu, type PreviewRole } from "@/components/view-as-menu";
 import type { ModuleKey } from "@/lib/modules";
 
@@ -245,7 +246,10 @@ export function AppSidebar({
         <div className="flex flex-col gap-4 p-3 pb-2">
           <div className="flex items-center justify-between pt-2">
             <Brand />
-            <NotificationBell items={notifications} unread={unread} />
+            <div className="flex items-center gap-0.5">
+              <WhatsNewTrigger />
+              <NotificationBell items={notifications} unread={unread} />
+            </div>
           </div>
           <div className="px-1">
             <OrgSwitcher activeOrg={activeOrg} orgs={orgs} />
@@ -276,6 +280,7 @@ export function AppSidebar({
       <header className="bg-card no-print sticky top-0 z-30 flex items-center justify-between border-b px-4 py-2.5 lg:hidden">
         <Brand />
         <div className="flex items-center gap-1">
+          <WhatsNewTrigger />
           <NotificationBell items={notifications} unread={unread} />
           <NewProjectButton
             users={users}

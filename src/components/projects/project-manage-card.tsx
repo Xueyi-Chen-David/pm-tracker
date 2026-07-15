@@ -74,7 +74,8 @@ export type ProjectManageView = {
   owner: OwnerLite | null;
   tasks: TaskView[];
   milestones: MilestoneChip[];
-  team: ProjectTeamMember[];
+  /** 團隊＝在此專案有負責任務的人（Task.owners 聯集）。 */
+  team: OwnerLite[];
 };
 
 export type MilestoneChip = {
@@ -83,12 +84,6 @@ export type MilestoneChip = {
   status: MilestoneStatus;
   plannedDate: string | null;
   isGoal: boolean;
-};
-
-export type ProjectTeamMember = {
-  id: string;
-  roleLabel: string | null;
-  user: OwnerLite;
 };
 
 const selectSm =
@@ -228,6 +223,7 @@ export function ProjectManageCard({
         health: "GREEN",
         progress: 0,
         owners: [],
+        primaryOwnerId: null,
         reminderDays: [],
       },
     ]);
@@ -305,20 +301,20 @@ export function ProjectManageCard({
             {project.team.length > 0 && (
               <span
                 className="inline-flex items-center gap-1"
-                title={`團隊：${project.team.map((mem) => displayName(mem.user)).join("、")}`}
+                title={`團隊：${project.team.map((u) => displayName(u)).join("、")}`}
               >
                 <span className="flex items-center">
-                  {project.team.slice(0, 5).map((mem, i) => (
+                  {project.team.slice(0, 5).map((u, i) => (
                     <Avatar
-                      key={mem.id}
+                      key={u.id}
                       className={cn(
                         "h-5 w-5 border border-white",
                         i > 0 && "-ml-1.5",
                       )}
                     >
-                      {mem.user.image && <AvatarImage src={mem.user.image} alt="" />}
+                      {u.image && <AvatarImage src={u.image} alt="" />}
                       <AvatarFallback className="text-[8px]">
-                        {displayInitial(mem.user)}
+                        {displayInitial(u)}
                       </AvatarFallback>
                     </Avatar>
                   ))}
@@ -561,11 +557,6 @@ export function ProjectManageCard({
               projectId={project.id}
               canEdit={canEdit}
               milestones={bundle.milestones}
-              team={{
-                ownerId: project.ownerId,
-                members: bundle.members,
-                allUsers: members,
-              }}
               settings={
                 canEdit ? (
                   <ProjectSettingsForm

@@ -6,6 +6,7 @@ import {
   getProjectsWithTasks,
   getOrgMemberUsers,
   getProjectViews,
+  distinctOwners,
 } from "@/server/queries";
 import { getProjectDetailBundle } from "@/server/project-bundle";
 import {
@@ -143,6 +144,7 @@ export default async function ProjectsPage({
       health: t.health,
       progress: t.progress,
       owners: t.owners,
+      primaryOwnerId: t.primaryOwnerId,
       reminderDays: t.reminderDays,
     })),
     milestones: p.milestones.map((m) => ({
@@ -152,11 +154,8 @@ export default async function ProjectsPage({
       plannedDate: ymd(m.plannedDate),
       isGoal: m.isGoal,
     })),
-    team: p.members.map((mem) => ({
-      id: mem.id,
-      roleLabel: mem.roleLabel,
-      user: mem.user,
-    })),
+    // 團隊＝在此專案有負責任務的人（Task.owners 聯集，去重）。
+    team: distinctOwners(p.tasks),
   }));
 
   const totalTasks = projects.reduce((s, p) => s + p.tasks.length, 0);

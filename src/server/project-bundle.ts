@@ -15,6 +15,16 @@ export async function getProjectDetailBundle(orgId: string, projectId: string) {
   ]);
   if (!project) return null;
 
+  // 團隊＝在該專案有負責任務的人（Task.owners 聯集），去重。
+  const teamMap = new Map<
+    string,
+    (typeof project.tasks)[number]["owners"][number]
+  >();
+  for (const t of project.tasks) {
+    for (const o of t.owners) if (!teamMap.has(o.id)) teamMap.set(o.id, o);
+  }
+  const team = [...teamMap.values()];
+
   const thisWeek = thisWeekStart();
 
   const weeklyItems = [...project.weeklyUpdates].reverse().map((u) => ({
@@ -61,10 +71,11 @@ export async function getProjectDetailBundle(orgId: string, projectId: string) {
       status: r.status,
       releasedAt: r.releasedAt,
     })),
-    members: project.members,
+    team,
     weekly: {
       items: weeklyItems,
-      memberOptions: project.members.map((m) => m.user),
+      // 週報任務指派對象＝專案的任務負責人。
+      memberOptions: team,
       defaultWeekStart: toDateInput(thisWeek),
       carryOver,
     },

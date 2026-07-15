@@ -70,19 +70,15 @@ export default async function MemberProfilePage({
       isOwner: true,
     }));
   const ownedIds = new Set(ownedList.map((p) => p.id));
-  const memberList = m.memberships
-    .filter(
-      (mm) =>
-        !mm.project.archived &&
-        mm.project.status !== "ON_HOLD" &&
-        !ownedIds.has(mm.project.id),
-    )
-    .map((mm) => ({
-      id: mm.project.id,
-      name: mm.project.name,
-      type: mm.project.type,
-      health: mm.project.health,
-      progress: mm.project.progress,
+  // 參與的專案＝有負責任務的專案（已於查詢排除封存），再排除進行暫停 / 自己負責的。
+  const memberList = m.participatingProjects
+    .filter((p) => p.status !== "ON_HOLD" && !ownedIds.has(p.id))
+    .map((p) => ({
+      id: p.id,
+      name: p.name,
+      type: p.type,
+      health: p.health,
+      progress: p.progress,
       isOwner: false,
     }));
   const participating = [...ownedList, ...memberList].sort(

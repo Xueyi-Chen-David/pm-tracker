@@ -168,16 +168,23 @@ export async function getOrgMembers(orgId: string) {
     },
   });
   const userIds = members.map((m) => m.user.id);
-  const [owned, memberOf, weeklies] = await Promise.all([
+  const [owned, ownedTasks, weeklies] = await Promise.all([
     db.project.groupBy({
       by: ["ownerId"],
       where: { organizationId: orgId, ownerId: { in: userIds } },
       _count: { _all: true },
     }),
-    db.projectMember.groupBy({
-      by: ["userId"],
-      where: { userId: { in: userIds }, project: { organizationId: orgId } },
-      _count: { _all: true },
+    // 「參與」＝在該專案有負責任務的人（Task.owners）。以任務為單位撈出後，
+    // 於記憶體算每人所參與的「相異專案數」。
+    db.task.findMany({
+      where: {
+        project: { organizationId: orgId },
+        owners: { some: { id: { in: userIds } } },
+      },
+      select: {
+        projectId: true,
+        owners: { where: { id: { in: userIds } }, select: { id: true } },
+      },
     }),
     db.weeklyUpdate.groupBy({
       by: ["authorId"],
@@ -186,7 +193,15 @@ export async function getOrgMembers(orgId: string) {
     }),
   ]);
   const ownedMap = new Map(owned.map((r) => [r.ownerId, r._count._all]));
-  const memberMap = new Map(memberOf.map((r) => [r.userId, r._count._all]));
+  // 每人參與的相異專案集合。
+  const projByUser = new Map<string, Set<string>>();
+  for (const t of ownedTasks) {
+    for (const o of t.owners) {
+      const set = projByUser.get(o.id) ?? new Set<string>();
+      set.add(t.projectId);
+      projByUser.set(o.id, set);
+    }
+  }
   const weeklyMap = new Map(weeklies.map((r) => [r.authorId, r._count._all]));
   return members.map((m) => {
     const { _count: userCounts, ...identity } = m.user;
@@ -202,7 +217,7 @@ export async function getOrgMembers(orgId: string) {
       hasLoggedIn: userCounts.accounts > 0, // 曾登入過
       _count: {
         ownedProjects: ownedMap.get(m.user.id) ?? 0,
-        memberships: memberMap.get(m.user.id) ?? 0,
+        memberships: projByUser.get(m.user.id)?.size ?? 0,
         weeklyUpdates: weeklyMap.get(m.user.id) ?? 0,
       },
     };
@@ -336,28 +351,13 @@ export async function getMemberProfile(orgId: string, userId: string) {
           progress: true,
         },
       },
-      memberships: {
-        where: { project: { organizationId: orgId } },
-        include: {
-          project: {
-            select: {
-              id: true,
-              name: true,
-              type: true,
-              status: true,
-              health: true,
-              progress: true,
-              archived: true,
-            },
-          },
-        },
-      },
       memberEvents: {
         where: { organizationId: orgId },
         orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
         take: 50,
       },
       // 被指派的任務：以「專案與任務」頁的真實 Task 為唯一來源（本人為負責人之一）。
+      // 「參與的專案」也由此推導（有負責任務即算參與該專案）。
       tasksOwned: {
         where: { project: { organizationId: orgId, archived: false } },
         orderBy: [{ project: { sortOrder: "asc" } }, { sortOrder: "asc" }],
@@ -368,37 +368,82 @@ export async function getMemberProfile(orgId: string, userId: string) {
           progress: true,
           startDate: true,
           dueDate: true,
-          project: { select: { id: true, name: true } },
+          project: {
+            select: {
+              id: true,
+              name: true,
+              type: true,
+              status: true,
+              health: true,
+              progress: true,
+            },
+          },
         },
       },
     },
   });
   if (!user) return null;
+
+  // 參與的專案＝有負責任務的相異專案（未封存）。
+  const participatingMap = new Map<
+    string,
+    (typeof user.tasksOwned)[number]["project"]
+  >();
+  for (const t of user.tasksOwned) {
+    if (!participatingMap.has(t.project.id)) {
+      participatingMap.set(t.project.id, t.project);
+    }
+  }
+  const participatingProjects = [...participatingMap.values()];
+
   // 註：membership.id 是「成員關係 id」，不可蓋掉 user.id（頁面各處以 user.id 為準）。
   const { id: membershipId, ...membershipRest } = membership;
-  return { ...user, ...membershipRest, id: user.id, membershipId };
+  return {
+    ...user,
+    ...membershipRest,
+    id: user.id,
+    membershipId,
+    participatingProjects,
+  };
 }
 
 export type MemberProfile = NonNullable<
   Awaited<ReturnType<typeof getMemberProfile>>
 >;
 
-const memberInclude = {
-  include: { user: { select: userIdentitySelect } },
-  orderBy: { role: "asc" as const },
+type Identity = {
+  id: string;
+  name: string | null;
+  nickname: string | null;
+  useNickname: boolean;
+  email: string | null;
+  image: string | null;
 };
 
-/** 總覽 / 專案清單用：含負責人、成員、最新一筆週報、里程碑數。 */
+/** 專案團隊＝在該專案有負責任務的人（Task.owners 聯集），依 userId 去重。 */
+export function distinctOwners(tasks: { owners: Identity[] }[]): Identity[] {
+  const map = new Map<string, Identity>();
+  for (const t of tasks) {
+    for (const o of t.owners) if (!map.has(o.id)) map.set(o.id, o);
+  }
+  return [...map.values()];
+}
+
+/** 總覽 / 專案清單用：含負責人、團隊（任務負責人聯集）、最新一筆週報、里程碑數。 */
 export async function getProjectsOverview(orgId: string) {
-  return db.project.findMany({
+  const projects = await db.project.findMany({
     where: { archived: false, organizationId: orgId },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     include: {
       owner: { select: userIdentitySelect },
-      members: memberInclude,
+      tasks: { select: { owners: { select: userIdentitySelect } } },
       milestones: { orderBy: [{ sortOrder: "asc" }, { plannedDate: "asc" }] },
       weeklyUpdates: { orderBy: { weekStart: "desc" }, take: 1 },
     },
+  });
+  return projects.map((p) => {
+    const { tasks, ...rest } = p;
+    return { ...rest, team: distinctOwners(tasks) };
   });
 }
 
@@ -427,15 +472,6 @@ export async function getProjectsWithTasks(orgId: string, archived = false) {
           isGoal: true,
         },
       },
-      members: {
-        orderBy: { createdAt: "asc" },
-        select: {
-          id: true,
-          role: true,
-          roleLabel: true,
-          user: { select: userIdentitySelect },
-        },
-      },
     },
   });
 }
@@ -451,7 +487,7 @@ export async function getProject(orgId: string, id: string) {
     include: {
       owner: { select: userIdentitySelect },
       createdBy: { select: { id: true, name: true, nickname: true, useNickname: true, email: true } },
-      members: memberInclude,
+      tasks: { select: { owners: { select: userIdentitySelect } } },
       milestones: { orderBy: [{ plannedDate: "asc" }, { sortOrder: "asc" }] },
       releases: {
         orderBy: [
@@ -507,14 +543,14 @@ export async function getTimelineData(orgId: string) {
   });
 }
 
-/** 週報頁：本組織指定週的所有專案 + 該週週報。 */
+/** 週報頁：本組織指定週的所有專案 + 該週週報 + 團隊（任務負責人聯集）。 */
 export async function getReportData(orgId: string, weekStart: Date) {
   const projects = await db.project.findMany({
     where: { archived: false, organizationId: orgId },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     include: {
       owner: { select: userIdentitySelect },
-      members: memberInclude,
+      tasks: { select: { owners: { select: userIdentitySelect } } },
       weeklyUpdates: { where: { weekStart }, take: 1 },
       milestones: {
         where: {
@@ -524,7 +560,10 @@ export async function getReportData(orgId: string, weekStart: Date) {
       },
     },
   });
-  return projects;
+  return projects.map((p) => {
+    const { tasks, ...rest } = p;
+    return { ...rest, team: distinctOwners(tasks) };
+  });
 }
 
 export type ReportProject = Awaited<ReturnType<typeof getReportData>>[number];
@@ -735,6 +774,7 @@ export async function getOrgRoles(orgId: string) {
       description: true,
       color: true,
       permissions: true,
+      visibleModules: true,
       _count: { select: { members: true } },
     },
   });
@@ -744,6 +784,7 @@ export async function getOrgRoles(orgId: string) {
     description: r.description,
     color: r.color,
     permissions: r.permissions,
+    visibleModules: r.visibleModules,
     memberCount: r._count.members,
   }));
 }

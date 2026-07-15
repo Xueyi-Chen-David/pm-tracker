@@ -398,8 +398,8 @@ function TodoRow({
               ))}
             </select>
           </div>
-          <div className="flex gap-2">
-            <div className="flex-1 space-y-1">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div className="min-w-0 space-y-1">
               <div className="text-muted-foreground text-xs">開始日</div>
               <input
                 type="date"
@@ -407,10 +407,10 @@ function TodoRow({
                 max={dueDate || undefined}
                 disabled={pending}
                 onChange={(e) => setStartDate(e.target.value)}
-                className={dateCls + " w-full"}
+                className={dateCls + " w-full min-w-0"}
               />
             </div>
-            <div className="flex-1 space-y-1">
+            <div className="min-w-0 space-y-1">
               <div className="text-muted-foreground text-xs">結束 / 到期日</div>
               <input
                 type="date"
@@ -418,7 +418,7 @@ function TodoRow({
                 min={startDate || undefined}
                 disabled={pending}
                 onChange={(e) => setDueDate(e.target.value)}
-                className={dateCls + " w-full"}
+                className={dateCls + " w-full min-w-0"}
               />
             </div>
           </div>

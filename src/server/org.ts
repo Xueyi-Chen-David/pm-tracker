@@ -49,9 +49,15 @@ export const getMyMemberships = cache(async (userId: string) => {
     where: { userId },
     include: {
       organization: { select: { id: true, name: true } },
-      // 自訂角色（人資 / 會計…）：解析權限用。
+      // 自訂角色（人資 / 會計…）：解析權限與頁面可見性用。
       roleDefs: {
-        select: { id: true, name: true, color: true, permissions: true },
+        select: {
+          id: true,
+          name: true,
+          color: true,
+          permissions: true,
+          visibleModules: true,
+        },
         orderBy: { sortOrder: "asc" },
       },
     },
@@ -168,24 +174,48 @@ const EMPLOYEE_ACCESS: ModuleAccess = {
   roleDefs: [],
 };
 
-/** 真實身分的有效存取（含自訂角色權限聯集）。 */
+/**
+ * 由「已指派角色的可見頁面」推得成員的有效頁面白名單（給 canSeeModule 用；空＝可見全部）。
+ * - 沒有任何角色 → 用 fallback（成員自身 allowedModules，維持現狀）。
+ * - 有角色，且任一角色「未限制頁面」(visibleModules 空＝全部) → 可見全部（回 []）。
+ * - 否則 → 各角色 visibleModules 的聯集（角色越多看得越多，不會互相縮減）。
+ * 管理者 / 老闆本就在 canSeeModule 一律全開，不受此影響。
+ */
+function allowedModulesFromRoles(
+  roleVisibleLists: string[][],
+  fallback: string[],
+): string[] {
+  if (roleVisibleLists.length === 0) return fallback;
+  if (roleVisibleLists.some((list) => list.length === 0)) return [];
+  return [...new Set(roleVisibleLists.flat())];
+}
+
+/** 真實身分的有效存取（含自訂角色權限聯集 + 角色頁面可見性）。 */
 export function selfAccess(m: MyMembership): ModuleAccess {
   const roleDefs = m.roleDefs.map((r) => ({ permissions: r.permissions }));
+  const allowedModules = allowedModulesFromRoles(
+    m.roleDefs.map((r) => r.visibleModules),
+    m.allowedModules,
+  );
   return {
     role: m.role,
     isBoss: m.isBoss,
-    allowedModules: m.allowedModules,
+    allowedModules,
     permissions: [...resolvePermissions({ role: m.role, roleDefs })],
     roleDefs,
   };
 }
 
-/** 以「單一自訂角色」視角的存取（一般員工 + 該角色權限）。 */
-function roleAccess(role: { permissions: string[] }): ModuleAccess {
+/** 以「單一自訂角色」視角的存取（一般員工 + 該角色權限 + 該角色可見頁面）。 */
+function roleAccess(role: {
+  permissions: string[];
+  visibleModules: string[];
+}): ModuleAccess {
   return {
     role: "MEMBER",
     isBoss: false,
-    allowedModules: [],
+    // 空＝可見全部頁面，與具此角色的真實成員一致。
+    allowedModules: role.visibleModules,
     permissions: [...resolvePermissions({ role: "MEMBER", roleDefs: [role] })],
     roleDefs: [{ permissions: role.permissions }],
   };
@@ -222,7 +252,7 @@ export async function resolveAccess(
   // 角色視角：載入該角色（限本組織）；角色已不存在則退回員工視角。
   const role = await db.orgRoleDef.findFirst({
     where: { id: view.roleId, organizationId: ctx.org.id },
-    select: { name: true, permissions: true },
+    select: { name: true, permissions: true, visibleModules: true },
   });
   if (!role) {
     return { access: EMPLOYEE_ACCESS, previewing: true, preview: { mode: "employee" } };
