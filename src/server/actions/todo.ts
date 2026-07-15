@@ -63,6 +63,51 @@ export async function createTodo(input: z.input<typeof TodoCreate>) {
   return { ok: true as const, id: todo.id };
 }
 
+/**
+ * 把一個「指派給本人」的專案任務加進個人待辦（連結該任務）。
+ * 標題取自任務；已有未完成、且連到此任務的待辦時不重複建立。
+ */
+export async function addTaskToTodo(taskId: string) {
+  const { org, user } = await requireActiveOrg();
+  const id = z.string().min(1).parse(taskId);
+  // 任務需屬於本組織，且指派給本人（與 /todo 頁的可選任務同一條件）。
+  const task = await db.task.findFirst({
+    where: {
+      id,
+      project: { organizationId: org.id },
+      owners: { some: { id: user.id } },
+    },
+    select: { id: true, title: true },
+  });
+  if (!task) throw new Error("找不到任務");
+  const existing = await db.todoItem.findFirst({
+    where: {
+      userId: user.id,
+      organizationId: org.id,
+      taskId: task.id,
+      done: false,
+    },
+    select: { id: true },
+  });
+  if (existing) return { ok: true as const, id: existing.id };
+  const max = await db.todoItem.aggregate({
+    where: { userId: user.id, organizationId: org.id },
+    _max: { sortOrder: true },
+  });
+  const todo = await db.todoItem.create({
+    data: {
+      userId: user.id,
+      organizationId: org.id,
+      title: task.title,
+      taskId: task.id,
+      sortOrder: (max._max.sortOrder ?? 0) + 1,
+    },
+    select: { id: true },
+  });
+  revalidatePath("/todo");
+  return { ok: true as const, id: todo.id };
+}
+
 const TodoPatch = z.object({
   id: z.string().min(1),
   title: z.string().trim().min(1).max(300).optional(),

@@ -13,6 +13,7 @@ import {
   Timer,
   CalendarDays,
   Link2,
+  ListPlus,
   Save,
   Pencil,
 } from "lucide-react";
@@ -22,6 +23,7 @@ import {
   deleteTodo,
   updatePomodoro,
   deletePomodoro,
+  addTaskToTodo,
 } from "@/server/actions/todo";
 import { cn } from "@/lib/utils";
 import { fmtDateShort } from "@/lib/date";
@@ -221,6 +223,13 @@ function TodoList({
               className={dateCls}
             />
           </label>
+          {/* 從我被指派的專案任務挑選加入待辦（勾選加入、取消勾選移除）。 */}
+          <TaskPicker
+            todos={todos}
+            taskOptions={taskOptions}
+            pending={pending}
+            run={run}
+          />
         </div>
       </div>
 
@@ -282,6 +291,102 @@ function TodoTab({
     >
       {children}
     </button>
+  );
+}
+
+// 從「指派給我的專案任務」挑選加入待辦清單：勾選＝加入（連結該任務），
+// 取消勾選＝移除那筆未完成的連動待辦（番茄鐘紀錄會保留）。
+function TaskPicker({
+  todos,
+  taskOptions,
+  pending,
+  run,
+}: {
+  todos: TodoView[];
+  taskOptions: TaskOption[];
+  pending: boolean;
+  run: (fn: () => Promise<unknown>, ok?: string) => void;
+}) {
+  // 每個任務目前對應的「未完成」連動待辦（若有）。已完成的不算在內，可再次加入。
+  const linkedByTask = new Map<string, TodoView>();
+  for (const t of todos) {
+    if (t.taskId && !t.done && !linkedByTask.has(t.taskId)) {
+      linkedByTask.set(t.taskId, t);
+    }
+  }
+  const addedCount = taskOptions.reduce(
+    (n, o) => (linkedByTask.has(o.id) ? n + 1 : n),
+    0,
+  );
+
+  function toggle(opt: TaskOption, on: boolean) {
+    if (on) {
+      run(() => addTaskToTodo(opt.id), "已加入待辦");
+      return;
+    }
+    const todo = linkedByTask.get(opt.id);
+    if (!todo) return;
+    // 已累積番茄鐘或寫了備註時，移除會刪掉這筆待辦——先確認以免誤刪。
+    if (
+      (todo.pomodoroCount > 0 || todo.note) &&
+      !confirm(
+        `「${todo.title}」已有番茄鐘紀錄或備註，從待辦移除會刪除這筆待辦（番茄鐘紀錄會保留）。確定移除？`,
+      )
+    ) {
+      return;
+    }
+    run(() => deleteTodo(todo.id), "已從待辦移除");
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger
+        className="border-input text-muted-foreground hover:bg-muted ml-auto inline-flex h-8 items-center gap-1 rounded-md border px-2 text-xs"
+        title="從我的任務加入待辦"
+      >
+        <ListPlus className="h-3.5 w-3.5" />
+        從任務加入
+        {addedCount > 0 && (
+          <span className="bg-primary/10 text-primary rounded-full px-1.5 text-[10px] font-medium tabular-nums">
+            {addedCount}
+          </span>
+        )}
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 p-0">
+        <div className="border-b px-3 py-2">
+          <div className="text-sm font-medium">從我的任務加入待辦</div>
+          <p className="text-muted-foreground text-[11px]">
+            勾選要加入待辦清單的任務；取消勾選會移除。
+          </p>
+        </div>
+        {taskOptions.length === 0 ? (
+          <p className="text-muted-foreground px-3 py-6 text-center text-sm">
+            你目前沒有被指派的任務。
+          </p>
+        ) : (
+          <div className="scroll-y max-h-72 divide-y overflow-y-auto">
+            {taskOptions.map((o) => {
+              const checked = linkedByTask.has(o.id);
+              return (
+                <label
+                  key={o.id}
+                  className="hover:bg-muted/50 flex cursor-pointer items-start gap-2 px-3 py-2 text-sm"
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={pending}
+                    onChange={(e) => toggle(o, e.target.checked)}
+                    className="accent-primary mt-0.5 h-4 w-4 shrink-0"
+                  />
+                  <span className="min-w-0 flex-1 break-words">{o.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
   );
 }
 
