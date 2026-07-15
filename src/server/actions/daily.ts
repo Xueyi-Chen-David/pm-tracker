@@ -9,6 +9,7 @@ import { canViewReportOf } from "@/server/hierarchy";
 import { sendPushToUser } from "@/server/push";
 import { todayUtc } from "@/lib/date";
 import { displayName } from "@/lib/display";
+import { isReactionEmoji } from "@/lib/daily";
 
 const ItemInput = z.object({
   title: z.string().trim().min(1, "請輸入任務名稱").max(100),
@@ -130,4 +131,93 @@ export async function addDailyReportComment(input: z.input<typeof CommentInput>)
     });
   }
   revalidatePath("/daily");
+}
+
+const ReactionInput = z.object({
+  reportId: z.string().min(1),
+  emoji: z.string().refine(isReactionEmoji, "不支援的表情"),
+});
+
+/**
+ * 對某份每日報告切換一個表情回應（emoji reaction）。
+ * 已按過同一 emoji＝取消，否則＝新增。權限與留言相同：本人或可見範圍內的上級主管。
+ * 新增（非本人）時通知報告作者。回傳最新的 { reacted } 供前端樂觀更新。
+ */
+export async function toggleDailyReportReaction(
+  input: z.input<typeof ReactionInput>,
+) {
+  const { user, org, membership } = await requireActiveOrg();
+  const d = ReactionInput.parse(input);
+
+  const report = await db.dailyReport.findFirst({
+    where: { id: d.reportId, organizationId: org.id },
+    select: { id: true, userId: true },
+  });
+  if (!report) throw new Error("找不到該日報。");
+
+  const [orgRow, graph, authorMember] = await Promise.all([
+    db.organization.findUnique({
+      where: { id: org.id },
+      select: { dailyReportChainVisible: true },
+    }),
+    getMembershipGraph(org.id),
+    db.organizationMember.findUnique({
+      where: {
+        organizationId_userId: {
+          organizationId: org.id,
+          userId: report.userId,
+        },
+      },
+      select: { id: true },
+    }),
+  ]);
+  if (!authorMember) throw new Error("報告作者不在目前組織。");
+  const chainVisible = orgRow?.dailyReportChainVisible ?? false;
+  if (!canViewReportOf(graph, membership.id, authorMember.id, chainVisible)) {
+    throw new Error("你沒有權限回應這份日報。");
+  }
+
+  const existing = await db.dailyReportReaction.findUnique({
+    where: {
+      reportId_userId_emoji: {
+        reportId: report.id,
+        userId: user.id,
+        emoji: d.emoji,
+      },
+    },
+    select: { id: true },
+  });
+
+  if (existing) {
+    await db.dailyReportReaction.delete({ where: { id: existing.id } });
+    revalidatePath("/daily");
+    return { reacted: false as const };
+  }
+
+  await db.dailyReportReaction.create({
+    data: { reportId: report.id, userId: user.id, emoji: d.emoji },
+  });
+
+  // 新增回應且非本人 → 通知報告作者（站內鈴鐺 + 桌面推播）。
+  if (report.userId !== user.id) {
+    const title = `${displayName(user)} 對你的每日報告按了 ${d.emoji}`;
+    await db.notification.create({
+      data: {
+        organizationId: org.id,
+        userId: report.userId,
+        type: "daily_reaction",
+        title,
+        body: null,
+        link: "/daily",
+      },
+    });
+    await sendPushToUser(report.userId, {
+      title,
+      body: "",
+      link: "/daily",
+      tag: "daily_reaction",
+    });
+  }
+  revalidatePath("/daily");
+  return { reacted: true as const };
 }

@@ -77,6 +77,13 @@ export const RELEASES: WhatsNewRelease[] = [
       },
       {
         tag: "improved",
+        title: "每日報告可以按表情回應",
+        detail:
+          "主管可以對下屬的日報按 👍❤️🎉 等表情，對方也看得到並收到通知，回饋更快更輕鬆。",
+        href: "/daily",
+      },
+      {
+        tag: "improved",
         title: "專案就地管理",
         detail: "在專案清單直接展開卡片管理所有設定，不必再進獨立詳情頁。",
         href: "/projects",

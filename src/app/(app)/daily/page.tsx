@@ -81,7 +81,7 @@ export default async function DailyPage() {
   const showTeam = subordinates.length > 0;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 pb-4">
       <PageHeader
         title="每日報告"
         description={`${format(today, "yyyy/M/d (EEE)")} · 記錄今天完成的任務與重點`}
@@ -137,12 +137,13 @@ export default async function DailyPage() {
             </CardHeader>
             <CardContent>
               {myReports.length > 0 ? (
-                <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1">
+                <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1 pb-1">
                   {myReports.map((r) => (
                     <DailyReportCard
                       key={r.id}
                       report={r}
                       canComment={false}
+                      currentUserId={user.id}
                       showAuthor={false}
                     />
                   ))}
@@ -210,9 +211,16 @@ export default async function DailyPage() {
                       下屬還沒有每日報告。
                     </p>
                   ) : (
-                    teamReports.map((r) => (
-                      <DailyReportCard key={r.id} report={r} canComment />
-                    ))
+                    <div className="max-h-[32rem] space-y-2 overflow-y-auto pr-1 pb-1">
+                      {teamReports.map((r) => (
+                        <DailyReportCard
+                          key={r.id}
+                          report={r}
+                          canComment
+                          currentUserId={user.id}
+                        />
+                      ))}
+                    </div>
                   )}
                 </div>
               </CardContent>

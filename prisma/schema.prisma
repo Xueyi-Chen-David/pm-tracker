@@ -43,9 +43,10 @@ model User {
   tasksOwned        Task[]             @relation("TaskOwners")
   tasksPrimaryOwned Task[]             @relation("TaskPrimaryOwner")
 
-  dailyReports        DailyReport[]
-  dailyReportComments DailyReportComment[]
-  notifications       Notification[]
+  dailyReports         DailyReport[]
+  dailyReportComments  DailyReportComment[]
+  dailyReportReactions DailyReportReaction[]
+  notifications        Notification[]
   checkIns            CheckIn[]
   trainingAssignments TrainingAssignment[]
   crmContactsOwned    CrmContact[]         @relation("CrmContactOwner")
@@ -659,8 +660,9 @@ model DailyReport {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  comments DailyReportComment[]
-  items    DailyReportItem[]
+  comments  DailyReportComment[]
+  items     DailyReportItem[]
+  reactions DailyReportReaction[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -698,6 +700,21 @@ model DailyReportComment {
   body      String      @db.Text
   createdAt DateTime    @default(now())
 
+  @@index([reportId])
+}
+
+/// 每日報告的表情回應（Slack 式 emoji reaction）。可見該日報的人（本人＋主管）皆可按；
+/// 同一人對同一份日報的同一個 emoji 只有一筆（再按即取消＝可切換）。
+model DailyReportReaction {
+  id        String      @id @default(cuid())
+  reportId  String
+  report    DailyReport @relation(fields: [reportId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String // emoji 字元（如 👍）；允許清單於 lib/daily.ts 定義並於 action 驗證
+  createdAt DateTime    @default(now())
+
+  @@unique([reportId, userId, emoji])
   @@index([reportId])
 }
 
