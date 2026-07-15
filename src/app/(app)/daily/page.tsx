@@ -18,14 +18,17 @@ import { CheckInCard } from "@/components/check-in-card";
 import { parseMatchMode } from "@/lib/checkin";
 import { DailyVisibilityToggle } from "@/components/daily-visibility-toggle";
 import {
-  TeamPulseBoard,
+  TeamDailyBoard,
   type BoardDay,
+  type BoardWeek,
   type BoardReport,
 } from "@/components/daily-team-board";
 
 export const metadata = { title: "每日報告 · Project Pulse" };
 
-const WINDOW_DAYS = 14;
+const PULSE_DAYS = 14; // 脈動分頁顯示的天數
+const WEEKS = 4; // 一週分頁可回溯的週數
+const DAY_MS = 86_400_000;
 
 export default async function DailyPage() {
   const { user, org, membership, canManage } = await requireManageContext();
@@ -33,7 +36,27 @@ export default async function DailyPage() {
 
   const today = todayUtc();
   const todayKey = today.toISOString().slice(0, 10);
-  const since = daysAgoUtc(WINDOW_DAYS - 1); // 近 14 天
+
+  const mkDay = (d: Date): BoardDay => {
+    const key = d.toISOString().slice(0, 10);
+    const weekday = d.getUTCDay();
+    return {
+      key,
+      label: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`,
+      weekday,
+      weekend: weekday === 0 || weekday === 6,
+      isToday: key === todayKey,
+    };
+  };
+  const addDays = (base: Date, n: number) =>
+    new Date(base.getTime() + n * DAY_MS);
+
+  // 一週分頁：以「本週」回溯 WEEKS 週，每週一 → 週日對齊。
+  const dow = today.getUTCDay(); // 0=Sun..6=Sat
+  const thisMonday = daysAgoUtc((dow + 6) % 7);
+  const weekStart = addDays(thisMonday, -7 * (WEEKS - 1)); // 最早一週的週一
+  const mySince = daysAgoUtc(PULSE_DAYS - 1); // 我的近期報告：近 14 天
+  const teamSince = weekStart < mySince ? weekStart : mySince; // 團隊取兩者較早者
 
   const orgRow = await db.organization.findUnique({
     where: { id: org.id },
@@ -49,7 +72,7 @@ export default async function DailyPage() {
 
   // 我的資料。
   const [myReports, graph, directory, todayPunches] = await Promise.all([
-    getDailyReportsForUsers(org.id, [user.id], since),
+    getDailyReportsForUsers(org.id, [user.id], mySince),
     getMembershipGraph(org.id),
     getOrgMemberDirectory(org.id),
     checkInEnabled
@@ -75,21 +98,22 @@ export default async function DailyPage() {
   const subordinateUserIds = subordinates.map((s) => s.id);
   const teamReports =
     subordinateUserIds.length > 0
-      ? await getDailyReportsForUsers(org.id, subordinateUserIds, since)
+      ? await getDailyReportsForUsers(org.id, subordinateUserIds, teamSince)
       : [];
   const showTeam = subordinates.length > 0;
 
-  // 脈動熱區資料：近 14 天（舊→新）、成員、以 userId|date 索引的日報。
-  const days: BoardDay[] = Array.from({ length: WINDOW_DAYS }, (_, i) => {
-    const d = daysAgoUtc(WINDOW_DAYS - 1 - i);
-    const key = d.toISOString().slice(0, 10);
-    const weekday = d.getUTCDay();
+  // 脈動分頁：近 14 天（舊→新）。
+  const pulseDays: BoardDay[] = Array.from({ length: PULSE_DAYS }, (_, i) =>
+    mkDay(daysAgoUtc(PULSE_DAYS - 1 - i)),
+  );
+  // 一週分頁：WEEKS 週，每週一 → 週日；最後一筆為本週。
+  const weeks: BoardWeek[] = Array.from({ length: WEEKS }, (_, w) => {
+    const mon = addDays(thisMonday, -7 * (WEEKS - 1 - w));
+    const wdays = Array.from({ length: 7 }, (_, i) => mkDay(addDays(mon, i)));
     return {
-      key,
-      label: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`,
-      weekday,
-      weekend: weekday === 0 || weekday === 6,
-      isToday: key === todayKey,
+      key: wdays[0]!.key,
+      label: `${wdays[0]!.label}–${wdays[6]!.label}`,
+      days: wdays,
     };
   });
   const boardMembers = subordinates.map((s) => ({
@@ -105,7 +129,6 @@ export default async function DailyPage() {
     id: r.id,
     date: r.date,
     dateKey: r.date.toISOString().slice(0, 10),
-    score: r.score,
     userId: r.userId,
     note: r.note,
     user: r.user,
@@ -204,10 +227,11 @@ export default async function DailyPage() {
         description={`${format(today, "yyyy/M/d (EEE)")} · 記錄今天完成的任務與重點`}
       />
 
-      {/* 團隊脈動（主管檢視）：一眼看每個人、每一天的狀況。 */}
+      {/* 團隊日報（主管檢視）：脈動＝誰填了、一週＝看每個人寫了什麼。 */}
       {showTeam && (
-        <TeamPulseBoard
-          days={days}
+        <TeamDailyBoard
+          pulseDays={pulseDays}
+          weeks={weeks}
           members={boardMembers}
           reports={boardReports}
           currentUserId={user.id}
