@@ -1,4 +1,5 @@
 import { db } from "@/server/db";
+import { sendPushMany } from "@/server/push";
 
 /**
  * 到期通知：找出「今天到期」且尚未完成的項目（任務 / 里程碑 / 專案），
@@ -151,6 +152,15 @@ export async function runDeadlineNotifications(
     }
     if (rows.length > 0) {
       await db.notification.createMany({ data: rows });
+      await sendPushMany(
+        rows.map((r) => ({
+          userId: r.userId,
+          title: r.title,
+          body: r.body,
+          link: r.link,
+          tag: r.type,
+        })),
+      );
       summary.notificationsCreated += rows.length;
     }
 
@@ -214,6 +224,15 @@ export async function runDeadlineNotifications(
     }
     if (reminderRows.length > 0) {
       await db.notification.createMany({ data: reminderRows });
+      await sendPushMany(
+        reminderRows.map((r) => ({
+          userId: r.userId,
+          title: r.title,
+          body: r.body,
+          link: r.link,
+          tag: r.type,
+        })),
+      );
       summary.remindersCreated += reminderRows.length;
     }
   }

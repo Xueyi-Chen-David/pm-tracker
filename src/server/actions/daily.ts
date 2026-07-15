@@ -6,6 +6,7 @@ import { db } from "@/server/db";
 import { requireActiveOrg } from "@/server/org";
 import { getMembershipGraph } from "@/server/queries";
 import { canViewReportOf } from "@/server/hierarchy";
+import { sendPushToUser } from "@/server/push";
 import { todayUtc } from "@/lib/date";
 import { displayName } from "@/lib/display";
 
@@ -107,17 +108,25 @@ export async function addDailyReportComment(input: z.input<typeof CommentInput>)
     data: { reportId: report.id, authorId: user.id, body: d.body },
   });
 
-  // 通知報告作者（非本人留言時）。
+  // 通知報告作者（非本人留言時）：站內鈴鐺 + 桌面推播。
   if (report.userId !== user.id) {
+    const title = `${displayName(user)} 回饋了你的每日報告`;
+    const body = d.body.slice(0, 140);
     await db.notification.create({
       data: {
         organizationId: org.id,
         userId: report.userId,
         type: "daily_comment",
-        title: `${displayName(user)} 回饋了你的每日報告`,
-        body: d.body.slice(0, 140),
+        title,
+        body,
         link: "/daily",
       },
+    });
+    await sendPushToUser(report.userId, {
+      title,
+      body,
+      link: "/daily",
+      tag: "daily_comment",
     });
   }
   revalidatePath("/daily");

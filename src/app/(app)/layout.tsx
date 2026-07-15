@@ -8,6 +8,8 @@ import { visibleModules } from "@/lib/modules";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppContainer } from "@/components/app-container";
 import { WhatsNew } from "@/components/whats-new";
+import { PushManager } from "@/components/push-manager";
+import { PomodoroIndicator } from "@/components/pomodoro";
 
 export default async function AppLayout({
   children,
@@ -62,6 +64,10 @@ export default async function AppLayout({
       </main>
       {/* 「本週更新」彈窗：全 App 掛載一次，使用者下次開網頁時自動秀出新功能。 */}
       <WhatsNew />
+      {/* 桌面通知：登入後自動註冊 SW + 訂閱推播（預設開啟）。 */}
+      <PushManager />
+      {/* 全域番茄鐘浮動計時器（模組級 store，切頁 / 關網頁都持續倒數；進行中才顯示）。 */}
+      <PomodoroIndicator />
     </div>
   );
 }

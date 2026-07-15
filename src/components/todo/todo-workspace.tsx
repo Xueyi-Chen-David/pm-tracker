@@ -20,11 +20,11 @@ import {
   createTodo,
   updateTodo,
   deleteTodo,
-  logPomodoro,
   deletePomodoro,
 } from "@/server/actions/todo";
 import { cn } from "@/lib/utils";
 import { fmtDateShort } from "@/lib/date";
+import { usePomodoro } from "@/components/pomodoro";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -105,7 +105,7 @@ export function TodoWorkspace({
         />
       </div>
       <div className="space-y-4">
-        <Pomodoro todos={todos} pending={pending} run={run} />
+        <Pomodoro todos={todos} />
         <PomodoroRecords pomodoros={pomodoros} pending={pending} run={run} />
       </div>
     </div>
@@ -456,81 +456,52 @@ function TodoRow({
 
 // ── 番茄鐘 ───────────────────────────────────────────────
 
-function Pomodoro({
-  todos,
-  pending,
-  run,
-}: {
-  todos: TodoView[];
-  pending: boolean;
-  run: (fn: () => Promise<unknown>, ok?: string) => void;
-}) {
-  const [durationMin, setDurationMin] = useState(25);
-  const [secondsLeft, setSecondsLeft] = useState(25 * 60);
-  const [running, setRunning] = useState(false);
+function Pomodoro({ todos }: { todos: TodoView[] }) {
+  const router = useRouter();
+  const pomo = usePomodoro();
+  // idle 時的設定（進行中則鎖定、以 context 的值為準）。
+  const [durationMin, setDurationMin] = useState(() =>
+    Math.max(1, Math.round(pomo.durationSec / 60)),
+  );
   const [focusTodoId, setFocusTodoId] = useState("");
-  const completedRef = useRef(false);
+  const wasActive = useRef(pomo.active);
 
-  // 倒數：running 時每秒 -1。
+  // 完成 / 結束時（active true→false）刷新頁面，讓右側番茄鐘紀錄更新。
   useEffect(() => {
-    if (!running) return;
-    const iv = setInterval(() => {
-      setSecondsLeft((s) => (s <= 1 ? 0 : s - 1));
-    }, 1000);
-    return () => clearInterval(iv);
-  }, [running]);
+    if (wasActive.current && !pomo.active) router.refresh();
+    wasActive.current = pomo.active;
+  }, [pomo.active, router]);
 
-  // 倒數歸零 → 記錄一個完整番茄鐘。
-  useEffect(() => {
-    if (running && secondsLeft === 0 && !completedRef.current) {
-      completedRef.current = true;
-      setRunning(false);
-      const sec = durationMin * 60;
-      run(
-        () => logPomodoro({ durationSec: sec, todoId: focusTodoId || null }),
-        "完成一個番茄鐘 🍅",
-      );
-      setSecondsLeft(durationMin * 60);
-    }
-  }, [running, secondsLeft, durationMin, focusTodoId, run]);
-
-  // 改時長：未在倒數時同步倒數起點（在事件處理裡設，不用 effect）。
   function changeDuration(n: number) {
     const v = Math.max(1, Math.min(180, Math.floor(n) || 1));
     setDurationMin(v);
-    if (!running) {
-      setSecondsLeft(v * 60);
-      completedRef.current = false;
-    }
+    pomo.setDurationSec(v * 60);
   }
 
-  const elapsed = durationMin * 60 - secondsLeft;
-  const mm = String(Math.floor(secondsLeft / 60)).padStart(2, "0");
-  const ss = String(secondsLeft % 60).padStart(2, "0");
-  const progress = durationMin > 0 ? (elapsed / (durationMin * 60)) * 100 : 0;
+  const total = pomo.active ? pomo.durationSec : durationMin * 60;
+  const remaining = pomo.active ? pomo.remainingSec : durationMin * 60;
+  const elapsed = total - remaining;
+  const mm = String(Math.floor(remaining / 60)).padStart(2, "0");
+  const ss = String(remaining % 60).padStart(2, "0");
+  const progress = total > 0 ? (elapsed / total) * 100 : 0;
+  // 顯示用時長（進行中鎖定為 context 值）與專注待辦。
+  const shownMin = pomo.active ? Math.round(pomo.durationSec / 60) : durationMin;
 
-  function toggle() {
-    completedRef.current = false;
-    if (secondsLeft === 0) setSecondsLeft(durationMin * 60);
-    setRunning((v) => !v);
-  }
-  function reset() {
-    completedRef.current = false;
-    setRunning(false);
-    setSecondsLeft(durationMin * 60);
-  }
-  function logElapsed() {
-    if (elapsed < 1) {
-      toast.error("還沒有專注時間可記錄。");
-      return;
+  function primary() {
+    if (!pomo.active) {
+      // 這個點擊手勢順便請求通知權限，確保完成時桌面通知跳得出來。
+      if (
+        typeof window !== "undefined" &&
+        "Notification" in window &&
+        Notification.permission === "default"
+      ) {
+        void Notification.requestPermission();
+      }
+      const t = todos.find((x) => x.id === focusTodoId);
+      pomo.start(durationMin * 60, focusTodoId || null, t?.title ?? null);
+    } else {
+      pomo.toggle();
     }
-    setRunning(false);
-    run(
-      () => logPomodoro({ durationSec: elapsed, todoId: focusTodoId || null }),
-      "已記錄專注時間",
-    );
-    completedRef.current = false;
-    setSecondsLeft(durationMin * 60);
   }
 
   return (
@@ -549,27 +520,50 @@ function Pomodoro({
             style={{ width: `${progress}%` }}
           />
         </div>
+        {pomo.active && pomo.todoTitle && (
+          <p className="text-muted-foreground mt-1.5 truncate text-xs">
+            專注於：{pomo.todoTitle}
+          </p>
+        )}
       </div>
 
       <div className="mt-3 flex items-center justify-center gap-2">
-        <Button size="sm" onClick={toggle}>
-          {running ? (
+        <Button size="sm" onClick={primary}>
+          {!pomo.active ? (
+            <>
+              <Play className="h-4 w-4" /> 開始
+            </>
+          ) : pomo.running ? (
             <>
               <Pause className="h-4 w-4" /> 暫停
             </>
           ) : (
             <>
-              <Play className="h-4 w-4" /> {secondsLeft === durationMin * 60 ? "開始" : "繼續"}
+              <Play className="h-4 w-4" /> 繼續
             </>
           )}
         </Button>
-        <Button size="sm" variant="outline" onClick={reset}>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={!pomo.active}
+          onClick={pomo.reset}
+        >
           <RotateCcw className="h-4 w-4" /> 重設
         </Button>
-        <Button size="sm" variant="ghost" disabled={pending || elapsed < 1} onClick={logElapsed}>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={!pomo.active || elapsed < 1}
+          onClick={pomo.logElapsed}
+        >
           <Save className="h-4 w-4" /> 記錄
         </Button>
       </div>
+
+      <p className="text-muted-foreground mt-2 text-center text-[11px]">
+        離開頁面或關閉網頁都會持續倒數，時間到會發桌面通知。
+      </p>
 
       <div className="mt-3 space-y-2 border-t pt-3">
         <label className="flex items-center justify-between gap-2 text-xs">
@@ -579,10 +573,11 @@ function Pomodoro({
               <button
                 key={n}
                 type="button"
+                disabled={pomo.active}
                 onClick={() => changeDuration(n)}
                 className={cn(
-                  "rounded-md border px-2 py-0.5 text-xs",
-                  durationMin === n
+                  "rounded-md border px-2 py-0.5 text-xs disabled:opacity-50",
+                  shownMin === n
                     ? "border-primary bg-primary/10 text-primary"
                     : "text-muted-foreground",
                 )}
@@ -594,18 +589,20 @@ function Pomodoro({
               type="number"
               min={1}
               max={180}
-              value={durationMin}
+              disabled={pomo.active}
+              value={shownMin}
               onChange={(e) => changeDuration(Number(e.target.value))}
-              className={dateCls + " w-14"}
+              className={dateCls + " w-14 disabled:opacity-50"}
             />
           </div>
         </label>
         <label className="flex items-center justify-between gap-2 text-xs">
           <span className="text-muted-foreground shrink-0">專注於</span>
           <select
-            value={focusTodoId}
+            value={pomo.active ? (pomo.todoId ?? "") : focusTodoId}
+            disabled={pomo.active}
             onChange={(e) => setFocusTodoId(e.target.value)}
-            className={selectCls + " min-w-0 flex-1 text-xs"}
+            className={selectCls + " min-w-0 flex-1 text-xs disabled:opacity-50"}
           >
             <option value="">（不指定待辦）</option>
             {todos

@@ -52,6 +52,21 @@ model User {
   crmDealsOwned       CrmDeal[]            @relation("CrmDealOwner")
   todoItems           TodoItem[]
   pomodoroSessions    PomodoroSession[]
+  pushSubscriptions   PushSubscription[]
+}
+
+/// 瀏覽器推播訂閱（每個裝置 / 瀏覽器一筆）。用來在關閉網頁時也能發桌面通知。
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  endpoint  String   @unique
+  p256dh    String // 加密公鑰
+  auth      String // 加密驗證秘密
+  userAgent String? // 裝置 / 瀏覽器（顯示用）
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model Account {
@@ -475,19 +490,19 @@ model Meeting {
 /// 每日出席紀錄（每人每日最多一筆；present=有出席，false=缺席）。
 /// 只追蹤 User.trackAttendance = true 的成員，供出席月曆一眼檢視。
 model AttendanceRecord {
-  id          String     @id @default(cuid())
+  id          String   @id @default(cuid())
   userId      String
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  date        DateTime   @db.Date
-  present     Boolean    @default(true) // true=出席 / false=缺席（offsite 時 present 不看，另以圈圈呈現）
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date        DateTime @db.Date
+  present     Boolean  @default(true) // true=出席 / false=缺席（offsite 時 present 不看，另以圈圈呈現）
   reason      String? // 事由（請假 / 出差 / 在家工作…；選填）
-  offsite     Boolean    @default(false) // 出差 / 在家工作（在外工作）：出席月曆顯示為圈圈
-  holiday     Boolean    @default(false) // 休假 / 放假：既不算出席也不算缺席（週末預設放假不寫入，這是人工指定的休）
-  leave       Boolean    @default(false) // 請假（特休 / 事假 / 病假…）：既不算出席也不算缺席，事由記在 reason
-  auto        Boolean    @default(false) // 由成員事件自動產生（vs 人工登記）；人工編輯會清為 false
+  offsite     Boolean  @default(false) // 出差 / 在家工作（在外工作）：出席月曆顯示為圈圈
+  holiday     Boolean  @default(false) // 休假 / 放假：既不算出席也不算缺席（週末預設放假不寫入，這是人工指定的休）
+  leave       Boolean  @default(false) // 請假（特休 / 事假 / 病假…）：既不算出席也不算缺席，事由記在 reason
+  auto        Boolean  @default(false) // 由成員事件自動產生（vs 人工登記）；人工編輯會清為 false
   createdById String? // 登記者
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1063,4 +1078,3 @@ model PomodoroSession {
   @@index([organizationId])
   @@index([todoId])
 }
-
