@@ -64,6 +64,62 @@ export async function saveDailyReport(input: z.input<typeof SaveInput>) {
   revalidatePath("/daily");
 }
 
+/**
+ * 把一筆待辦「丟到今日報告」：以待辦標題新增一筆今日報告的工作項目。
+ * 今日報告不存在時自動建立；已有同名工作項目則略過（不重複）。
+ * 完成數量留 0，讓使用者稍後在報告表單自行填。
+ */
+export async function addTodoToDailyReport(todoId: string) {
+  const { org, user } = await requireActiveOrg();
+  const id = z.string().min(1).parse(todoId);
+  // 待辦需屬於本人。
+  const todo = await db.todoItem.findFirst({
+    where: { id, userId: user.id, organizationId: org.id },
+    select: { title: true },
+  });
+  if (!todo) throw new Error("找不到待辦");
+  const title = todo.title.trim();
+  if (!title) throw new Error("待辦沒有內容");
+
+  const date = todayUtc();
+  const report = await db.dailyReport.upsert({
+    where: {
+      organizationId_userId_date: {
+        organizationId: org.id,
+        userId: user.id,
+        date,
+      },
+    },
+    update: {},
+    create: { organizationId: org.id, userId: user.id, date },
+    select: { id: true },
+  });
+
+  const existing = await db.dailyReportItem.findFirst({
+    where: { reportId: report.id, title },
+    select: { id: true },
+  });
+  if (existing) {
+    revalidatePath("/todo");
+    return { ok: true as const, already: true };
+  }
+
+  const max = await db.dailyReportItem.aggregate({
+    where: { reportId: report.id },
+    _max: { sortOrder: true },
+  });
+  await db.dailyReportItem.create({
+    data: {
+      reportId: report.id,
+      title,
+      sortOrder: (max._max.sortOrder ?? 0) + 1,
+    },
+  });
+  revalidatePath("/daily");
+  revalidatePath("/todo");
+  return { ok: true as const };
+}
+
 const CommentInput = z.object({
   reportId: z.string().min(1),
   body: z.string().trim().min(1, "請輸入內容").max(1000),

@@ -14,6 +14,8 @@ import {
   CalendarDays,
   Link2,
   ListPlus,
+  ClipboardList,
+  ClipboardCheck,
   Save,
   Pencil,
 } from "lucide-react";
@@ -25,6 +27,7 @@ import {
   deletePomodoro,
   addTaskToTodo,
 } from "@/server/actions/todo";
+import { addTodoToDailyReport } from "@/server/actions/daily";
 import { cn } from "@/lib/utils";
 import { fmtDateShort } from "@/lib/date";
 import { usePomodoro } from "@/components/pomodoro";
@@ -78,13 +81,17 @@ export function TodoWorkspace({
   todos,
   pomodoros,
   taskOptions,
+  reportedTitles = [],
 }: {
   todos: TodoView[];
   pomodoros: PomodoroView[];
   taskOptions: TaskOption[];
+  /** 已在今日報告的工作項目標題（用來標示待辦是否已丟到今日報告）。 */
+  reportedTitles?: string[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const reportedSet = new Set(reportedTitles.map((s) => s.trim()));
 
   function run(fn: () => Promise<unknown>, ok?: string) {
     start(async () => {
@@ -104,6 +111,7 @@ export function TodoWorkspace({
         <TodoList
           todos={todos}
           taskOptions={taskOptions}
+          reportedSet={reportedSet}
           pending={pending}
           run={run}
         />
@@ -126,11 +134,13 @@ export function TodoWorkspace({
 function TodoList({
   todos,
   taskOptions,
+  reportedSet,
   pending,
   run,
 }: {
   todos: TodoView[];
   taskOptions: TaskOption[];
+  reportedSet: Set<string>;
   pending: boolean;
   run: (fn: () => Promise<unknown>, ok?: string) => void;
 }) {
@@ -259,6 +269,7 @@ function TodoList({
               key={t.id}
               todo={t}
               taskOptions={taskOptions}
+              inReport={reportedSet.has(t.title.trim())}
               pending={pending}
               run={run}
             />
@@ -393,11 +404,14 @@ function TaskPicker({
 function TodoRow({
   todo,
   taskOptions,
+  inReport,
   pending,
   run,
 }: {
   todo: TodoView;
   taskOptions: TaskOption[];
+  /** 此待辦是否已在今日報告（依標題比對）。 */
+  inReport: boolean;
   pending: boolean;
   run: (fn: () => Promise<unknown>, ok?: string) => void;
 }) {
@@ -487,6 +501,28 @@ function TodoRow({
           <span className="text-muted-foreground mt-0.5 block text-xs whitespace-pre-wrap">
             {todo.note}
           </span>
+        )}
+      </button>
+
+      {/* 一鍵把這筆待辦丟到今日報告（已加入則顯示綠勾、不重複）。 */}
+      <button
+        type="button"
+        disabled={pending || inReport}
+        title={inReport ? "已在今日報告" : "丟到今日報告"}
+        onClick={() =>
+          run(() => addTodoToDailyReport(todo.id), "已加入今日報告")
+        }
+        className={cn(
+          "mt-0.5 rounded-md p-1",
+          inReport
+            ? "text-emerald-600"
+            : "text-muted-foreground hover:bg-muted hover:text-foreground",
+        )}
+      >
+        {inReport ? (
+          <ClipboardCheck className="h-4 w-4" />
+        ) : (
+          <ClipboardList className="h-4 w-4" />
         )}
       </button>
 

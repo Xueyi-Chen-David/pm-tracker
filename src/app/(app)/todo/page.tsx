@@ -1,5 +1,6 @@
 import { requireActiveOrg } from "@/server/org";
 import { db } from "@/server/db";
+import { todayUtc } from "@/lib/date";
 import { PageHeader } from "@/components/page-header";
 import { TodoWorkspace } from "@/components/todo/todo-workspace";
 
@@ -12,7 +13,7 @@ function ymd(d: Date | null): string | null {
 export default async function TodoPage() {
   const { org, user } = await requireActiveOrg();
 
-  const [todos, pomodoros, myTasks] = await Promise.all([
+  const [todos, pomodoros, myTasks, todayReport] = await Promise.all([
     db.todoItem.findMany({
       where: { userId: user.id, organizationId: org.id },
       orderBy: [{ done: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
@@ -50,6 +51,11 @@ export default async function TodoPage() {
       orderBy: [{ project: { sortOrder: "asc" } }, { sortOrder: "asc" }],
       select: { id: true, title: true, project: { select: { name: true } } },
     }),
+    // 今日報告的工作項目標題——用來標示待辦是否已「丟到今日報告」。
+    db.dailyReport.findFirst({
+      where: { userId: user.id, organizationId: org.id, date: todayUtc() },
+      select: { items: { select: { title: true } } },
+    }),
   ]);
 
   const taskLabel = (t: {
@@ -78,6 +84,8 @@ export default async function TodoPage() {
   }));
 
   const taskOptions = myTasks.map((t) => ({ id: t.id, label: taskLabel(t) }));
+  // 已在今日報告的工作項目標題（依標題比對待辦）。
+  const reportedTitles = (todayReport?.items ?? []).map((it) => it.title);
 
   return (
     // 桌機：填滿視窗高度（扣掉 AppContainer 的 py-6＝3rem），讓兩欄各自內部捲動、
@@ -92,6 +100,7 @@ export default async function TodoPage() {
           todos={todoView}
           pomodoros={pomodoroView}
           taskOptions={taskOptions}
+          reportedTitles={reportedTitles}
         />
       </div>
     </div>
