@@ -1,5 +1,5 @@
 import { format } from "date-fns";
-import { ClipboardList, Fingerprint, Users2, History, Check } from "lucide-react";
+import { ClipboardList, Fingerprint, History } from "lucide-react";
 import { requireManageContext } from "@/server/org";
 import { db } from "@/server/db";
 import {
@@ -12,21 +12,28 @@ import { todayUtc, daysAgoUtc } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { MemberName } from "@/components/member-name";
 import { DailyReportForm } from "@/components/daily-report-form";
 import { DailyReportCard } from "@/components/daily-report-card";
 import { CheckInCard } from "@/components/check-in-card";
 import { parseMatchMode } from "@/lib/checkin";
 import { DailyVisibilityToggle } from "@/components/daily-visibility-toggle";
+import {
+  TeamPulseBoard,
+  type BoardDay,
+  type BoardReport,
+} from "@/components/daily-team-board";
 
 export const metadata = { title: "每日報告 · Project Pulse" };
+
+const WINDOW_DAYS = 14;
 
 export default async function DailyPage() {
   const { user, org, membership, canManage } = await requireManageContext();
   const isManager = canManage;
 
   const today = todayUtc();
-  const since = daysAgoUtc(13); // 近 14 天
+  const todayKey = today.toISOString().slice(0, 10);
+  const since = daysAgoUtc(WINDOW_DAYS - 1); // 近 14 天
 
   const orgRow = await db.organization.findUnique({
     where: { id: org.id },
@@ -56,29 +63,139 @@ export default async function DailyPage() {
 
   const todayReport = myReports.find((r) => r.date.getTime() === today.getTime());
 
-  // 團隊（下屬）資料——依可見範圍。
-  // 團隊日報只給「管理者指派的主管」（graph 上有下屬者）看。
+  // 團隊（下屬）資料——依可見範圍（管理者指派的主管、graph 上有下屬者才看得到）。
   const visibleMemberIds = visibleReportMemberIds(
     graph,
     membership.id,
     chainVisible,
   );
-  const subordinateUserIds = graph
-    .filter((g) => visibleMemberIds.has(g.id))
-    .map((g) => g.userId);
   const subordinates = directory.filter((d) =>
     visibleMemberIds.has(d.membershipId),
   );
+  const subordinateUserIds = subordinates.map((s) => s.id);
   const teamReports =
     subordinateUserIds.length > 0
       ? await getDailyReportsForUsers(org.id, subordinateUserIds, since)
       : [];
-  const submittedTodayUserIds = new Set(
-    teamReports
-      .filter((r) => r.date.getTime() === today.getTime())
-      .map((r) => r.userId),
-  );
   const showTeam = subordinates.length > 0;
+
+  // 脈動熱區資料：近 14 天（舊→新）、成員、以 userId|date 索引的日報。
+  const days: BoardDay[] = Array.from({ length: WINDOW_DAYS }, (_, i) => {
+    const d = daysAgoUtc(WINDOW_DAYS - 1 - i);
+    const key = d.toISOString().slice(0, 10);
+    const weekday = d.getUTCDay();
+    return {
+      key,
+      label: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`,
+      weekday,
+      weekend: weekday === 0 || weekday === 6,
+      isToday: key === todayKey,
+    };
+  });
+  const boardMembers = subordinates.map((s) => ({
+    id: s.id,
+    membershipId: s.membershipId,
+    name: s.name,
+    nickname: s.nickname,
+    useNickname: s.useNickname,
+    email: s.email,
+    image: s.image,
+  }));
+  const boardReports: BoardReport[] = teamReports.map((r) => ({
+    id: r.id,
+    date: r.date,
+    dateKey: r.date.toISOString().slice(0, 10),
+    score: r.score,
+    userId: r.userId,
+    note: r.note,
+    user: r.user,
+    items: r.items.map((it) => ({
+      id: it.id,
+      title: it.title,
+      actual: it.actual,
+    })),
+    comments: r.comments.map((c) => ({
+      id: c.id,
+      body: c.body,
+      createdAt: c.createdAt,
+      author: c.author,
+    })),
+    reactions: r.reactions.map((x) => ({
+      id: x.id,
+      emoji: x.emoji,
+      userId: x.userId,
+      user: x.user,
+    })),
+  }));
+
+  // 「我的今日」卡片（打卡 + 今日報告表單）。
+  const myTodayCards = (
+    <>
+      {checkInEnabled && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1.5">
+              <Fingerprint className="h-4 w-4" /> 今日打卡
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <CheckInCard todayPunches={todayPunches} matchMode={checkInMatchMode} />
+          </CardContent>
+        </Card>
+      )}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-1.5">
+            <ClipboardList className="h-4 w-4" /> 今日報告
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <DailyReportForm
+            initial={
+              todayReport
+                ? {
+                    note: todayReport.note ?? "",
+                    items: todayReport.items.map((it) => ({
+                      title: it.title,
+                      actual: it.actual,
+                    })),
+                  }
+                : null
+            }
+          />
+        </CardContent>
+      </Card>
+    </>
+  );
+
+  const myRecentCard = (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-1.5">
+          <History className="h-4 w-4" /> 我的近期報告
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {myReports.length > 0 ? (
+          <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1 pb-1">
+            {myReports.map((r) => (
+              <DailyReportCard
+                key={r.id}
+                report={r}
+                canComment={false}
+                currentUserId={user.id}
+                showAuthor={false}
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="text-muted-foreground text-sm">
+            還沒有每日報告，從上面開始新增今天的任務。
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
 
   return (
     <div className="space-y-5 pb-4">
@@ -87,147 +204,30 @@ export default async function DailyPage() {
         description={`${format(today, "yyyy/M/d (EEE)")} · 記錄今天完成的任務與重點`}
       />
 
-      <div className={cn("grid gap-5", showTeam && "lg:grid-cols-2")}>
-        {/* 我的每日 */}
-        <div className={cn("space-y-5", !showTeam && "mx-auto w-full max-w-2xl")}>
-          {checkInEnabled && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-1.5">
-                  <Fingerprint className="h-4 w-4" /> 今日打卡
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CheckInCard
-                  todayPunches={todayPunches}
-                  matchMode={checkInMatchMode}
-                />
-              </CardContent>
-            </Card>
-          )}
+      {/* 團隊脈動（主管檢視）：一眼看每個人、每一天的狀況。 */}
+      {showTeam && (
+        <TeamPulseBoard
+          days={days}
+          members={boardMembers}
+          reports={boardReports}
+          currentUserId={user.id}
+          canComment
+          header={isManager ? <DailyVisibilityToggle initial={chainVisible} /> : undefined}
+        />
+      )}
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-1.5">
-                <ClipboardList className="h-4 w-4" /> 今日報告
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <DailyReportForm
-                initial={
-                  todayReport
-                    ? {
-                        note: todayReport.note ?? "",
-                        items: todayReport.items.map((it) => ({
-                          title: it.title,
-                          actual: it.actual,
-                        })),
-                      }
-                    : null
-                }
-              />
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-1.5">
-                <History className="h-4 w-4" /> 我的近期報告
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {myReports.length > 0 ? (
-                <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1 pb-1">
-                  {myReports.map((r) => (
-                    <DailyReportCard
-                      key={r.id}
-                      report={r}
-                      canComment={false}
-                      currentUserId={user.id}
-                      showAuthor={false}
-                    />
-                  ))}
-                </div>
-              ) : (
-                <p className="text-muted-foreground text-sm">
-                  還沒有每日報告，從上面開始新增今天的任務。
-                </p>
-              )}
-            </CardContent>
-          </Card>
+      {/* 我的今日 + 近期報告。 */}
+      {showTeam ? (
+        <div className="grid gap-5 lg:grid-cols-2">
+          <div className="space-y-5">{myTodayCards}</div>
+          {myRecentCard}
         </div>
-
-        {/* 團隊日報（主管檢視） */}
-        {showTeam && (
-          <div className="space-y-5">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-1.5">
-                  <Users2 className="h-4 w-4" /> 團隊日報
-                  <span className="text-muted-foreground text-xs font-normal">
-                    · {subordinates.length} 位下屬
-                  </span>
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {isManager && <DailyVisibilityToggle initial={chainVisible} />}
-
-                {/* 今日狀態 */}
-                <div>
-                  <div className="text-muted-foreground mb-1.5 text-xs font-medium">
-                    今日狀態
-                  </div>
-                  <div className="grid gap-1.5 sm:grid-cols-2">
-                    {subordinates.map((s) => {
-                      const submitted = submittedTodayUserIds.has(s.id);
-                      return (
-                        <div
-                          key={s.membershipId}
-                          className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-sm"
-                        >
-                          <MemberName u={s} className="min-w-0 flex-1 truncate" />
-                          {submitted ? (
-                            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                              <Check className="h-3 w-3" /> 已填
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground shrink-0 text-xs">
-                              未填
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* 近期報告 + 回饋 */}
-                <div className="space-y-2">
-                  <div className="text-muted-foreground text-xs font-medium">
-                    近期報告
-                  </div>
-                  {teamReports.length === 0 ? (
-                    <p className="text-muted-foreground text-sm">
-                      下屬還沒有每日報告。
-                    </p>
-                  ) : (
-                    <div className="max-h-[32rem] space-y-2 overflow-y-auto pr-1 pb-1">
-                      {teamReports.map((r) => (
-                        <DailyReportCard
-                          key={r.id}
-                          report={r}
-                          canComment
-                          currentUserId={user.id}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
-      </div>
+      ) : (
+        <div className={cn("mx-auto w-full max-w-2xl space-y-5")}>
+          {myTodayCards}
+          {myRecentCard}
+        </div>
+      )}
     </div>
   );
 }
