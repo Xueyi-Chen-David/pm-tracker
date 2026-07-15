@@ -187,11 +187,27 @@ function finish() {
   }, 1500);
 }
 
+/**
+ * 用「牆上時鐘」校正一次：背景分頁的 setInterval 會被節流甚至凍結，導致顯示停住、
+ * 完成延後。回到分頁 / 取得焦點時馬上重算剩餘、必要時補觸發完成。
+ */
+function syncFromClock() {
+  if (!hydrated) return;
+  nowMs = Date.now();
+  if (isRunning(state) && (state.endsAt ?? 0) <= nowMs) finish();
+  else refresh();
+}
+
 function hydrate() {
   if (hydrated || typeof window === "undefined") return;
   hydrated = true;
   state = load();
   nowMs = Date.now();
+  // 分頁重新可見 / 取得焦點 → 立即校正（背景時計時仍以 endsAt 為準，不會漏算）。
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") syncFromClock();
+  });
+  window.addEventListener("focus", syncFromClock);
   if (isRunning(state) && (state.endsAt ?? 0) <= nowMs) finish();
   else {
     if (isRunning(state)) ensureTicker();
