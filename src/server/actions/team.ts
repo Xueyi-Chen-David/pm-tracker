@@ -319,11 +319,58 @@ export async function updateProfileAction(
   const trackAttendance = formData.get("trackAttendance") === "on";
   const lowerEmail = d.email ? d.email.toLowerCase() : undefined;
 
-  // 只有 email 真的變更時才寫入（不分大小寫比對目前值），避免修改職稱 / 部門等資料時誤觸唯一性。
-  const emailUpdate = await resolveEmailUpdate(d.id, lowerEmail);
-  if (emailUpdate.error) return { error: emailUpdate.error };
-  const setEmail = emailUpdate.email !== undefined;
+  // 組織內欄位（成員設定），re-link 與一般路徑共用。
+  const memberData = {
+    jobTitle: d.jobTitle || null,
+    department: d.department || null,
+    attendance: d.attendance || null,
+    bio: d.bio || null,
+    active: d.active ?? true,
+    trackAttendance,
+    managerId,
+  };
 
+  // email 是否真的變更（不分大小寫）。
+  const targetUser = await db.user.findUnique({
+    where: { id: d.id },
+    select: { email: true },
+  });
+  const currentLower = (targetUser?.email ?? "").toLowerCase();
+  const emailChanged = lowerEmail !== undefined && lowerEmail !== currentLower;
+
+  // email 改成「別的既有帳號」時：把這位成員改連到那個帳號（＝這個成員其實就是本人，
+  // 例如對方早已登入過 / 在別的組織）。不報「已被使用」，直接連過去，讓已有帳號的人也能加入。
+  if (emailChanged) {
+    const existingOther = await db.user.findFirst({
+      where: { email: { equals: lowerEmail, mode: "insensitive" }, id: { not: d.id } },
+      select: { id: true },
+    });
+    if (existingOther) {
+      const already = await db.organizationMember.findUnique({
+        where: {
+          organizationId_userId: { organizationId: org.id, userId: existingOther.id },
+        },
+        select: { id: true },
+      });
+      if (already) {
+        return { error: "這個 Email 對應的帳號已經是組織成員了。" };
+      }
+      // 改連到既有帳號：只動這位成員的 userId 與組織內欄位；不覆蓋對方本人的姓名 / email。
+      await db.organizationMember.update({
+        where: { id: membership.id },
+        data: { userId: existingOther.id, email: lowerEmail, ...memberData },
+      });
+      revalidatePath("/team");
+      revalidatePath(`/me/${existingOther.id}`);
+      revalidatePath(`/me/${d.id}`);
+      revalidatePath("/attendance");
+      revalidatePath("/daily");
+      return { ok: true };
+    }
+  }
+
+  // 一般情形：email 沒變、或改成尚未被使用的新 email（才寫入 email）。
+  const setEmail = emailChanged;
   try {
     await db.$transaction([
       // 身分（全域）
@@ -333,22 +380,13 @@ export async function updateProfileAction(
           name: d.name ?? null,
           nickname: d.nickname || null,
           useNickname: d.useNickname ?? false,
-          ...(setEmail ? { email: emailUpdate.email } : {}),
+          ...(setEmail ? { email: lowerEmail } : {}),
         },
       }),
       // 組織內欄位
       db.organizationMember.update({
         where: { id: membership.id },
-        data: {
-          ...(setEmail ? { email: emailUpdate.email } : {}), // 與 User email 同步
-          jobTitle: d.jobTitle || null,
-          department: d.department || null,
-          attendance: d.attendance || null,
-          bio: d.bio || null,
-          active: d.active ?? true,
-          trackAttendance,
-          managerId,
-        },
+        data: { ...(setEmail ? { email: lowerEmail } : {}), ...memberData },
       }),
     ]);
   } catch (e) {
