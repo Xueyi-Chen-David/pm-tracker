@@ -18,7 +18,6 @@ import {
   ListTodo,
   CircleUser,
   Handshake,
-  Wallet,
   Menu,
   LogOut,
   Plus,
@@ -37,7 +36,6 @@ import { NewProjectButton } from "@/components/new-project-button";
 import { OrgSwitcher } from "@/components/org-switcher";
 import { NotificationBell, type NotificationItem } from "@/components/notification-bell";
 import { WhatsNewTrigger } from "@/components/whats-new";
-import { ViewAsMenu, type PreviewRole } from "@/components/view-as-menu";
 import type { ModuleKey } from "@/lib/modules";
 
 type NavItem = {
@@ -78,7 +76,6 @@ const NAV_SECTIONS: NavSection[] = [
       { key: "meetings", href: "/meetings", label: "會議記錄", icon: NotebookPen },
       { key: "team", href: "/team", label: "團隊", icon: Users },
       { key: "attendance", href: "/attendance", label: "出席狀況", icon: UserCheck },
-      { key: "payroll", href: "/payroll", label: "薪資", icon: Wallet },
       { key: "report", href: "/report", label: "週報", icon: FileText },
       { key: "training", href: "/training", label: "公司文件", icon: Library },
     ],
@@ -219,9 +216,6 @@ export function AppSidebar({
   moduleKeys,
   activeOrg,
   orgs,
-  canPreview,
-  previewRoles,
-  previewValue,
   notifications,
   unread,
 }: {
@@ -230,9 +224,6 @@ export function AppSidebar({
   moduleKeys: ModuleKey[];
   activeOrg: Org;
   orgs: Org[];
-  canPreview: boolean;
-  previewRoles: PreviewRole[];
-  previewValue: string | null;
   notifications: NotificationItem[];
   unread: number;
 }) {
@@ -269,9 +260,6 @@ export function AppSidebar({
         </div>
         {/* 底部（固定） */}
         <div className="flex flex-col gap-2 border-t p-3">
-          {canPreview && (
-            <ViewAsMenu roles={previewRoles} previewValue={previewValue} />
-          )}
           <UserCard user={user} />
         </div>
       </aside>
@@ -308,9 +296,6 @@ export function AppSidebar({
               </div>
               {/* 底部（固定） */}
               <div className="flex flex-col gap-2 border-t p-3">
-                {canPreview && (
-                  <ViewAsMenu roles={previewRoles} previewValue={previewValue} />
-                )}
                 <UserCard user={user} />
               </div>
             </SheetContent>

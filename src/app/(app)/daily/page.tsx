@@ -22,9 +22,8 @@ import { DailyVisibilityToggle } from "@/components/daily-visibility-toggle";
 export const metadata = { title: "每日報告 · Project Pulse" };
 
 export default async function DailyPage() {
-  const { user, org, membership, canManage, previewing } =
-    await requireManageContext();
-  const isManager = canManage; // 員工視角預覽時降為非管理者
+  const { user, org, membership, canManage } = await requireManageContext();
+  const isManager = canManage;
 
   const today = todayUtc();
   const since = daysAgoUtc(13); // 近 14 天
@@ -58,11 +57,12 @@ export default async function DailyPage() {
   const todayReport = myReports.find((r) => r.date.getTime() === today.getTime());
 
   // 團隊（下屬）資料——依可見範圍。
-  // 團隊日報只給「管理者指派的主管」（graph 上有下屬者）看；員工視角預覽時一律當成
-  // 沒有下屬的一般員工，因此不顯示團隊日報。
-  const visibleMemberIds = previewing
-    ? new Set<string>()
-    : visibleReportMemberIds(graph, membership.id, chainVisible);
+  // 團隊日報只給「管理者指派的主管」（graph 上有下屬者）看。
+  const visibleMemberIds = visibleReportMemberIds(
+    graph,
+    membership.id,
+    chainVisible,
+  );
   const subordinateUserIds = graph
     .filter((g) => visibleMemberIds.has(g.id))
     .map((g) => g.userId);

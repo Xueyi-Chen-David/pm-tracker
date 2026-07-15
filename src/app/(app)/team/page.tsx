@@ -1,12 +1,7 @@
 import Link from "next/link";
 import { Crown, FolderKanban, Users2, FileText } from "lucide-react";
 import { requireManageContext } from "@/server/org";
-import {
-  getOrgMembers,
-  getOrgMemberDirectory,
-  getOrgRoles,
-} from "@/server/queries";
-import { RolesManager } from "@/components/roles-manager";
+import { getOrgMembers, getOrgMemberDirectory } from "@/server/queries";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { AddMemberButton } from "@/components/add-member-button";
@@ -32,15 +27,11 @@ export default async function TeamPage({
   const { org, user, canManage } = await requireManageContext();
   const { view: viewParam, tab: tabParam } = await searchParams;
   const view = viewParam === "card" ? "card" : "list";
-  // 角色權限分頁僅管理者可見；非管理者強制回成員頁。
-  let tab: "members" | "org" | "roles" = "members";
-  if (tabParam === "org") tab = "org";
-  else if (tabParam === "roles" && canManage) tab = "roles";
+  const tab: "members" | "org" = tabParam === "org" ? "org" : "members";
 
-  const [members, directory, roles] = await Promise.all([
+  const [members, directory] = await Promise.all([
     getOrgMembers(org.id),
     getOrgMemberDirectory(org.id),
-    canManage ? getOrgRoles(org.id) : Promise.resolve([]),
   ]);
 
   return (
@@ -72,16 +63,9 @@ export default async function TeamPage({
         <TabLink href="/team?tab=org" active={tab === "org"}>
           組織架構
         </TabLink>
-        {canManage && (
-          <TabLink href="/team?tab=roles" active={tab === "roles"}>
-            角色權限{roles.length > 0 ? ` · ${roles.length}` : ""}
-          </TabLink>
-        )}
       </div>
 
-      {tab === "roles" ? (
-        <RolesManager roles={roles} />
-      ) : tab === "members" ? (
+      {tab === "members" ? (
         <div className="space-y-3">
           <div className="flex justify-end">
             <ViewToggle view={view} basePath="/team" />
