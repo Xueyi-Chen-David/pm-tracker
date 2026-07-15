@@ -92,6 +92,51 @@ export async function createWorkspaceMemberAction(
   return { ok: true };
 }
 
+// 頭貼 data URL 格式（png/jpeg/webp/gif 的 base64）。
+const AVATAR_DATA_URL_RE = /^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/;
+
+/**
+ * 更新頭貼。dataUrl＝壓縮後的圖片 data URL（存進 User.image）；null＝移除。
+ * 本人可改自己的；管理者(OWNER/ADMIN)可改本組織任何人的。
+ */
+export async function updateAvatar(input: {
+  userId: string;
+  dataUrl: string | null;
+}) {
+  const { user, org, membership } = await requireActiveOrg();
+  const targetId = input.userId;
+  if (targetId !== user.id && !canManageMembers(membership.role)) {
+    throw new Error("只能更改自己的頭貼；管理者才能更改他人的。");
+  }
+  // 管理者改他人：確認目標是本組織成員（縱深防禦，擋跨組織）。
+  if (targetId !== user.id) {
+    const target = await db.organizationMember.findUnique({
+      where: { organizationId_userId: { organizationId: org.id, userId: targetId } },
+      select: { id: true },
+    });
+    if (!target) throw new Error("該成員不屬於目前組織。");
+  }
+
+  let image: string | null = null;
+  if (input.dataUrl) {
+    if (!AVATAR_DATA_URL_RE.test(input.dataUrl)) {
+      throw new Error("頭貼格式不正確。");
+    }
+    // data URL 長度上限（約 500KB 圖片）；前端已壓縮成小圖，這是防呆。
+    if (input.dataUrl.length > 700_000) {
+      throw new Error("圖片太大，請換小一點的圖片。");
+    }
+    image = input.dataUrl;
+  }
+
+  await db.user.update({ where: { id: targetId }, data: { image } });
+  revalidatePath("/me");
+  revalidatePath(`/me/${targetId}`);
+  revalidatePath("/team");
+  revalidatePath("/", "layout");
+  return { ok: true as const };
+}
+
 const MyProfileInput = z.object({
   name: z.string().trim().max(120).optional(),
   nickname: z.string().trim().max(120).optional(),

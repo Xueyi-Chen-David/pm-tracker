@@ -60,17 +60,33 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   providers,
   callbacks: {
     ...authConfig.callbacks,
-    async jwt({ token, user }) {
+    async jwt({ token, user, account, profile }) {
       if (user?.id) {
         token.id = user.id;
+        // Google 登入：帶入對方的大頭貼。只在目前「沒有頭貼」時填入，
+        // 不覆蓋使用者自己上傳的頭貼。（受邀先建帳號、之後才 Google 登入的人也會補上。）
+        if (account?.provider === "google") {
+          const picture =
+            typeof (profile as { picture?: unknown } | undefined)?.picture ===
+            "string"
+              ? ((profile as { picture: string }).picture)
+              : null;
+          if (picture) {
+            await db.user.updateMany({
+              where: { id: user.id, OR: [{ image: null }, { image: "" }] },
+              data: { image: picture },
+            });
+          }
+        }
         // 註：isBoss / jobTitle 已改為「每組織」欄位（OrganizationMember），
         // 不再放進全域 session；由 requireActiveOrg 於各請求解析。
         const dbUser = await db.user.findUnique({
           where: { id: user.id },
-          select: { nickname: true, useNickname: true },
+          select: { nickname: true, useNickname: true, image: true },
         });
         token.nickname = dbUser?.nickname ?? null;
         token.useNickname = dbUser?.useNickname ?? false;
+        token.picture = dbUser?.image ?? null;
       }
       return token;
     },
@@ -78,6 +94,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (token.id) session.user.id = token.id as string;
       session.user.nickname = (token.nickname as string | null) ?? null;
       session.user.useNickname = Boolean(token.useNickname);
+      session.user.image = (token.picture as string | null) ?? null;
       return session;
     },
   },

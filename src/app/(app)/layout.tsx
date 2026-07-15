@@ -48,7 +48,14 @@ export default async function AppLayout({
     name: m.organization.name,
   }));
   // isBoss 現在是「每組織」欄位，從 membership 帶入顯示（預覽時隱藏「老闆」標記）。
-  const sidebarUser = { ...user, isBoss: previewing ? false : membership.isBoss };
+  // 頭貼改讀 DB 最新值（session 的 image 來自 JWT，上傳後在重新登入前會是舊的）。
+  const freshImage =
+    users.find((u) => u.id === user.id)?.image ?? user.image ?? null;
+  const sidebarUser = {
+    ...user,
+    image: freshImage,
+    isBoss: previewing ? false : membership.isBoss,
+  };
   // 目前預覽對象的值（給選單標示 active）：self→null、employee→"employee"、role→"role:<id>"。
   const previewValue =
     preview.mode === "role"

@@ -23,6 +23,7 @@ import {
 import { fmtDateShort } from "@/lib/date";
 import { displayName, displayInitial } from "@/lib/display";
 import { MemberName } from "@/components/member-name";
+import { AvatarUploader } from "@/components/avatar-uploader";
 import { ProfileForm } from "@/components/profile-form";
 import { MyProfileForm } from "@/components/my-profile-form";
 import { MemberDeleteButton } from "@/components/member-delete-button";
@@ -145,10 +146,15 @@ export default async function MemberProfilePage({
 
       <Card>
         <CardContent className="flex flex-wrap items-center gap-4 pt-6">
-          <Avatar className="h-16 w-16">
-            {m.image && <AvatarImage src={m.image} alt="" />}
-            <AvatarFallback className="text-lg">{initials}</AvatarFallback>
-          </Avatar>
+          {isSelf || canManage ? (
+            // 本人或管理者：頭貼可點擊上傳 / 移除。
+            <AvatarUploader userId={m.id} image={m.image} fallback={initials} />
+          ) : (
+            <Avatar className="h-16 w-16">
+              {m.image && <AvatarImage src={m.image} alt="" />}
+              <AvatarFallback className="text-lg">{initials}</AvatarFallback>
+            </Avatar>
+          )}
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <MemberName u={m} className="text-2xl font-bold" />
