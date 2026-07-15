@@ -9,7 +9,6 @@ import {
 } from "@/server/queries";
 import { visibleReportMemberIds } from "@/server/hierarchy";
 import { todayUtc, daysAgoUtc } from "@/lib/date";
-import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DailyReportForm } from "@/components/daily-report-form";
@@ -18,7 +17,7 @@ import { CheckInCard } from "@/components/check-in-card";
 import { parseMatchMode } from "@/lib/checkin";
 import { DailyVisibilityToggle } from "@/components/daily-visibility-toggle";
 import {
-  TeamDailyBoard,
+  DailyBoard,
   type BoardDay,
   type BoardWeek,
   type BoardReport,
@@ -220,6 +219,14 @@ export default async function DailyPage() {
     </Card>
   );
 
+  // 「我的日報」分頁：今日打卡 / 報告表單 + 近期報告。
+  const mine = (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <div className="space-y-4">{myTodayCards}</div>
+      {myRecentCard}
+    </div>
+  );
+
   return (
     <div className="space-y-5 pb-4">
       <PageHeader
@@ -227,9 +234,10 @@ export default async function DailyPage() {
         description={`${format(today, "yyyy/M/d (EEE)")} · 記錄今天完成的任務與重點`}
       />
 
-      {/* 團隊日報（主管檢視）：脈動＝誰填了、一週＝看每個人寫了什麼。 */}
-      {showTeam && (
-        <TeamDailyBoard
+      {/* 有下屬＝分頁（我的日報 / 脈動 / 一週）；否則只顯示我的日報。 */}
+      {showTeam ? (
+        <DailyBoard
+          mine={mine}
           pulseDays={pulseDays}
           weeks={weeks}
           members={boardMembers}
@@ -238,19 +246,8 @@ export default async function DailyPage() {
           canComment
           header={isManager ? <DailyVisibilityToggle initial={chainVisible} /> : undefined}
         />
-      )}
-
-      {/* 我的今日 + 近期報告。 */}
-      {showTeam ? (
-        <div className="grid gap-5 lg:grid-cols-2">
-          <div className="space-y-5">{myTodayCards}</div>
-          {myRecentCard}
-        </div>
       ) : (
-        <div className={cn("mx-auto w-full max-w-2xl space-y-5")}>
-          {myTodayCards}
-          {myRecentCard}
-        </div>
+        <div className="mx-auto w-full max-w-4xl">{mine}</div>
       )}
     </div>
   );

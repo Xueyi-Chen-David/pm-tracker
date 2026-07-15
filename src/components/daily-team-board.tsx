@@ -3,8 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import {
-  Users2,
   Check,
+  ClipboardList,
   LayoutGrid,
   CalendarRange,
   ChevronLeft,
@@ -21,6 +21,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { fmtQty } from "@/lib/daily";
 import { displayInitial, primaryName, type NameSource } from "@/lib/display";
 import { cn } from "@/lib/utils";
 
@@ -94,9 +95,37 @@ function Legend() {
   );
 }
 
-// ── 外層：分頁容器 ─────────────────────────────────────────
+function TabButton({
+  active,
+  onClick,
+  icon: Icon,
+  label,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: typeof LayoutGrid;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1 rounded-md px-2.5 py-1 font-medium transition-colors",
+        active
+          ? "bg-background text-foreground shadow-sm"
+          : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      <Icon className="h-3.5 w-3.5" /> {label}
+    </button>
+  );
+}
 
-export function TeamDailyBoard({
+// ── 外層：分頁容器（我的日報 / 脈動 / 一週）─────────────────────
+
+export function DailyBoard({
+  mine,
   pulseDays,
   weeks,
   members,
@@ -105,6 +134,8 @@ export function TeamDailyBoard({
   canComment,
   header,
 }: {
+  /** 「我的日報」分頁內容（個人報告表單 + 近期報告，由伺服器組好傳入）。 */
+  mine: React.ReactNode;
   pulseDays: BoardDay[];
   weeks: BoardWeek[];
   members: BoardMember[];
@@ -112,58 +143,57 @@ export function TeamDailyBoard({
   currentUserId: string;
   /** 是否可對這些日報留言 / 回應（主管檢視下屬時為 true）。 */
   canComment: boolean;
-  /** 標題列右側附加內容（如可見性設定）。 */
+  /** 團隊分頁標題列右側附加內容（如可見性設定）。 */
   header?: React.ReactNode;
 }) {
-  const [tab, setTab] = useState<"pulse" | "week">("pulse");
+  const [tab, setTab] = useState<"mine" | "pulse" | "week">("mine");
   const currentWeek = weeks.findIndex((w) => w.days.some((d) => d.isToday));
   const [wi, setWi] = useState(
     currentWeek >= 0 ? currentWeek : Math.max(0, weeks.length - 1),
   );
   const week = weeks[wi];
+  const isTeam = tab !== "mine";
 
   return (
     <section className="bg-card overflow-hidden rounded-xl border shadow-sm">
-      {/* 標題 + 分頁切換 */}
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-2 border-b p-4">
-        <h2 className="flex items-center gap-1.5 text-base font-semibold">
-          <Users2 className="h-4 w-4" /> 團隊日報
-        </h2>
-        <span className="text-muted-foreground text-xs">
-          {members.length} 位成員
-        </span>
-        <div className="ml-auto flex items-center gap-2">
-          {header}
-          <div className="bg-muted inline-flex rounded-lg p-0.5 text-sm">
-            <button
-              type="button"
-              onClick={() => setTab("pulse")}
-              className={cn(
-                "inline-flex items-center gap-1 rounded-md px-2.5 py-1 font-medium transition-colors",
-                tab === "pulse"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <LayoutGrid className="h-3.5 w-3.5" /> 脈動
-            </button>
-            <button
-              type="button"
-              onClick={() => setTab("week")}
-              className={cn(
-                "inline-flex items-center gap-1 rounded-md px-2.5 py-1 font-medium transition-colors",
-                tab === "week"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <CalendarRange className="h-3.5 w-3.5" /> 一週
-            </button>
-          </div>
+      {/* 分頁切換 */}
+      <div className="flex flex-wrap items-center gap-2 border-b p-3">
+        <div className="bg-muted inline-flex rounded-lg p-0.5 text-sm">
+          <TabButton
+            active={tab === "mine"}
+            onClick={() => setTab("mine")}
+            icon={ClipboardList}
+            label="我的日報"
+          />
+          <TabButton
+            active={tab === "pulse"}
+            onClick={() => setTab("pulse")}
+            icon={LayoutGrid}
+            label="脈動"
+          />
+          <TabButton
+            active={tab === "week"}
+            onClick={() => setTab("week")}
+            icon={CalendarRange}
+            label="一週"
+          />
         </div>
+        {isTeam && (
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-muted-foreground text-xs">
+              {members.length} 位成員
+            </span>
+            {header}
+          </div>
+        )}
       </div>
 
-      {tab === "pulse" ? (
+      {/* 我的日報：常駐掛載、切走時隱藏以保留表單輸入。 */}
+      <div className={cn("bg-muted/20 p-4", tab !== "mine" && "hidden")}>
+        {mine}
+      </div>
+
+      {tab === "pulse" && (
         <PulseView
           pulseDays={pulseDays}
           members={members}
@@ -171,7 +201,9 @@ export function TeamDailyBoard({
           currentUserId={currentUserId}
           canComment={canComment}
         />
-      ) : (
+      )}
+
+      {tab === "week" && (
         <>
           {/* 週次導覽 */}
           <div className="flex items-center justify-center gap-3 border-b px-4 py-2 text-sm">
@@ -383,7 +415,7 @@ function PulseCell({
   );
 }
 
-// ── 一週：成員 × 一週七天，直接看每個人寫了什麼 ────────────────
+// ── 一週：成員 × 一週七天，直接看每個人做了哪些任務 ─────────────
 
 function WeekView({
   week,
@@ -412,7 +444,7 @@ function WeekView({
                 <th
                   key={d.key}
                   className={cn(
-                    "min-w-36 border-b px-2 py-1.5 text-center font-normal",
+                    "min-w-40 border-b px-2 py-1.5 text-center font-normal",
                     d.weekend && "bg-muted/40",
                     d.isToday && "bg-primary/10",
                   )}
@@ -442,7 +474,7 @@ function WeekView({
                   <td
                     key={d.key}
                     className={cn(
-                      "min-w-36 border-b p-1 align-top",
+                      "min-w-40 border-b p-1 align-top",
                       d.weekend && "bg-muted/15",
                       d.isToday && "bg-primary/5",
                     )}
@@ -464,6 +496,8 @@ function WeekView({
     </>
   );
 }
+
+const WEEK_CELL_MAX_ITEMS = 6;
 
 function WeekCell({
   report,
@@ -490,9 +524,9 @@ function WeekCell({
       </div>
     );
   }
-  const preview =
-    report.note?.trim() ||
-    (report.items.length > 0 ? `${report.items.length} 項任務` : "已填");
+  const items = report.items;
+  const note = report.note?.trim();
+  const extra = items.length - WEEK_CELL_MAX_ITEMS;
   return (
     <Popover>
       <PopoverTrigger className="block w-full min-w-0 rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-left transition-colors hover:bg-emerald-500/20">
@@ -504,9 +538,37 @@ function WeekCell({
             </span>
           )}
         </div>
-        <p className="text-foreground/80 mt-1 line-clamp-3 text-xs break-words whitespace-pre-wrap">
-          {preview}
-        </p>
+        {items.length > 0 && (
+          <ul className="mt-1 space-y-0.5">
+            {items.slice(0, WEEK_CELL_MAX_ITEMS).map((it) => (
+              <li key={it.id} className="flex items-baseline gap-1 text-xs">
+                <span className="text-muted-foreground/50">•</span>
+                <span className="text-foreground/85 min-w-0 flex-1 truncate">
+                  {it.title}
+                </span>
+                <span className="text-muted-foreground shrink-0 text-[10px] tabular-nums">
+                  {fmtQty(it.actual)}
+                </span>
+              </li>
+            ))}
+            {extra > 0 && (
+              <li className="text-muted-foreground text-[10px]">＋{extra} 項</li>
+            )}
+          </ul>
+        )}
+        {note && (
+          <p
+            className={cn(
+              "text-muted-foreground line-clamp-2 text-xs break-words whitespace-pre-wrap",
+              items.length > 0 && "mt-1 border-t pt-1",
+            )}
+          >
+            {note}
+          </p>
+        )}
+        {items.length === 0 && !note && (
+          <p className="text-muted-foreground mt-1 text-xs">已填（無內容）</p>
+        )}
       </PopoverTrigger>
       <PopoverContent align="center" className="w-80 p-2">
         <DailyReportCard
