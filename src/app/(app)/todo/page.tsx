@@ -1,5 +1,6 @@
 import { requireActiveOrg } from "@/server/org";
 import { db } from "@/server/db";
+import { todayUtc } from "@/lib/date";
 import { PageHeader } from "@/components/page-header";
 import { TodoWorkspace } from "@/components/todo/todo-workspace";
 
@@ -12,7 +13,7 @@ function ymd(d: Date | null): string | null {
 export default async function TodoPage() {
   const { org, user } = await requireActiveOrg();
 
-  const [todos, pomodoros, myTasks] = await Promise.all([
+  const [todos, pomodoros, myTasks, todayReport] = await Promise.all([
     db.todoItem.findMany({
       where: { userId: user.id, organizationId: org.id },
       orderBy: [{ done: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
@@ -37,6 +38,7 @@ export default async function TodoPage() {
         id: true,
         startedAt: true,
         durationSec: true,
+        todoId: true,
         todo: { select: { title: true } },
       },
     }),
@@ -48,6 +50,11 @@ export default async function TodoPage() {
       },
       orderBy: [{ project: { sortOrder: "asc" } }, { sortOrder: "asc" }],
       select: { id: true, title: true, project: { select: { name: true } } },
+    }),
+    // 今日報告的工作項目標題——用來標示待辦是否已「丟到今日報告」。
+    db.dailyReport.findFirst({
+      where: { userId: user.id, organizationId: org.id, date: todayUtc() },
+      select: { items: { select: { title: true } } },
     }),
   ]);
 
@@ -72,22 +79,30 @@ export default async function TodoPage() {
     id: p.id,
     startedAt: p.startedAt.toISOString(),
     durationSec: p.durationSec,
+    todoId: p.todoId,
     todoTitle: p.todo?.title ?? null,
   }));
 
   const taskOptions = myTasks.map((t) => ({ id: t.id, label: taskLabel(t) }));
+  // 已在今日報告的工作項目標題（依標題比對待辦）。
+  const reportedTitles = (todayReport?.items ?? []).map((it) => it.title);
 
   return (
-    <div className="space-y-4">
+    // 桌機：填滿視窗高度（扣掉 AppContainer 的 py-6＝3rem），讓兩欄各自內部捲動、
+    // 與底部保持固定距離；手機維持一般文件捲動。
+    <div className="flex flex-col gap-4 lg:h-[calc(100dvh-3rem)] lg:overflow-hidden">
       <PageHeader
         title="待辦 / 番茄鐘"
         description="你個人的待辦清單與番茄鐘專注紀錄。"
       />
-      <TodoWorkspace
-        todos={todoView}
-        pomodoros={pomodoroView}
-        taskOptions={taskOptions}
-      />
+      <div className="min-h-0 lg:flex-1">
+        <TodoWorkspace
+          todos={todoView}
+          pomodoros={pomodoroView}
+          taskOptions={taskOptions}
+          reportedTitles={reportedTitles}
+        />
+      </div>
     </div>
   );
 }

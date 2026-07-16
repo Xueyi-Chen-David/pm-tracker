@@ -68,7 +68,9 @@ export function ProfileForm({
       const res = await updateProfileAction(null, fd);
       if (res?.ok) {
         toast.success("已儲存 profile");
-        router.refresh();
+        // 合併占位成員到既有帳號時，跳到本人頁面；否則就地刷新。
+        if (res.redirectTo) router.push(res.redirectTo);
+        else router.refresh();
       } else {
         setError(res?.error ?? "儲存失敗");
       }

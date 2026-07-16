@@ -1239,6 +1239,10 @@ const dailyReportInclude = {
     orderBy: { createdAt: "asc" as const },
     include: { author: { select: userIdentitySelect } },
   },
+  reactions: {
+    orderBy: { createdAt: "asc" as const },
+    include: { user: { select: userIdentitySelect } },
+  },
 } as const;
 
 /** 指定使用者集合、自某日起的每日報告（本人歷史 / 主管檢視共用），最新在前。 */

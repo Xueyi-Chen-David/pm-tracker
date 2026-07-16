@@ -151,6 +151,51 @@ export async function logPomodoro(input: z.input<typeof PomodoroInput>) {
   return { ok: true as const };
 }
 
+const PomodoroPatch = z.object({
+  id: z.string().min(1),
+  durationSec: z.number().int().min(1).max(24 * 3600).optional(),
+  todoId: z.string().nullish(),
+  clearTodo: z.boolean().optional(),
+  // datetime-local 字串（"YYYY-MM-DDTHH:mm"，視為本地時間）。
+  startedAt: z.string().optional(),
+});
+
+/** 編輯一筆番茄鐘紀錄（時長 / 關聯待辦 / 開始時間）。限本人本組織。 */
+export async function updatePomodoro(input: z.input<typeof PomodoroPatch>) {
+  const { org, user } = await requireActiveOrg();
+  const p = PomodoroPatch.parse(input);
+
+  // 關聯待辦：clearTodo＝清除；提供 todoId＝驗證屬本人後設定；未提供＝不動。
+  let todoData: { todoId?: string | null } = {};
+  if (p.clearTodo) {
+    todoData = { todoId: null };
+  } else if (p.todoId) {
+    const todo = await db.todoItem.findFirst({
+      where: { id: p.todoId, userId: user.id, organizationId: org.id },
+      select: { id: true },
+    });
+    todoData = { todoId: todo?.id ?? null };
+  }
+
+  let startedAt: Date | undefined;
+  if (p.startedAt) {
+    const dt = new Date(p.startedAt);
+    if (!isNaN(dt.getTime())) startedAt = dt;
+  }
+
+  const res = await db.pomodoroSession.updateMany({
+    where: { id: p.id, userId: user.id, organizationId: org.id },
+    data: {
+      ...(p.durationSec !== undefined ? { durationSec: p.durationSec } : {}),
+      ...(startedAt !== undefined ? { startedAt } : {}),
+      ...todoData,
+    },
+  });
+  if (res.count === 0) throw new Error("找不到番茄鐘紀錄");
+  revalidatePath("/todo");
+  return { ok: true as const };
+}
+
 export async function deletePomodoro(id: string) {
   const { org, user } = await requireActiveOrg();
   const res = await db.pomodoroSession.deleteMany({

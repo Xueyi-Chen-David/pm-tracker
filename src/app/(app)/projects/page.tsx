@@ -136,6 +136,7 @@ export default async function ProjectsPage({
     tasks: p.tasks.map((t) => ({
       id: t.id,
       title: t.title,
+      description: t.description,
       note: t.note,
       startDate: ymd(t.startDate),
       dueDate: ymd(t.dueDate),

@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
+  AlignLeft,
   Bell,
   CalendarDays,
   GripVertical,
@@ -37,6 +38,8 @@ import type { OwnerLite } from "@/components/okr/key-result-row";
 export type TaskView = {
   id: string;
   title: string;
+  /** 任務說明（這個任務要做什麼）。 */
+  description: string | null;
   note: string | null;
   startDate: string | null;
   dueDate: string | null;
@@ -204,6 +207,41 @@ export function TaskRow({
           }}
           className="hover:bg-muted/50 focus:bg-muted/50 min-w-0 w-full rounded-md bg-transparent px-1 py-0.5 text-sm font-medium outline-none"
         />
+        {/* 任務說明：顯示在任務名稱下，點一下開 popover 編輯（同日期做法）。 */}
+        <Popover>
+          <PopoverTrigger
+            className={cn(
+              "flex w-full items-start gap-1 rounded-md px-1 py-0.5 text-left text-[11px]",
+              task.description
+                ? "text-muted-foreground hover:bg-muted/60"
+                : "text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/60",
+            )}
+            title="任務說明"
+          >
+            <AlignLeft className="mt-0.5 h-3 w-3 shrink-0" />
+            {task.description ? (
+              <span className="line-clamp-2 break-words whitespace-pre-wrap">
+                {task.description}
+              </span>
+            ) : (
+              <span>新增說明</span>
+            )}
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-72">
+            <div className="text-muted-foreground mb-1 text-xs">任務說明</div>
+            <textarea
+              defaultValue={task.description ?? ""}
+              placeholder="這個任務要做什麼…"
+              rows={4}
+              disabled={pending}
+              onBlur={(e) => {
+                const v = e.currentTarget.value;
+                if (v !== (task.description ?? "")) patch({ description: v });
+              }}
+              className="border-input focus:border-ring block w-full resize-y rounded-md border bg-transparent px-2 py-1.5 text-sm leading-snug outline-none"
+            />
+          </PopoverContent>
+        </Popover>
         {/* 開始 / 結束日：直接顯示在任務名稱下，點一下就能設定（不用進 ⋯ 選單）。 */}
         <Popover>
           <PopoverTrigger
