@@ -28,9 +28,18 @@ import {
   Quote,
   Link2,
   Table,
+  ImagePlus,
+  AlignLeft,
+  AlignCenter,
+  AlignRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Markdown } from "@/lib/markdown";
+import {
+  Markdown,
+  findImages,
+  serializeImage,
+  type ImgAlign,
+} from "@/lib/markdown";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -158,6 +167,15 @@ export function DocsWorkspace({
   const [draftContent, setDraftContent] = useState("");
   // 小螢幕用的「編輯 / 預覽」切換（大螢幕一律並排顯示）。
   const [mobilePreview, setMobilePreview] = useState(false);
+  // 圖片：目前在預覽中選取的圖片序號（依 findImages 順序）+ 上傳中旗標。
+  const [selectedImg, setSelectedImg] = useState<number | null>(null);
+  const [imgBusy, setImgBusy] = useState(false);
+  const imgInputRef = useRef<HTMLInputElement | null>(null);
+
+  // 目前草稿裡的所有圖片（供工具列 / 控制列就地改寫屬性）。
+  const draftImages = useMemo(() => findImages(draftContent), [draftContent]);
+  const activeImage =
+    selectedImg != null ? (draftImages[selectedImg] ?? null) : null;
 
   // 拖放（像 VSCode）：可把文件 / 資料夾拖進資料夾或彼此調整順序。
   // dragItem＝正在拖的項目；dragOver＝目前放置目標的標記（`${id}:${zone}` 或 "root"）。
@@ -298,12 +316,14 @@ export function DocsWorkspace({
 
   function selectPage(id: string) {
     setEditing(false);
+    setSelectedImg(null);
     setSelectedId(id);
   }
 
   function startEdit(p: DocPage) {
     setDraftTitle(p.title);
     setDraftContent(p.content);
+    setSelectedImg(null);
     setEditing(true);
   }
 
@@ -363,6 +383,172 @@ export function DocsWorkspace({
     restoreSelection(pos, pos);
   }
 
+  // ── 圖片上傳 / 插入 / 調整 ──────────────────────────────────────
+  const MAX_IMAGES_AT_ONCE = 10;
+
+  /** 讀檔→等比縮小→重新編碼成 JPEG data URL，避免上傳的圖片過大。 */
+  function compressImage(file: File, maxW = 1600, quality = 0.82): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("讀取失敗"));
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => reject(new Error("圖片無法解析"));
+        img.onload = () => {
+          const scale = Math.min(1, maxW / img.width);
+          const w = Math.max(1, Math.round(img.width * scale));
+          const h = Math.max(1, Math.round(img.height * scale));
+          const canvas = document.createElement("canvas");
+          canvas.width = w;
+          canvas.height = h;
+          const c = canvas.getContext("2d");
+          if (!c) return resolve(reader.result as string);
+          c.fillStyle = "#ffffff";
+          c.fillRect(0, 0, w, h);
+          c.drawImage(img, 0, 0, w, h);
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        };
+        img.src = reader.result as string;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  /** 上傳一張圖片（data URL）到組織圖庫，回傳可引用的短網址。 */
+  async function uploadImage(dataUrl: string): Promise<string> {
+    const res = await fetch("/api/report-image", {
+      method: "POST",
+      body: dataUrl,
+    });
+    if (!res.ok) throw new Error("圖片上傳失敗");
+    const { url } = (await res.json()) as { url: string };
+    return url;
+  }
+
+  /** 從檔名取乾淨的替代文字（去掉副檔名與會破壞語法的字元）。 */
+  function altFromFile(file: File): string {
+    const base = file.name.replace(/\.[^.]+$/, "");
+    return base.replace(/[[\]()\r\n]/g, " ").trim() || "圖片";
+  }
+
+  /** 在游標處插入若干張圖片（各自獨佔一行＝可對齊 / 縮放），並選取最後一張。 */
+  function insertImages(parts: { url: string; alt: string }[]) {
+    if (!parts.length) return;
+    const ta = contentRef.current;
+    const s = ta ? ta.selectionStart : draftContent.length;
+    const lead = s === 0 || draftContent[s - 1] === "\n" ? "" : "\n";
+    const md =
+      lead + parts.map((p) => `![${p.alt}](${p.url})`).join("\n") + "\n";
+    const next = draftContent.slice(0, s) + md + draftContent.slice(s);
+    // 選取最後一張新插入的圖片：位於「游標之前既有圖片數」之後。
+    const base = draftImages.filter((im) => im.end <= s).length;
+    setDraftContent(next);
+    setSelectedImg(base + parts.length - 1);
+    const pos = s + md.length;
+    restoreSelection(pos, pos);
+  }
+
+  /** 上傳並插入一批圖片檔（工具列選檔 / 貼上 / 拖放共用）。 */
+  async function handleImageFiles(files: File[]) {
+    const imgs = files
+      .filter((f) => f.type.startsWith("image/"))
+      .slice(0, MAX_IMAGES_AT_ONCE);
+    if (!imgs.length) return;
+    setImgBusy(true);
+    try {
+      const parts: { url: string; alt: string }[] = [];
+      for (const f of imgs) {
+        if (f.size > 15 * 1024 * 1024) {
+          toast.error(`「${f.name}」太大（單張上限 15MB）`);
+          continue;
+        }
+        const url = await uploadImage(await compressImage(f));
+        parts.push({ url, alt: altFromFile(f) });
+      }
+      if (parts.length) insertImages(parts);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "圖片處理失敗");
+    } finally {
+      setImgBusy(false);
+    }
+  }
+
+  /** 改寫目前選取圖片的屬性；width / align 傳 null＝清除該屬性、undefined＝保留。 */
+  function updateActiveImage(patch: {
+    width?: string | null;
+    align?: ImgAlign | null;
+  }) {
+    if (selectedImg == null) return;
+    const img = draftImages[selectedImg];
+    if (!img) return;
+    const width =
+      patch.width === undefined ? img.width : (patch.width ?? undefined);
+    const align =
+      patch.align === undefined ? img.align : (patch.align ?? undefined);
+    const md = serializeImage({ alt: img.alt, url: img.url, width, align });
+    setDraftContent(
+      draftContent.slice(0, img.start) + md + draftContent.slice(img.end),
+    );
+  }
+
+  /** 刪除目前選取的圖片（連同其獨佔行尾端的換行）。 */
+  function deleteActiveImage() {
+    if (selectedImg == null) return;
+    const img = draftImages[selectedImg];
+    if (!img) return;
+    let end = img.end;
+    if (draftContent[end] === "\n") end += 1;
+    setDraftContent(draftContent.slice(0, img.start) + draftContent.slice(end));
+    setSelectedImg(null);
+  }
+
+  /** 預覽區點擊：點到圖片＝選取它、點空白＝取消選取。 */
+  function onPreviewClick(e: React.MouseEvent) {
+    const t = e.target as HTMLElement;
+    if (t.closest("[data-md-resize]")) return; // 拖曳把手不改變選取
+    const wrap = t.closest("[data-md-imgwrap]");
+    setSelectedImg(wrap ? Number(wrap.getAttribute("data-md-imgwrap")) : null);
+  }
+
+  /** 預覽區按下：若壓在某張圖右下角的把手上，開始拖曳縮放（依游標水平位移改寬度 %）。 */
+  function onPreviewPointerDown(e: React.PointerEvent) {
+    const target = e.target as HTMLElement;
+    const handle = target.closest("[data-md-resize]");
+    if (!handle) return;
+    const idx = Number(handle.getAttribute("data-md-resize"));
+    const wrap = handle.closest("[data-md-imgwrap]");
+    const img = wrap?.querySelector("img") ?? null;
+    const refEl = wrap?.parentElement ?? null; // 區塊圖＝flex 容器；行內圖＝段落
+    if (!img || !refEl) return;
+    e.preventDefault();
+    setSelectedImg(idx);
+    const base = draftContent; // 每次位移都從這份原始內容重算，避免累積誤差
+    const startX = e.clientX;
+    const startW = img.getBoundingClientRect().width;
+    const refW = refEl.clientWidth || startW;
+    const move = (ev: PointerEvent) => {
+      const px = Math.max(20, startW + (ev.clientX - startX));
+      const pct = Math.round(Math.min(100, Math.max(5, (px / refW) * 100)));
+      const im = findImages(base)[idx];
+      if (!im) return;
+      const md = serializeImage({
+        alt: im.alt,
+        url: im.url,
+        width: `${pct}%`,
+        align: im.align,
+      });
+      setDraftContent(base.slice(0, im.start) + md + base.slice(im.end));
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      document.body.style.userSelect = "";
+    };
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  }
+
   function saveEdit() {
     if (!selectedId) return;
     const id = selectedId;
@@ -378,6 +564,7 @@ export function DocsWorkspace({
         p.id === id ? { ...p, title, content, updatedAt: new Date() } : p,
       ),
     );
+    setSelectedImg(null);
     setEditing(false);
     run(() => updateDocPage({ id, title, content }), { ok: "已儲存" });
   }
@@ -920,7 +1107,10 @@ export function DocsWorkspace({
                 <Button
                   size="sm"
                   variant="ghost"
-                  onClick={() => setEditing(false)}
+                  onClick={() => {
+                    setSelectedImg(null);
+                    setEditing(false);
+                  }}
                   disabled={pending}
                 >
                   取消
@@ -986,12 +1176,78 @@ export function DocsWorkspace({
               >
                 <Table className="h-4 w-4" />
               </TbBtn>
+              <TbSep />
+              <TbBtn
+                title="插入圖片"
+                disabled={imgBusy}
+                onClick={() => imgInputRef.current?.click()}
+              >
+                <ImagePlus className="h-4 w-4" />
+              </TbBtn>
+              {imgBusy && (
+                <span className="text-muted-foreground ml-1 text-[11px]">
+                  上傳中…
+                </span>
+              )}
+              <span className="text-muted-foreground ml-auto hidden pr-1 text-[11px] sm:inline">
+                可貼上 / 拖拉圖片；點右側預覽裡的圖片後，拖曳右下角縮放、或用下方控制列對齊
+              </span>
+              <input
+                ref={imgInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                hidden
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  e.target.value = "";
+                  void handleImageFiles(files);
+                }}
+              />
             </div>
+            {/* 選到圖片時：調整對齊 / 寬度 / 刪除 */}
+            {activeImage && (
+              <ImageControls
+                image={activeImage}
+                onAlign={(align) => updateActiveImage({ align })}
+                onWidth={(width) => updateActiveImage({ width })}
+                onDelete={deleteActiveImage}
+              />
+            )}
             <div className="flex flex-col gap-3 lg:min-h-0 lg:flex-1 lg:flex-row">
               <Textarea
                 ref={contentRef}
                 value={draftContent}
                 onChange={(e) => setDraftContent(e.target.value)}
+                onPaste={(e) => {
+                  const files = Array.from(e.clipboardData.items)
+                    .filter(
+                      (it) => it.kind === "file" && it.type.startsWith("image/"),
+                    )
+                    .map((it) => it.getAsFile())
+                    .filter((f): f is File => !!f);
+                  if (files.length) {
+                    e.preventDefault();
+                    void handleImageFiles(files);
+                  }
+                }}
+                onDrop={(e) => {
+                  const files = Array.from(e.dataTransfer.files).filter((f) =>
+                    f.type.startsWith("image/"),
+                  );
+                  if (files.length) {
+                    e.preventDefault();
+                    void handleImageFiles(files);
+                  }
+                }}
+                onDragOver={(e) => {
+                  if (
+                    Array.from(e.dataTransfer.items).some(
+                      (it) => it.kind === "file",
+                    )
+                  )
+                    e.preventDefault();
+                }}
                 placeholder={"# 標題\n\n用 Markdown 撰寫內容…\n\n- 清單項目\n- **粗體** 與 *斜體*\n\n> 引言"}
                 className={cn(
                   "min-h-[52vh] font-mono text-sm leading-relaxed lg:h-full lg:min-h-0 lg:flex-1 lg:resize-none",
@@ -999,14 +1255,20 @@ export function DocsWorkspace({
                 )}
               />
               <div
+                onClick={onPreviewClick}
+                onPointerDown={onPreviewPointerDown}
                 className={cn(
                   "min-h-[52vh] overflow-y-auto rounded-md border p-4 lg:block lg:h-full lg:min-h-0 lg:flex-1",
+                  "[&_[data-md-imgwrap]]:cursor-pointer [&_img:hover]:ring-primary/30 [&_img:hover]:ring-2",
                   mobilePreview ? "block" : "hidden",
                 )}
               >
                 {draftContent.trim() ? (
                   <div className="text-sm">
-                    <Markdown content={draftContent} />
+                    <Markdown
+                      content={draftContent}
+                      selectedImageIndex={selectedImg}
+                    />
                   </div>
                 ) : (
                   <p className="text-muted-foreground text-sm">即時預覽…</p>
@@ -1323,22 +1585,25 @@ function PermissionDialog({
 function TbBtn({
   title,
   onClick,
+  disabled,
   children,
 }: {
   title: string;
   onClick: () => void;
+  disabled?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <button
       type="button"
       title={title}
+      disabled={disabled}
       // 用 onMouseDown + preventDefault 保住 textarea 的選取（不讓按鈕搶走焦點）。
       onMouseDown={(e) => {
         e.preventDefault();
-        onClick();
+        if (!disabled) onClick();
       }}
-      className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded"
+      className="text-muted-foreground hover:bg-muted hover:text-foreground flex h-8 w-8 items-center justify-center rounded disabled:opacity-50"
     >
       {children}
     </button>
@@ -1347,6 +1612,86 @@ function TbBtn({
 
 function TbSep() {
   return <span className="bg-border mx-1 h-5 w-px shrink-0" />;
+}
+
+// 選取圖片後的控制列：對齊（置左 / 置中 / 置右）、寬度（%）、原始大小、刪除。
+function ImageControls({
+  image,
+  onAlign,
+  onWidth,
+  onDelete,
+}: {
+  image: { width?: string; align?: ImgAlign };
+  onAlign: (a: ImgAlign) => void;
+  onWidth: (w: string | null) => void;
+  onDelete: () => void;
+}) {
+  const align: ImgAlign = image.align ?? "left";
+  const pct =
+    image.width && image.width.endsWith("%")
+      ? (parseInt(image.width, 10) || 100)
+      : 100;
+  const aligns: [ImgAlign, typeof AlignLeft, string][] = [
+    ["left", AlignLeft, "置左"],
+    ["center", AlignCenter, "置中"],
+    ["right", AlignRight, "置右"],
+  ];
+  return (
+    <div className="bg-muted/40 flex flex-wrap items-center gap-2 rounded-md border px-2 py-1.5">
+      <span className="text-muted-foreground shrink-0 text-xs">圖片</span>
+      <div className="flex rounded-md border p-0.5">
+        {aligns.map(([a, Icon, label]) => (
+          <button
+            key={a}
+            type="button"
+            title={label}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onAlign(a)}
+            className={cn(
+              "flex h-6 w-6 items-center justify-center rounded",
+              align === a
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <Icon className="h-3.5 w-3.5" />
+          </button>
+        ))}
+      </div>
+      <span className="bg-border h-4 w-px shrink-0" />
+      <span className="text-muted-foreground shrink-0 text-xs">寬度</span>
+      <input
+        type="range"
+        min={20}
+        max={100}
+        step={5}
+        value={pct}
+        onMouseDown={(e) => e.preventDefault()}
+        onChange={(e) => onWidth(`${e.target.value}%`)}
+        className="accent-primary w-24 cursor-pointer sm:w-28"
+      />
+      <span className="w-12 shrink-0 text-right text-xs tabular-nums">
+        {image.width ?? "原始"}
+      </span>
+      <button
+        type="button"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => onWidth(null)}
+        className="text-muted-foreground hover:text-foreground shrink-0 text-xs"
+      >
+        原始大小
+      </button>
+      <span className="bg-border h-4 w-px shrink-0" />
+      <button
+        type="button"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={onDelete}
+        className="text-destructive inline-flex shrink-0 items-center gap-1 text-xs hover:underline"
+      >
+        <Trash2 className="h-3.5 w-3.5" /> 刪除
+      </button>
+    </div>
+  );
 }
 
 // 樹狀列右側的操作選單（新增 / 重新命名 / 刪除）。
