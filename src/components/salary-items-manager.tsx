@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, Pencil, Trash2, Sparkles } from "lucide-react";
+import { Plus, Pencil, Trash2, Sparkles, Check as CheckIcon } from "lucide-react";
 import {
   createSalaryItemDef,
   updateSalaryItemDef,
@@ -15,7 +15,15 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
 import {
   Dialog,
   DialogContent,
@@ -79,54 +87,108 @@ export function SalaryItemsManager({
           {canManage && "點「建立常見科目」一鍵帶入伙食津貼 / 全勤獎金 / 年終獎金…，或自行新增。"}
         </div>
       ) : (
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {items.map((it) => (
-            <Card key={it.id} className="space-y-1.5 p-3">
-              <div className="flex items-center gap-1.5">
-                <span
-                  className={cn(
-                    "shrink-0 rounded px-1.5 text-[10px] font-medium",
-                    it.kind === "EARNING"
-                      ? "bg-emerald-100 text-emerald-700"
-                      : "bg-rose-100 text-rose-700",
-                  )}
-                >
-                  {it.kind === "EARNING" ? "加項" : "減項"}
-                </span>
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                  {it.name}
-                </span>
-                {!it.active && (
-                  <span className="rounded bg-slate-100 px-1 text-[10px] text-slate-500">
-                    停用
-                  </span>
-                )}
-                {canManage && (
-                  <div className="flex shrink-0 gap-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setEditing({ mode: "edit", it })}
-                      className="hover:bg-muted rounded p-1"
-                      title="編輯"
+        <div className="overflow-hidden rounded-xl border">
+          <Table>
+            <TableHeader className="bg-muted/40">
+              <TableRow>
+                <TableHead>科目</TableHead>
+                <TableHead>計入投保</TableHead>
+                <TableHead>課稅</TableHead>
+                <TableHead>性質</TableHead>
+                <TableHead>狀態</TableHead>
+                {canManage && <TableHead className="text-right">操作</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {items.map((it) => (
+                <TableRow key={it.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-1.5">
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "shrink-0",
+                          it.kind === "EARNING"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : "border-rose-200 bg-rose-50 text-rose-700",
+                        )}
+                      >
+                        {it.kind === "EARNING" ? "加項" : "減項"}
+                      </Badge>
+                      <span className="font-medium">{it.name}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {it.countsToInsurance ? (
+                      <CheckIcon className="h-4 w-4 text-emerald-600" />
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1.5">
+                      <Badge
+                        variant="outline"
+                        className={
+                          it.taxable
+                            ? "border-amber-200 bg-amber-50 text-amber-700"
+                            : "border-sky-200 bg-sky-50 text-sky-700"
+                        }
+                      >
+                        {it.taxable ? "應稅" : "免稅"}
+                      </Badge>
+                      {it.taxFreeLimit != null && (
+                        <span className="text-muted-foreground text-xs">
+                          上限 {it.taxFreeLimit}
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge
+                      variant="outline"
+                      className={
+                        it.recurring
+                          ? "border-slate-200 bg-slate-50 text-slate-600"
+                          : "border-violet-200 bg-violet-50 text-violet-700"
+                      }
                     >
-                      <Pencil className="h-3.5 w-3.5" />
-                    </button>
-                    <DeleteButton id={it.id} name={it.name} />
-                  </div>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-1 text-[11px]">
-                <Flag on={it.countsToInsurance} label="計入投保" />
-                <Flag on={it.taxable} label={it.taxable ? "應稅" : "免稅"} tone={it.taxable ? "amber" : "sky"} />
-                <Flag on label={it.recurring ? "經常性" : "非經常性"} tone={it.recurring ? "slate" : "violet"} />
-                {it.taxFreeLimit != null && (
-                  <span className="text-muted-foreground rounded border px-1">
-                    免稅上限 {it.taxFreeLimit}
-                  </span>
-                )}
-              </div>
-            </Card>
-          ))}
+                      {it.recurring ? "經常性" : "獎金"}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {it.active ? (
+                      <Badge
+                        variant="outline"
+                        className="border-emerald-200 bg-emerald-50 text-emerald-700"
+                      >
+                        啟用
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-muted-foreground">
+                        停用
+                      </Badge>
+                    )}
+                  </TableCell>
+                  {canManage && (
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setEditing({ mode: "edit", it })}
+                          className="hover:bg-muted rounded p-1"
+                          title="編輯"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <DeleteButton id={it.id} name={it.name} />
+                      </div>
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
 
@@ -138,34 +200,6 @@ export function SalaryItemsManager({
         />
       )}
     </div>
-  );
-}
-
-function Flag({
-  on,
-  label,
-  tone = "emerald",
-}: {
-  on: boolean;
-  label: string;
-  tone?: "emerald" | "amber" | "sky" | "slate" | "violet";
-}) {
-  const tones: Record<string, string> = {
-    emerald: "bg-emerald-50 text-emerald-700 border-emerald-200",
-    amber: "bg-amber-50 text-amber-700 border-amber-200",
-    sky: "bg-sky-50 text-sky-700 border-sky-200",
-    slate: "bg-slate-50 text-slate-600 border-slate-200",
-    violet: "bg-violet-50 text-violet-700 border-violet-200",
-  };
-  return (
-    <span
-      className={cn(
-        "rounded border px-1",
-        on ? tones[tone] : "text-muted-foreground border-dashed opacity-50",
-      )}
-    >
-      {label}
-    </span>
   );
 }
 

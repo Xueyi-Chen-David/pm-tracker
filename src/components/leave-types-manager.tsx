@@ -11,10 +11,19 @@ import {
   createDefaultLeaveTypes,
 } from "@/server/actions/leave";
 import type { OrgLeaveType } from "@/server/queries";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
 import {
   Dialog,
   DialogContent,
@@ -31,6 +40,13 @@ function paidLabel(p: number): string {
   if (p >= 100) return "全薪";
   if (p <= 0) return "無薪";
   return `${p}% 薪`;
+}
+
+/** 給付比例對應的badge色調：全薪綠、部分薪橘、無薪灰。 */
+function paidTone(p: number): string {
+  if (p >= 100) return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  if (p <= 0) return "border-slate-200 bg-slate-50 text-slate-500";
+  return "border-amber-200 bg-amber-50 text-amber-700";
 }
 
 /**
@@ -87,42 +103,70 @@ export function LeaveTypesManager({
           {canManage && "點「建立常見假別」一鍵帶入特休 / 事假 / 病假…，或自行新增。"}
         </div>
       ) : (
-        <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          {leaveTypes.map((lt) => (
-            <Card key={lt.id} className="flex items-center gap-2 p-3">
-              <span
-                className="h-3 w-3 shrink-0 rounded-full"
-                style={{ backgroundColor: lt.color ?? "#94a3b8" }}
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5">
-                  <span className="truncate text-sm font-medium">{lt.name}</span>
-                  {!lt.active && (
-                    <span className="rounded bg-slate-100 px-1 text-[10px] text-slate-500">
-                      停用
-                    </span>
+        <div className="overflow-hidden rounded-xl border">
+          <Table>
+            <TableHeader className="bg-muted/40">
+              <TableRow>
+                <TableHead>假別</TableHead>
+                <TableHead>給付比例</TableHead>
+                <TableHead>年度天數</TableHead>
+                <TableHead>狀態</TableHead>
+                {canManage && <TableHead className="text-right">操作</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {leaveTypes.map((lt) => (
+                <TableRow key={lt.id}>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: lt.color ?? "#94a3b8" }}
+                      />
+                      <span className="font-medium">{lt.name}</span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline" className={cn(paidTone(lt.paidPercent))}>
+                      {paidLabel(lt.paidPercent)}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {lt.annualQuotaDays != null ? `${lt.annualQuotaDays} 天` : "—"}
+                  </TableCell>
+                  <TableCell>
+                    {lt.active ? (
+                      <Badge
+                        variant="outline"
+                        className="border-emerald-200 bg-emerald-50 text-emerald-700"
+                      >
+                        啟用
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="text-muted-foreground">
+                        停用
+                      </Badge>
+                    )}
+                  </TableCell>
+                  {canManage && (
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setEditing({ mode: "edit", lt })}
+                          className="hover:bg-muted rounded p-1"
+                          title="編輯"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <DeleteLeaveButton id={lt.id} name={lt.name} />
+                      </div>
+                    </TableCell>
                   )}
-                </div>
-                <div className="text-muted-foreground text-xs">
-                  {paidLabel(lt.paidPercent)}
-                  {lt.annualQuotaDays != null && ` · 年 ${lt.annualQuotaDays} 天`}
-                </div>
-              </div>
-              {canManage && (
-                <div className="flex shrink-0 gap-0.5">
-                  <button
-                    type="button"
-                    onClick={() => setEditing({ mode: "edit", lt })}
-                    className="hover:bg-muted rounded p-1"
-                    title="編輯"
-                  >
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <DeleteLeaveButton id={lt.id} name={lt.name} />
-                </div>
-              )}
-            </Card>
-          ))}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </div>
       )}
 
