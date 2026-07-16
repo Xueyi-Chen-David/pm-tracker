@@ -1,5 +1,11 @@
 import { requireManageContext } from "@/server/org";
-import { getPayrollOverview, getOrgLeaveTypes } from "@/server/queries";
+import {
+  getPayrollOverview,
+  getOrgLeaveTypes,
+  getPayrollSetting,
+  getInsuranceBrackets,
+  getSalaryItemDefs,
+} from "@/server/queries";
 import { PageHeader } from "@/components/page-header";
 import { AttendanceMonthNav } from "@/components/attendance-month-nav";
 import { PayrollWorkspace } from "@/components/payroll-workspace";
@@ -37,10 +43,14 @@ export default async function PayrollPage({
   const thisMonth = { year: now.getFullYear(), month: now.getMonth() + 1 };
   const { year, month } = parseMonth(monthParam, thisMonth);
 
-  const [members, leaveTypes] = await Promise.all([
-    getPayrollOverview(org.id, year, month),
-    getOrgLeaveTypes(org.id),
-  ]);
+  const [members, leaveTypes, setting, brackets, salaryItems] =
+    await Promise.all([
+      getPayrollOverview(org.id, year, month),
+      getOrgLeaveTypes(org.id),
+      getPayrollSetting(org.id),
+      getInsuranceBrackets(org.id),
+      getSalaryItemDefs(org.id),
+    ]);
 
   const withSalary = members.filter((m) => m.salary).length;
 
@@ -60,6 +70,9 @@ export default async function PayrollPage({
       <PayrollWorkspace
         members={members}
         leaveTypes={leaveTypes}
+        setting={setting}
+        brackets={brackets}
+        salaryItems={salaryItems}
         canManage={canManage}
         canManageLeave={canManageLeave}
         year={year}

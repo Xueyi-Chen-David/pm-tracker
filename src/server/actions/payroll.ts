@@ -9,8 +9,20 @@ import {
   parseMoneyLines,
   type AttendanceSummary,
   type LeaveTally,
+  type MoneyLine,
   type PayType,
 } from "@/lib/payroll";
+import {
+  computeStatutory,
+  employerSupplementaryPremium,
+  type PayrollRates,
+} from "@/lib/insurance";
+import { resolveSalaryItems, parseMemberItems } from "@/lib/salary-items";
+
+/** 四捨五入到兩位小數（金額）。 */
+function round2(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
 
 /**
  * 薪資設定 / 薪資單。皆需 `payroll.manage` 權限（人資 / 管理者）。
@@ -33,6 +45,24 @@ const SalaryInput = z.object({
   allowances: z.array(MoneyLineSchema).default([]),
   deductions: z.array(MoneyLineSchema).default([]),
   note: z.string().trim().max(500).optional(),
+  // 勞健保 / 勞退
+  insuredSalary: z.coerce.number().int().min(0).max(10_000_000).nullish(),
+  dependents: z.coerce.number().int().min(0).max(3).default(0),
+  laborInsured: z.boolean().default(true),
+  healthInsured: z.boolean().default(true),
+  pensionEnrolled: z.boolean().default(true),
+  pensionSelfRate: z.coerce.number().min(0).max(0.06).default(0),
+  // 薪資科目金額（Phase 2）
+  items: z
+    .array(
+      z.object({
+        defId: z.string().min(1),
+        amount: z.coerce.number().min(0).max(99_999_999),
+      }),
+    )
+    .default([]),
+  // 薪資所得就源扣繳率（Phase 3；0–1）
+  taxWithholdRate: z.coerce.number().min(0).max(1).default(0),
 });
 
 /** 建立 / 更新某成員的薪資設定。 */
@@ -56,6 +86,14 @@ export async function upsertSalaryProfile(input: z.input<typeof SalaryInput>) {
     allowances: d.allowances,
     deductions: d.deductions,
     note: d.note || null,
+    insuredSalary: d.insuredSalary ?? null,
+    dependents: d.dependents,
+    laborInsured: d.laborInsured,
+    healthInsured: d.healthInsured,
+    pensionEnrolled: d.pensionEnrolled,
+    pensionSelfRate: d.pensionSelfRate,
+    items: d.items,
+    taxWithholdRate: d.taxWithholdRate,
   };
   await db.salaryProfile.upsert({
     where: { memberId: d.memberId },
@@ -124,7 +162,7 @@ async function gatherAttendance(
     else absentDays += 1; // 明確登記的缺席（不含顯示層的「未打卡」自動缺席）
   }
 
-  // 打卡 → 每日工時（最早上班 ~ 最晚下班）與加班（超過標準工時）。
+  // 打卡 → 每日工時（最早上班 ~ 最晚下班）與加班分級（§24：平日 / 休息日）。
   const byDate = new Map<string, { ins: Date[]; outs: Date[] }>();
   for (const p of punches) {
     const ds = p.date.toISOString().slice(0, 10);
@@ -134,17 +172,36 @@ async function gatherAttendance(
     byDate.set(ds, slot);
   }
   let workedHours = 0;
-  let overtimeHours = 0;
-  for (const { ins, outs } of byDate.values()) {
+  const tiers = { wd1: 0, wd2: 0, rd1: 0, rd2: 0, rd3: 0 };
+  for (const [ds, { ins, outs }] of byDate) {
     if (!ins.length || !outs.length) continue;
-    const firstIn = ins[0].getTime();
-    const lastOut = outs[outs.length - 1].getTime();
-    const worked = Math.max(0, (lastOut - firstIn) / 3_600_000);
+    const worked = Math.max(
+      0,
+      (outs[outs.length - 1].getTime() - ins[0].getTime()) / 3_600_000,
+    );
     workedHours += worked;
-    overtimeHours += Math.max(0, worked - standardHoursPerDay);
+    const weekday = new Date(`${ds}T00:00:00.000Z`).getUTCDay();
+    if (weekday === 0 || weekday === 6) {
+      // 休息日 / 例假：全部工時皆為加班（前2 / 3–8 / 9+）。
+      tiers.rd1 += Math.min(worked, 2);
+      tiers.rd2 += Math.min(Math.max(0, worked - 2), 6);
+      tiers.rd3 += Math.max(0, worked - 8);
+    } else {
+      // 平日：超過標準工時的部分為加班（前2 / 3+）。
+      const ot = Math.max(0, worked - standardHoursPerDay);
+      tiers.wd1 += Math.min(ot, 2);
+      tiers.wd2 += Math.max(0, ot - 2);
+    }
   }
-  workedHours = Math.round(workedHours * 100) / 100;
-  overtimeHours = Math.round(overtimeHours * 100) / 100;
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  workedHours = r2(workedHours);
+  const overtimeTiers = {
+    wd1: r2(tiers.wd1), wd2: r2(tiers.wd2),
+    rd1: r2(tiers.rd1), rd2: r2(tiers.rd2), rd3: r2(tiers.rd3),
+  };
+  const overtimeHours = r2(
+    overtimeTiers.wd1 + overtimeTiers.wd2 + overtimeTiers.rd1 + overtimeTiers.rd2 + overtimeTiers.rd3,
+  );
 
   return {
     presentDays,
@@ -152,6 +209,7 @@ async function gatherAttendance(
     leaves: [...leaveMap.values()],
     workedHours,
     overtimeHours,
+    overtimeTiers,
   };
 }
 
@@ -184,6 +242,111 @@ export async function computePayslip(input: z.input<typeof PeriodSchema>) {
     sp.standardHoursPerDay,
   );
 
+  // 薪資科目（Phase 2）：展開成加項 / 減項，並帶出「計入投保」「應稅」「非經常性(獎金)」合計。
+  const itemDefs = await db.salaryItemDef.findMany({
+    where: { organizationId: org.id },
+    select: {
+      id: true,
+      name: true,
+      kind: true,
+      taxable: true,
+      countsToInsurance: true,
+      recurring: true,
+      taxFreeLimit: true,
+    },
+  });
+  const resolvedItems = resolveSalaryItems(itemDefs, parseMemberItems(sp.items));
+
+  // 合併：舊的自由加給 / 扣除（未分類）＋科目展開的加項 / 減項。
+  const legacyAllowances = parseMoneyLines(sp.allowances);
+  const legacyAllowanceSum = legacyAllowances.reduce((a, l) => a + l.amount, 0);
+  const allowances = [...legacyAllowances, ...resolvedItems.earnings];
+  const deductionLines = [
+    ...parseMoneyLines(sp.deductions),
+    ...resolvedItems.deductions,
+  ];
+
+  // 投保用月工資：本薪（時薪換算月薪）＋計入投保的科目加項＋未分類加給。
+  const baseMonthlyEquiv =
+    sp.payType === "HOURLY"
+      ? Number(sp.baseAmount) * sp.standardHoursPerDay * sp.standardWorkDays
+      : Number(sp.baseAmount);
+  const monthlyWage =
+    baseMonthlyEquiv + resolvedItems.wageForInsurance + legacyAllowanceSum;
+
+  // 勞健保 / 勞退：只有在組織已設定 PayrollSetting（帶過法定預設）時才自動計算，
+  // 否則維持舊行為（僅手動固定扣除），確保未設定的組織不受影響。
+  const setting = await db.payrollSetting.findUnique({
+    where: { organizationId: org.id },
+  });
+  const statutoryLines: MoneyLine[] = [];
+  let statutory: ReturnType<typeof computeStatutory> | null = null;
+  let rates: PayrollRates | null = null;
+
+  if (setting) {
+    const brackets = await db.insuranceBracket.findMany({
+      where: { organizationId: org.id },
+      orderBy: { sortOrder: "asc" },
+      select: { amount: true },
+    });
+    rates = {
+      laborRate: setting.laborRate,
+      laborEmployeeShare: setting.laborEmployeeShare,
+      laborEmployerShare: setting.laborEmployerShare,
+      healthRate: setting.healthRate,
+      healthEmployeeShare: setting.healthEmployeeShare,
+      healthEmployerShare: setting.healthEmployerShare,
+      healthAvgDependents: setting.healthAvgDependents,
+      pensionEmployerRate: setting.pensionEmployerRate,
+      occupationalRate: setting.occupationalRate,
+      supplementaryRate: setting.supplementaryRate,
+      laborCeiling: setting.laborCeiling,
+      healthCeiling: setting.healthCeiling,
+      pensionCeiling: setting.pensionCeiling,
+    };
+    statutory = computeStatutory(
+      rates,
+      brackets.map((b) => b.amount),
+      {
+        wage: monthlyWage,
+        insuredOverride: sp.insuredSalary,
+        dependents: sp.dependents,
+        pensionSelfRate: sp.pensionSelfRate,
+        laborInsured: sp.laborInsured,
+        healthInsured: sp.healthInsured,
+        pensionEnrolled: sp.pensionEnrolled,
+      },
+    );
+    if (statutory.laborEmployee > 0)
+      statutoryLines.push({ label: "勞保自付", amount: statutory.laborEmployee });
+    if (statutory.healthEmployee > 0)
+      statutoryLines.push({
+        label:
+          sp.dependents > 0
+            ? `健保自付（含 ${sp.dependents} 眷口）`
+            : "健保自付",
+        amount: statutory.healthEmployee,
+      });
+    if (statutory.pensionSelf > 0)
+      statutoryLines.push({
+        label: "勞退自提",
+        amount: statutory.pensionSelf,
+      });
+  }
+
+  // 加班費 §24 分級（月薪制）：時薪基數＝月薪 ÷ divisor（勞基法慣例 240）。有 setting 才啟用分級。
+  const overtime =
+    setting && sp.payType === "MONTHLY"
+      ? {
+          hourlyBase: Number(sp.baseAmount) / (setting.overtimeDivisor || 240),
+          wd1: setting.otWeekday1,
+          wd2: setting.otWeekday2,
+          rd1: setting.otRestday1,
+          rd2: setting.otRestday2,
+          rd3: setting.otRestday3,
+        }
+      : undefined;
+
   const result = calcPayslip(
     {
       payType: sp.payType as PayType,
@@ -191,11 +354,59 @@ export async function computePayslip(input: z.input<typeof PeriodSchema>) {
       standardWorkDays: sp.standardWorkDays,
       standardHoursPerDay: sp.standardHoursPerDay,
       overtimeMultiplier: sp.overtimeMultiplier,
-      allowances: parseMoneyLines(sp.allowances),
-      deductions: parseMoneyLines(sp.deductions),
+      allowances,
+      deductions: deductionLines,
+      overtime,
     },
     att,
+    statutoryLines,
   );
+
+  // 二代健保雇主補充保費：以實際給付工資（應發）與投保金額差額估算。
+  const supplementaryEmployer =
+    setting && rates && statutory
+      ? employerSupplementaryPremium(rates, result.grossPay, statutory.insuredHealth)
+      : 0;
+  const employerCostTotal =
+    (statutory?.employerTotal ?? 0) + supplementaryEmployer;
+
+  // ── Phase 3：員工端二代健保（高額獎金）＋薪資所得就源扣繳 ──
+  const taxableIncome = Math.max(0, round2(result.grossPay - resolvedItems.taxFreeTotal));
+  const bonusAmount = resolvedItems.bonusAmount;
+
+  // 二代健保員工自付：年度累計非經常性獎金超過「投保金額 × 倍數」的部分 × 費率。
+  let supplementaryEmployee = 0;
+  if (setting && statutory && bonusAmount > 0) {
+    const prior = await db.payslip.aggregate({
+      where: {
+        organizationId: org.id,
+        memberId: d.memberId,
+        periodYear: d.year,
+        NOT: { periodMonth: d.month },
+      },
+      _sum: { bonusAmount: true },
+    });
+    const priorBonus = Number(prior._sum.bonusAmount ?? 0);
+    const threshold = statutory.insuredHealth * setting.supplementaryBonusMultiple;
+    const excess = Math.min(
+      bonusAmount,
+      Math.max(0, priorBonus + bonusAmount - threshold),
+    );
+    supplementaryEmployee = Math.round(excess * setting.supplementaryRate);
+  }
+
+  // 薪資所得就源扣繳（依成員 taxWithholdRate；0＝不代扣）。
+  const incomeTaxWithheld = round2(taxableIncome * (sp.taxWithholdRate || 0));
+
+  // 把員工端二代健保 / 扣繳稅併入應扣、明細與實發。
+  const extraDeductions = round2(supplementaryEmployee + incomeTaxWithheld);
+  const breakdown = [...result.lines];
+  if (supplementaryEmployee > 0)
+    breakdown.push({ label: "二代健保補充保費", amount: -supplementaryEmployee });
+  if (incomeTaxWithheld > 0)
+    breakdown.push({ label: "薪資所得扣繳稅", amount: -incomeTaxWithheld });
+  const deductionTotal = round2(result.deductionTotal + extraDeductions);
+  const netPay = round2(result.netPay - extraDeductions);
 
   const data = {
     payType: result.payType,
@@ -210,10 +421,26 @@ export async function computePayslip(input: z.input<typeof PeriodSchema>) {
     allowanceTotal: result.allowanceTotal,
     leaveDeduction: result.leaveDeduction,
     absentDeduction: result.absentDeduction,
-    deductionTotal: result.deductionTotal,
-    netPay: result.netPay,
-    breakdown: result.lines,
+    deductionTotal,
+    netPay,
+    breakdown,
     createdById: user.id,
+    taxableIncome,
+    bonusAmount,
+    supplementaryEmployee,
+    incomeTaxWithheld,
+    // 勞健保自付（已含入 deductionTotal / netPay）
+    insuredSalary: statutory?.insuredLabor ?? 0,
+    laborInsEmployee: statutory?.laborEmployee ?? 0,
+    healthInsEmployee: statutory?.healthEmployee ?? 0,
+    pensionSelfEmployee: statutory?.pensionSelf ?? 0,
+    // 公司負擔
+    laborInsEmployer: statutory?.laborEmployer ?? 0,
+    healthInsEmployer: statutory?.healthEmployer ?? 0,
+    pensionEmployer: statutory?.pensionEmployer ?? 0,
+    occupationalEmployer: statutory?.occupationalEmployer ?? 0,
+    supplementaryEmployer,
+    employerCostTotal,
   };
 
   await db.payslip.upsert({

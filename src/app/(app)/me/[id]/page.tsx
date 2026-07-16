@@ -20,7 +20,7 @@ import {
   getOrgMemberDirectory,
   getOrgRoles,
 } from "@/server/queries";
-import { fmtDateShort } from "@/lib/date";
+import { fmtDateShort, toDateInput } from "@/lib/date";
 import { displayName, displayInitial } from "@/lib/display";
 import { MemberName } from "@/components/member-name";
 import { AvatarUploader } from "@/components/avatar-uploader";
@@ -281,6 +281,7 @@ export default async function MemberProfilePage({
                     email: m.email,
                     jobTitle: m.jobTitle,
                     department: m.department,
+                    hireDate: m.hireDate ? toDateInput(m.hireDate) : null,
                     attendance: m.attendance,
                     bio: m.bio,
                     isBoss: m.isBoss,

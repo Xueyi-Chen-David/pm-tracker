@@ -18,6 +18,7 @@ export type ProfileValues = {
   email: string | null;
   jobTitle: string | null;
   department: string | null;
+  hireDate: string | null; // yyyy-mm-dd（到職日；特休年資用）
   attendance: string | null;
   bio: string | null;
   isBoss: boolean;
@@ -129,6 +130,20 @@ export function ProfileForm({
             ))}
           </datalist>
         </div>
+      </div>
+
+      <div className="space-y-1.5">
+        <Label htmlFor="p-hire">到職日</Label>
+        <Input
+          id="p-hire"
+          name="hireDate"
+          type="date"
+          defaultValue={values.hireDate ?? ""}
+          className="w-48"
+        />
+        <p className="text-muted-foreground text-xs">
+          用於特別休假年資計算（勞基法§38）與年資顯示。
+        </p>
       </div>
 
       <div className="space-y-1.5">

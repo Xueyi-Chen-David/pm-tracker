@@ -211,6 +211,7 @@ const ProfileInput = z.object({
   email: z.string().trim().email("Email 格式不正確").optional(),
   jobTitle: z.string().trim().max(120).optional(),
   department: z.string().trim().max(120).optional(),
+  hireDate: z.string().trim().optional(), // 到職日 yyyy-mm-dd（空＝清除）
   attendance: z.string().trim().max(200).optional(),
   bio: z.string().trim().max(4000).optional(),
   isBoss: z.boolean().optional(),
@@ -232,6 +233,7 @@ export async function updateProfileAction(
     email: formData.get("email") || undefined,
     jobTitle: formData.get("jobTitle") || undefined,
     department: formData.get("department") || undefined,
+    hireDate: formData.get("hireDate") || undefined,
     attendance: formData.get("attendance") || undefined,
     bio: formData.get("bio") || undefined,
     active: formData.get("active") === "on",
@@ -295,6 +297,7 @@ export async function updateProfileAction(
           email: lowerEmail, // 與 User email 同步
           jobTitle: d.jobTitle || null,
           department: d.department || null,
+          hireDate: d.hireDate ? new Date(`${d.hireDate}T00:00:00.000Z`) : null,
           attendance: d.attendance || null,
           bio: d.bio || null,
           active: d.active ?? true,

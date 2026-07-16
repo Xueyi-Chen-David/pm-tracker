@@ -31,6 +31,8 @@ import {
 } from "@/components/ui/dialog";
 import { LeaveRequestForm } from "@/components/leave/leave-request-form";
 import { LeaveApprovalFlowManager } from "@/components/leave/leave-approval-flow-manager";
+import { LeaveQuotaPanel } from "@/components/leave/leave-quota-panel";
+import type { LeaveQuotaOverview } from "@/server/queries";
 
 type MemberOption = { membershipId: string; label: string };
 type FlowStep = { approverType: "MANAGER" | "MEMBER"; approverMemberId: string | null };
@@ -43,6 +45,8 @@ export function LeaveWorkspace({
   canManageLeave,
   flowSteps,
   members,
+  quota,
+  quotaYear,
 }: {
   myRequests: LeaveRequestRow[];
   pending: LeaveRequestRow[];
@@ -51,6 +55,8 @@ export function LeaveWorkspace({
   canManageLeave: boolean;
   flowSteps: FlowStep[] | null;
   members: MemberOption[] | null;
+  quota: LeaveQuotaOverview | null;
+  quotaYear: number;
 }) {
   return (
     <Tabs defaultValue={pending.length > 0 ? "pending" : "mine"} className="gap-4">
@@ -70,6 +76,9 @@ export function LeaveWorkspace({
           <>
             <TabsTrigger value="all" className="px-3">
               全體請假
+            </TabsTrigger>
+            <TabsTrigger value="quota" className="px-3">
+              特休 / 額度
             </TabsTrigger>
             <TabsTrigger value="flow" className="px-3">
               簽核流程
@@ -127,6 +136,13 @@ export function LeaveWorkspace({
               />
             ))
           )}
+        </TabsContent>
+      )}
+
+      {/* 特休 / 額度總覽（HR） */}
+      {canManageLeave && quota && (
+        <TabsContent value="quota">
+          <LeaveQuotaPanel quota={quota} year={quotaYear} />
         </TabsContent>
       )}
 

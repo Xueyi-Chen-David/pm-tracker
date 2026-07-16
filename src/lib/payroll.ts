@@ -17,13 +17,28 @@ export type LeaveTally = {
   days: number;
 };
 
+/** 加班時數分級（勞基法§24）：wd＝平日、rd＝休息日。 */
+export type OvertimeTiers = {
+  wd1: number; // 平日前 2 小時
+  wd2: number; // 平日第 3 小時起
+  rd1: number; // 休息日前 2 小時
+  rd2: number; // 休息日第 3–8 小時
+  rd3: number; // 休息日第 9 小時起
+};
+
+/** 加班費計價設定（各級倍率 + 每小時工資基數）。 */
+export type OvertimeConfig = OvertimeTiers & {
+  hourlyBase: number; // 平日每小時工資（月薪 ÷ divisor，勞基法慣例 240）
+};
+
 /** 一位成員某月的出勤彙總（由 action 從出席紀錄 / 打卡整理）。 */
 export type AttendanceSummary = {
   presentDays: number; // 出勤天（present=true，含出差 / 在家工作）
   absentDays: number; // 缺勤天（未請假未到）
   leaves: LeaveTally[]; // 各假別天數
   workedHours: number; // 時薪制：實際工時（打卡）
-  overtimeHours: number; // 加班時數（超過標準工時的部分）
+  overtimeHours: number; // 加班時數（超過標準工時的部分；未分級時的總時數）
+  overtimeTiers?: OvertimeTiers; // §24 分級時數（有帶 salary.overtime 時據此計價）
 };
 
 export type SalaryInput = {
@@ -34,6 +49,7 @@ export type SalaryInput = {
   overtimeMultiplier: number;
   allowances: MoneyLine[];
   deductions: MoneyLine[];
+  overtime?: OvertimeConfig; // §24 分級加班費（月薪制；有帶時取代單一倍率）
 };
 
 export type PayslipResult = {
@@ -75,13 +91,18 @@ export function parseMoneyLines(v: unknown): MoneyLine[] {
   return out;
 }
 
-/** 計算一位成員某月的薪資單。 */
+/** 計算一位成員某月的薪資單。
+ * statutoryDeductions＝勞健保自付 / 勞退自提等法定代扣（正數，會併入應扣、從實發扣除）。
+ */
 export function computePayslip(
   salary: SalaryInput,
   att: AttendanceSummary,
+  statutoryDeductions: MoneyLine[] = [],
 ): PayslipResult {
   const allowanceTotal = round2(sum(salary.allowances));
-  const deductionTotal = round2(sum(salary.deductions));
+  const fixedDeductionTotal = round2(sum(salary.deductions));
+  const statutoryTotal = round2(sum(statutoryDeductions));
+  const deductionTotal = round2(fixedDeductionTotal + statutoryTotal);
   const leaveDays = round2(att.leaves.reduce((a, l) => a + l.days, 0));
 
   const lines: MoneyLine[] = [];
@@ -120,19 +141,38 @@ export function computePayslip(
       });
     }
 
-    // 加班費。
-    const overtimePay = round2(
-      att.overtimeHours * hourlyRate * salary.overtimeMultiplier,
-    );
+    // 加班費：有 §24 分級設定（salary.overtime + att.overtimeTiers）→ 逐級計價；否則用單一倍率（相容舊資料）。
+    let overtimePay: number;
+    let overtimeHours: number;
+    if (salary.overtime && att.overtimeTiers) {
+      const c = salary.overtime;
+      const t = att.overtimeTiers;
+      overtimePay = round2(
+        c.hourlyBase *
+          (t.wd1 * c.wd1 +
+            t.wd2 * c.wd2 +
+            t.rd1 * c.rd1 +
+            t.rd2 * c.rd2 +
+            t.rd3 * c.rd3),
+      );
+      overtimeHours = round2(t.wd1 + t.wd2 + t.rd1 + t.rd2 + t.rd3);
+    } else {
+      overtimePay = round2(
+        att.overtimeHours * hourlyRate * salary.overtimeMultiplier,
+      );
+      overtimeHours = att.overtimeHours;
+    }
     if (overtimePay > 0) {
       lines.push({
-        label: `加班 ${att.overtimeHours} 小時（×${salary.overtimeMultiplier}）`,
+        label: overtimeHours > 0 ? `加班 ${overtimeHours} 小時` : "加班費",
         amount: overtimePay,
       });
     }
 
     for (const a of salary.allowances)
       lines.push({ label: a.label, amount: round2(a.amount) });
+    for (const s of statutoryDeductions)
+      lines.push({ label: s.label, amount: -round2(s.amount) });
     for (const d of salary.deductions)
       lines.push({ label: d.label, amount: -round2(d.amount) });
 
@@ -147,7 +187,7 @@ export function computePayslip(
       workedDays: att.presentDays,
       leaveDays,
       absentDays: att.absentDays,
-      overtimeHours: att.overtimeHours,
+      overtimeHours,
       overtimePay,
       allowanceTotal,
       leaveDeduction,
@@ -199,6 +239,8 @@ export function computePayslip(
 
   for (const a of salary.allowances)
     lines.push({ label: a.label, amount: round2(a.amount) });
+  for (const s of statutoryDeductions)
+    lines.push({ label: s.label, amount: -round2(s.amount) });
   for (const d of salary.deductions)
     lines.push({ label: d.label, amount: -round2(d.amount) });
 

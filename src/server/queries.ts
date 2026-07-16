@@ -3,6 +3,7 @@ import type { OkrLevel, ProjectStatus } from "@prisma/client";
 import { db } from "./db";
 import { thisWeekStart, weekStartOf } from "@/lib/date";
 import { DEFAULT_DEAL_STAGES } from "@/lib/crm";
+import { specialLeaveDays } from "@/lib/leave-entitlement";
 
 // 註：所有查詢皆以「目前組織」(orgId) 收斂。Project 底下的子表（成員 / 週報 /
 // 里程碑 / 任務 / 活動）不帶 organizationId，改用關聯過濾 project.organizationId。
@@ -322,6 +323,7 @@ export async function getMemberProfile(orgId: string, userId: string) {
       id: true,
       jobTitle: true,
       department: true,
+      hireDate: true,
       isBoss: true,
       active: true,
       attendance: true,
@@ -933,6 +935,7 @@ export async function getPayrollOverview(
       jobTitle: true,
       isBoss: true,
       user: { select: userIdentitySelect },
+      hireDate: true,
       salaryProfile: {
         select: {
           payType: true,
@@ -944,6 +947,14 @@ export async function getPayrollOverview(
           allowances: true,
           deductions: true,
           note: true,
+          insuredSalary: true,
+          dependents: true,
+          laborInsured: true,
+          healthInsured: true,
+          pensionEnrolled: true,
+          pensionSelfRate: true,
+          items: true,
+          taxWithholdRate: true,
         },
       },
       payslips: {
@@ -968,6 +979,20 @@ export async function getPayrollOverview(
           breakdown: true,
           status: true,
           computedAt: true,
+          insuredSalary: true,
+          laborInsEmployee: true,
+          healthInsEmployee: true,
+          pensionSelfEmployee: true,
+          laborInsEmployer: true,
+          healthInsEmployer: true,
+          pensionEmployer: true,
+          occupationalEmployer: true,
+          supplementaryEmployer: true,
+          employerCostTotal: true,
+          supplementaryEmployee: true,
+          incomeTaxWithheld: true,
+          taxableIncome: true,
+          bonusAmount: true,
         },
       },
     },
@@ -986,6 +1011,7 @@ export async function getPayrollOverview(
       image: m.user.image,
       jobTitle: m.jobTitle,
       isBoss: m.isBoss,
+      hireDate: m.hireDate,
       salary: sp
         ? {
             payType: sp.payType,
@@ -997,6 +1023,14 @@ export async function getPayrollOverview(
             allowances: sp.allowances,
             deductions: sp.deductions,
             note: sp.note,
+            insuredSalary: sp.insuredSalary,
+            dependents: sp.dependents,
+            laborInsured: sp.laborInsured,
+            healthInsured: sp.healthInsured,
+            pensionEnrolled: sp.pensionEnrolled,
+            pensionSelfRate: sp.pensionSelfRate,
+            items: sp.items,
+            taxWithholdRate: sp.taxWithholdRate,
           }
         : null,
       payslip: ps
@@ -1019,10 +1053,166 @@ export async function getPayrollOverview(
             breakdown: ps.breakdown,
             status: ps.status,
             computedAt: ps.computedAt,
+            insuredSalary: ps.insuredSalary,
+            laborInsEmployee: Number(ps.laborInsEmployee),
+            healthInsEmployee: Number(ps.healthInsEmployee),
+            pensionSelfEmployee: Number(ps.pensionSelfEmployee),
+            laborInsEmployer: Number(ps.laborInsEmployer),
+            healthInsEmployer: Number(ps.healthInsEmployer),
+            pensionEmployer: Number(ps.pensionEmployer),
+            occupationalEmployer: Number(ps.occupationalEmployer),
+            supplementaryEmployer: Number(ps.supplementaryEmployer),
+            employerCostTotal: Number(ps.employerCostTotal),
+            supplementaryEmployee: Number(ps.supplementaryEmployee),
+            incomeTaxWithheld: Number(ps.incomeTaxWithheld),
+            taxableIncome: Number(ps.taxableIncome),
+            bonusAmount: Number(ps.bonusAmount),
           }
         : null,
     };
   });
+}
+
+/** 薪資科目目錄（依 sortOrder）。 */
+export async function getSalaryItemDefs(orgId: string, activeOnly = false) {
+  return db.salaryItemDef.findMany({
+    where: { organizationId: orgId, ...(activeOnly ? { active: true } : {}) },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    select: {
+      id: true,
+      name: true,
+      kind: true,
+      taxable: true,
+      countsToInsurance: true,
+      recurring: true,
+      taxFreeLimit: true,
+      active: true,
+    },
+  });
+}
+
+export type SalaryItemDefRow = Awaited<
+  ReturnType<typeof getSalaryItemDefs>
+>[number];
+
+/**
+ * 特休 / 假別額度總覽（每組織，指定年度）：
+ *  - 特休：依到職日年資（§38）給應有天數，比對當年已休天數 → 剩餘 + 未休折算金額。
+ *  - 其他有年度額度（annualQuotaDays）的假別：顯示額度 / 已用 / 剩餘。
+ * 已休天數由出席月曆的請假紀錄（leave=true）依假別統計。
+ */
+export async function getLeaveQuotaOverview(orgId: string, year: number) {
+  const start = new Date(Date.UTC(year, 0, 1));
+  const end = new Date(Date.UTC(year + 1, 0, 1));
+  const asOf = new Date();
+  const [members, leaveTypes, records] = await Promise.all([
+    db.organizationMember.findMany({
+      where: { organizationId: orgId, active: true },
+      orderBy: [{ isBoss: "desc" }, { user: { name: "asc" } }],
+      select: {
+        id: true,
+        userId: true,
+        hireDate: true,
+        jobTitle: true,
+        user: { select: userIdentitySelect },
+        salaryProfile: { select: { payType: true, baseAmount: true } },
+      },
+    }),
+    db.leaveType.findMany({
+      where: { organizationId: orgId, active: true },
+      orderBy: { sortOrder: "asc" },
+      select: { id: true, name: true, annualQuotaDays: true, color: true },
+    }),
+    db.attendanceRecord.findMany({
+      where: {
+        organizationId: orgId,
+        leave: true,
+        date: { gte: start, lt: end },
+      },
+      select: { userId: true, leaveTypeId: true },
+    }),
+  ]);
+
+  // used[userId][leaveTypeId] = 天數
+  const used = new Map<string, Map<string, number>>();
+  for (const r of records) {
+    if (!r.leaveTypeId) continue;
+    const m = used.get(r.userId) ?? new Map<string, number>();
+    m.set(r.leaveTypeId, (m.get(r.leaveTypeId) ?? 0) + 1);
+    used.set(r.userId, m);
+  }
+
+  const specialType = leaveTypes.find((t) => t.name === "特休");
+  const quotaTypes = leaveTypes.filter(
+    (t) => t.id !== specialType?.id && t.annualQuotaDays != null,
+  );
+
+  const rows = members.map((mem) => {
+    const umap = used.get(mem.userId) ?? new Map<string, number>();
+    const specialTotal = specialLeaveDays(mem.hireDate, asOf);
+    const specialUsed = specialType ? (umap.get(specialType.id) ?? 0) : 0;
+    const specialRemaining =
+      specialTotal != null ? Math.max(0, specialTotal - specialUsed) : null;
+    const monthlyBase =
+      mem.salaryProfile?.payType === "MONTHLY"
+        ? Number(mem.salaryProfile.baseAmount)
+        : null;
+    const dailyRate = monthlyBase ? Math.round((monthlyBase / 30) * 100) / 100 : null;
+    const unpaidValue =
+      specialRemaining != null && dailyRate
+        ? Math.round(specialRemaining * dailyRate)
+        : null;
+    return {
+      membershipId: mem.id,
+      userId: mem.userId,
+      name: mem.user.name,
+      nickname: mem.user.nickname,
+      useNickname: mem.user.useNickname,
+      image: mem.user.image,
+      jobTitle: mem.jobTitle,
+      hireDate: mem.hireDate,
+      specialTotal,
+      specialUsed,
+      specialRemaining,
+      dailyRate,
+      unpaidValue,
+      otherLeaves: quotaTypes.map((t) => ({
+        id: t.id,
+        name: t.name,
+        color: t.color,
+        quota: t.annualQuotaDays as number,
+        used: umap.get(t.id) ?? 0,
+      })),
+    };
+  });
+
+  return { rows, quotaTypes: quotaTypes.map((t) => ({ id: t.id, name: t.name })) };
+}
+
+export type LeaveQuotaOverview = Awaited<
+  ReturnType<typeof getLeaveQuotaOverview>
+>;
+export type LeaveQuotaRow = LeaveQuotaOverview["rows"][number];
+
+/** 薪資 / 勞健保設定（每組織一份）；未設定回 null（＝尚未帶入法定預設）。 */
+export async function getPayrollSetting(orgId: string) {
+  return db.payrollSetting.findUnique({
+    where: { organizationId: orgId },
+  });
+}
+
+export type PayrollSettingRow = Awaited<
+  ReturnType<typeof getPayrollSetting>
+>;
+
+/** 投保金額分級表（由低到高）。 */
+export async function getInsuranceBrackets(orgId: string) {
+  const rows = await db.insuranceBracket.findMany({
+    where: { organizationId: orgId },
+    orderBy: { sortOrder: "asc" },
+    select: { amount: true },
+  });
+  return rows.map((r) => r.amount);
 }
 
 export type PayrollMember = Awaited<

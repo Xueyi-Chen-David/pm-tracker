@@ -6,6 +6,7 @@ import {
   getLeaveApprovalFlow,
   getOrgLeaveTypes,
   getOrgMemberDirectory,
+  getLeaveQuotaOverview,
 } from "@/server/queries";
 import { displayName } from "@/lib/display";
 import { PageHeader } from "@/components/page-header";
@@ -17,17 +18,26 @@ export default async function LeavePage() {
   const { org, user, membership, can } = await requireManageContext();
   const canManageLeave = can("leave.manage");
 
-  const [myRequests, pending, leaveTypes, allRequests, flow, directory] =
-    await Promise.all([
-      getMyLeaveRequests(org.id, user.id),
-      getPendingApprovalsForMember(org.id, membership.id),
-      getOrgLeaveTypes(org.id, true),
-      canManageLeave ? getAllLeaveRequests(org.id) : Promise.resolve(null),
-      canManageLeave ? getLeaveApprovalFlow(org.id) : Promise.resolve(null),
-      canManageLeave
-        ? getOrgMemberDirectory(org.id)
-        : Promise.resolve(null),
-    ]);
+  const quotaYear = new Date().getFullYear();
+  const [
+    myRequests,
+    pending,
+    leaveTypes,
+    allRequests,
+    flow,
+    directory,
+    quota,
+  ] = await Promise.all([
+    getMyLeaveRequests(org.id, user.id),
+    getPendingApprovalsForMember(org.id, membership.id),
+    getOrgLeaveTypes(org.id, true),
+    canManageLeave ? getAllLeaveRequests(org.id) : Promise.resolve(null),
+    canManageLeave ? getLeaveApprovalFlow(org.id) : Promise.resolve(null),
+    canManageLeave ? getOrgMemberDirectory(org.id) : Promise.resolve(null),
+    canManageLeave
+      ? getLeaveQuotaOverview(org.id, quotaYear)
+      : Promise.resolve(null),
+  ]);
 
   const flowSteps =
     flow?.map((s) => ({
@@ -57,6 +67,8 @@ export default async function LeavePage() {
         canManageLeave={canManageLeave}
         flowSteps={flowSteps}
         members={members}
+        quota={quota}
+        quotaYear={quotaYear}
       />
     </div>
   );

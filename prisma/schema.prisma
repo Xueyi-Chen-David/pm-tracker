@@ -151,6 +151,9 @@ model Organization {
   payslips            Payslip[]
   leaveApprovalSteps  LeaveApprovalStep[]
   leaveRequests       LeaveRequest[]
+  payrollSetting      PayrollSetting?
+  insuranceBrackets   InsuranceBracket[]
+  salaryItemDefs      SalaryItemDef[]
 }
 
 /**
@@ -170,13 +173,14 @@ model OrganizationMember {
   // ── 從 User 搬過來的「組織內」欄位 ──
   jobTitle        String? // 職稱（顯示用）
   department      String? // 部門（顯示 / 分組用；組織架構頁可就地設定）
-  isBoss          Boolean  @default(false) // 老闆：週報「需要決策」收件對象
-  active          Boolean  @default(true) // 是否在職 / 啟用（於此組織）
-  allowedModules  String[] @default([]) // 細分權限：空陣列＝可見全部；非空＝只可見列出的模組
-  trackAttendance Boolean  @default(false) // 是否納入出席月曆追蹤
-  bio             String?  @db.Text // 簡介 / 備註
+  hireDate        DateTime? @db.Date // 到職日：特休年資（勞基法§38）與年資顯示用
+  isBoss          Boolean   @default(false) // 老闆：週報「需要決策」收件對象
+  active          Boolean   @default(true) // 是否在職 / 啟用（於此組織）
+  allowedModules  String[]  @default([]) // 細分權限：空陣列＝可見全部；非空＝只可見列出的模組
+  trackAttendance Boolean   @default(false) // 是否納入出席月曆追蹤
+  bio             String?   @db.Text // 簡介 / 備註
   attendance      String? // 出席情況（自由文字）
-  workDescription String?  @db.Text // 工作描述（本人可改，管理者可改任何人的）
+  workDescription String?   @db.Text // 工作描述（本人可改，管理者可改任何人的）
 
   // 組織架構：上級主管（指向同組織的另一位成員）。主管可看下屬的每日報告。
   managerId String?
@@ -1219,19 +1223,112 @@ model SalaryProfile {
   memberId       String             @unique // OrganizationMember.id
   member         OrganizationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
-  payType             String   @default("MONTHLY") // MONTHLY（月薪）| HOURLY（時薪）
-  baseAmount          Decimal  @default(0) @db.Decimal(12, 2) // 月薪金額 或 時薪金額
-  currency            String   @default("TWD")
-  standardWorkDays    Int      @default(22) // 月薪制：每月標準工作天（換算日薪 / 扣薪用）
-  standardHoursPerDay Float    @default(8) // 每日標準工時（加班判定 / 時薪換算）
-  overtimeMultiplier  Float    @default(1.34) // 加班費倍率（勞基法平日前 2 小時 1.34）
+  payType             String  @default("MONTHLY") // MONTHLY（月薪）| HOURLY（時薪）
+  baseAmount          Decimal @default(0) @db.Decimal(12, 2) // 月薪金額 或 時薪金額
+  currency            String  @default("TWD")
+  standardWorkDays    Int     @default(22) // 月薪制：每月標準工作天（換算日薪 / 扣薪用）
+  standardHoursPerDay Float   @default(8) // 每日標準工時（加班判定 / 時薪換算）
+  overtimeMultiplier  Float   @default(1.34) // 加班費倍率（勞基法平日前 2 小時 1.34）
   allowances          Json? // 固定加給 [{ name, amount }]（交通 / 伙食…）
   deductions          Json? // 固定扣除 [{ name, amount }]（勞保 / 健保自付 / 勞退…）
   note                String?
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+
+  // ── 勞健保 / 勞退（Phase 1）──
+  // 投保薪資：null＝依「本薪＋固定加給」自動對應級距；填值＝手動指定投保金額（如高薪低報 / 特殊申報）。
+  insuredSalary   Int?
+  dependents      Int     @default(0) // 健保眷口數（0–3，計入員工健保自付）
+  laborInsured    Boolean @default(true) // 是否加勞保（普通事故＋就業保險）
+  healthInsured   Boolean @default(true) // 是否加健保
+  pensionEnrolled Boolean @default(true) // 是否提繳勞退（雇主 6%）
+  pensionSelfRate Float   @default(0) // 勞退自願提繳率（0–6%，自薪資扣、可抵稅）
+
+  // 薪資科目金額（Phase 2）：[{ defId, amount }] 對應 SalaryItemDef 目錄，帶入應稅 / 計入投保 / 經常性旗標。
+  items           Json?
+  // 薪資所得就源扣繳率（Phase 3）：0–1，員工薪資所得稅代扣（0＝不代扣）。
+  taxWithholdRate Float @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([organizationId])
+}
+
+/// 薪資科目目錄（每組織）。定義薪資項目的旗標：加項 / 減項、應稅 / 免稅、是否計入投保薪資、經常性 / 非經常性。
+/// 「本薪」為 SalaryProfile.baseAmount，不在此目錄；此目錄放各式加給 / 獎金 / 扣款。
+model SalaryItemDef {
+  id                String       @id @default(cuid())
+  organizationId    String
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  name              String // 伙食津貼 / 全勤獎金 / 職務加給 / 年終獎金 / 職工福利金…
+  kind              String       @default("EARNING") // EARNING（加項）| DEDUCTION（減項）
+  taxable           Boolean      @default(true) // 應稅（false＝免稅，如伙食費限額內）
+  countsToInsurance Boolean      @default(true) // 是否屬工資、計入投保薪資（差旅 / 非經常獎金 false）
+  recurring         Boolean      @default(true) // 經常性（false＝非經常性，如年終 / 績效獎金；二代健保高額獎金判定用）
+  taxFreeLimit      Int? // 免稅上限（如伙食 3000/月）；超過部分計為應稅
+  active            Boolean      @default(true)
+  sortOrder         Int          @default(0)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+/// 薪資 / 勞健保設定（每組織一份）。費率與投保級距是「資料」不是「程式碼」——可一鍵帶當年法定預設、之後自行維護。
+model PayrollSetting {
+  id             String       @id @default(cuid())
+  organizationId String       @unique
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // 費率（小數，如 0.125＝12.5%）
+  laborRate           Float @default(0.125) // 勞保費率（普通事故 11.5% ＋ 就業保險 1%）
+  laborEmployeeShare  Float @default(0.2) // 勞保勞工自付比例
+  laborEmployerShare  Float @default(0.7) // 勞保雇主負擔比例
+  healthRate          Float @default(0.0517) // 健保費率
+  healthEmployeeShare Float @default(0.3) // 健保勞工自付比例
+  healthEmployerShare Float @default(0.6) // 健保雇主負擔比例
+  healthAvgDependents Float @default(0.57) // 健保平均眷口（雇主負擔用）
+  pensionEmployerRate Float @default(0.06) // 勞退雇主提繳率
+  occupationalRate    Float @default(0.002) // 職災保險費率（雇主全負擔，依行業別）
+  supplementaryRate   Float @default(0.0211) // 二代健保補充保費費率
+
+  // 投保金額上限（各保險各自的天花板；45,800 以下級距三者共用同一 grid）
+  laborCeiling   Int @default(45800) // 勞保最高投保薪資
+  healthCeiling  Int @default(313000) // 健保最高投保金額
+  pensionCeiling Int @default(150000) // 勞退最高月提繳工資
+
+  minWageMonthly Int @default(29500) // 基本工資（月）
+  minWageHourly  Int @default(196) // 基本工資（時）
+
+  // 加班費（勞基法§24，Phase 2）：平日時薪基數＝月薪 ÷ overtimeDivisor（勞基法慣例 240＝30天×8時）
+  overtimeDivisor Int   @default(240)
+  otWeekday1      Float @default(1.34) // 平日前 2 小時
+  otWeekday2      Float @default(1.67) // 平日第 3 小時起
+  otRestday1      Float @default(1.34) // 休息日前 2 小時
+  otRestday2      Float @default(1.67) // 休息日第 3–8 小時
+  otRestday3      Float @default(2.67) // 休息日第 9 小時起
+
+  // 二代健保補充保費門檻（Phase 3）
+  supplementaryBonusMultiple Int @default(4) // 高額獎金門檻＝投保金額 × N（累計超過才扣）
+  supplementarySingleMin     Int @default(20000) // 單筆計費下限（其他所得類別）
+
+  seededYear Int? // 最後一次帶入法定預設的年度（提示 HR 是否為當年值）
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// 投保金額分級表（每組織一份清單）。給「工資 → 投保金額」對應：取 ≥ 工資的最小級距，再各自套上限。
+/// 45,800 以下勞保 / 健保 / 勞退共用同一組級距，故只存單一 grid。可一鍵帶當年預設、之後自行增修。
+model InsuranceBracket {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  amount         Int // 投保金額（月）
+  sortOrder      Int          @default(0)
+
+  @@unique([organizationId, amount])
+  @@index([organizationId, sortOrder])
 }
 
 /// 薪資單（每位成員每月一張）。由 HR 產生時依當月出勤 + 薪資設定即時計算並落庫，明細存 breakdown。
@@ -1246,27 +1343,47 @@ model Payslip {
   periodMonth Int // 1–12
 
   payType         String
-  baseAmount      Decimal  @default(0) @db.Decimal(12, 2)
-  currency        String   @default("TWD")
+  baseAmount      Decimal @default(0) @db.Decimal(12, 2)
+  currency        String  @default("TWD")
   // 出勤彙總（供顯示 / 稽核）
-  workedDays      Float    @default(0) // 出勤天（含出差 / 在家工作）
-  leaveDays       Float    @default(0) // 請假天（各假別合計）
-  absentDays      Float    @default(0) // 缺席天
-  overtimeHours   Float    @default(0) // 加班時數
+  workedDays      Float   @default(0) // 出勤天（含出差 / 在家工作）
+  leaveDays       Float   @default(0) // 請假天（各假別合計）
+  absentDays      Float   @default(0) // 缺席天
+  overtimeHours   Float   @default(0) // 加班時數
   // 金額（TWD，二位小數）
-  grossPay        Decimal  @default(0) @db.Decimal(12, 2) // 應發（本薪＋加給＋加班 − 請假/缺席扣薪）
-  overtimePay     Decimal  @default(0) @db.Decimal(12, 2)
-  allowanceTotal  Decimal  @default(0) @db.Decimal(12, 2)
-  leaveDeduction  Decimal  @default(0) @db.Decimal(12, 2) // 請假扣薪合計
-  absentDeduction Decimal  @default(0) @db.Decimal(12, 2) // 缺席扣薪合計
-  deductionTotal  Decimal  @default(0) @db.Decimal(12, 2) // 固定扣除合計（勞健保…）
-  netPay          Decimal  @default(0) @db.Decimal(12, 2) // 實發
-  breakdown       Json? // 逐項明細（給薪資單呈現）
-  status          String   @default("draft") // draft（草稿）| finalized（已核定）
-  note            String?
-  computedAt      DateTime @default(now())
-  createdById     String?
-  updatedAt       DateTime @updatedAt
+  grossPay        Decimal @default(0) @db.Decimal(12, 2) // 應發（本薪＋加給＋加班 − 請假/缺席扣薪）
+  overtimePay     Decimal @default(0) @db.Decimal(12, 2)
+  allowanceTotal  Decimal @default(0) @db.Decimal(12, 2)
+  leaveDeduction  Decimal @default(0) @db.Decimal(12, 2) // 請假扣薪合計
+  absentDeduction Decimal @default(0) @db.Decimal(12, 2) // 缺席扣薪合計
+  deductionTotal  Decimal @default(0) @db.Decimal(12, 2) // 應扣合計（勞健保自付＋勞退自提＋固定扣除…）
+  netPay          Decimal @default(0) @db.Decimal(12, 2) // 實發
+
+  // ── 勞健保 / 勞退（員工自付；已含入 deductionTotal / netPay）──
+  insuredSalary         Int     @default(0) // 投保薪資（快照，供稽核）
+  laborInsEmployee      Decimal @default(0) @db.Decimal(12, 2) // 勞保自付
+  healthInsEmployee     Decimal @default(0) @db.Decimal(12, 2) // 健保自付（含眷口）
+  pensionSelfEmployee   Decimal @default(0) @db.Decimal(12, 2) // 勞退自提
+  supplementaryEmployee Decimal @default(0) @db.Decimal(12, 2) // 二代健保員工自付（高額獎金；Phase 3）
+  incomeTaxWithheld     Decimal @default(0) @db.Decimal(12, 2) // 薪資所得就源扣繳稅額（Phase 3）
+  // 稅務 / 二代健保計算快照（Phase 2/3）
+  taxableIncome         Decimal @default(0) @db.Decimal(12, 2) // 當月應稅所得（供扣繳）
+  bonusAmount           Decimal @default(0) @db.Decimal(12, 2) // 當月非經常性給與（獎金；二代健保累計用）
+
+  // ── 公司負擔（雇主成本，不影響員工實發；供當月總表 / 帳務）──
+  laborInsEmployer      Decimal @default(0) @db.Decimal(12, 2) // 勞保雇主負擔
+  healthInsEmployer     Decimal @default(0) @db.Decimal(12, 2) // 健保雇主負擔
+  pensionEmployer       Decimal @default(0) @db.Decimal(12, 2) // 勞退雇主提繳（6%）
+  occupationalEmployer  Decimal @default(0) @db.Decimal(12, 2) // 職災保險（雇主全負擔）
+  supplementaryEmployer Decimal @default(0) @db.Decimal(12, 2) // 二代健保雇主補充保費
+  employerCostTotal     Decimal @default(0) @db.Decimal(12, 2) // 公司負擔合計（薪資雇主成本，不含應發）
+
+  breakdown   Json? // 逐項明細（給薪資單呈現）
+  status      String   @default("draft") // draft（草稿）| finalized（已核定）
+  note        String?
+  computedAt  DateTime @default(now())
+  createdById String?
+  updatedAt   DateTime @updatedAt
 
   @@unique([organizationId, memberId, periodYear, periodMonth])
   @@index([organizationId, periodYear, periodMonth])
