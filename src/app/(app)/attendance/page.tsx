@@ -2,7 +2,11 @@ import { requireManageContext } from "@/server/org";
 import { db } from "@/server/db";
 import {
   getAttendanceMonth,
+  getSelfAttendanceMonth,
   getTrackableMembers,
+  getOrgLeaveTypes,
+  getMyCheckInCorrections,
+  getPendingCheckInCorrections,
 } from "@/server/queries";
 import { parseGeofences, parseMatchMode } from "@/lib/checkin";
 import { todayUtc } from "@/lib/date";
@@ -19,6 +23,7 @@ import {
   AttendanceTimecard,
   type TimecardDay,
 } from "@/components/attendance-timecard";
+import { CheckInCorrections } from "@/components/checkin-corrections";
 
 export const metadata = { title: "出席狀況 · Project Pulse" };
 
@@ -45,11 +50,11 @@ export default async function AttendancePage({
 }: {
   searchParams: Promise<{ month?: string }>;
 }) {
-  const { org, user, canManage } = await requireManageContext();
-  // 全體成員都看得到所有人的出勤月曆。
-  const canViewAll = true;
-  // 出勤管理（登記 / 修改他人、管理追蹤成員與打卡設定）：擁有者 / 管理員。
-  const canManageAtt = canManage;
+  const { org, user, can } = await requireManageContext();
+  // 出勤可見範圍：具「查看全體出勤」權限者（人資 / 管理者）看全部；否則只看自己。
+  const canViewAll = can("attendance.view_all");
+  // 出勤管理權限：可登記 / 修改他人、管理追蹤成員與打卡設定。
+  const canManageAtt = can("attendance.manage");
   const { month: monthParam } = await searchParams;
 
   const now = new Date();
@@ -73,10 +78,13 @@ export default async function AttendancePage({
     };
   });
 
-  const [rows, trackable, orgConfig, firstCheckIn, myCheckIns] =
+  const [rows, trackable, leaveTypes, orgConfig, firstCheckIn, myCheckIns] =
     await Promise.all([
-      getAttendanceMonth(org.id, start, end),
+      canViewAll
+        ? getAttendanceMonth(org.id, start, end)
+        : getSelfAttendanceMonth(org.id, user.id, start, end),
       canManageAtt ? getTrackableMembers(org.id) : Promise.resolve([]),
+      getOrgLeaveTypes(org.id, true),
       db.organization.findUnique({
         where: { id: org.id },
         select: {
@@ -104,6 +112,14 @@ export default async function AttendancePage({
         select: { date: true, at: true, kind: true, method: true },
       }),
     ]);
+
+  // 補打卡：本人近期申請 + （管理者）待審核清單。
+  const [myCorrections, pendingCorrections] = await Promise.all([
+    getMyCheckInCorrections(org.id, user.id),
+    canManageAtt
+      ? getPendingCheckInCorrections(org.id)
+      : Promise.resolve(null),
+  ]);
 
   // 自動缺席規則：企業有開打卡、且某平日落在 [第一次打卡日, 今天) 之間、
   // 該成員當天完全沒有出席紀錄（沒打卡 / 請假 / 手動 / 出差）→ 視為缺席（未打卡）。
@@ -243,12 +259,19 @@ export default async function AttendancePage({
           請假
         </span>
         <span>
-          · 點格子登記；請假 / 出差 / 在家工作 由團隊成員頁的事件自動帶入
-          ；週末預設放假、平日可點格子設為休假 / 請假，皆不列入缺席統計
+          {canManageAtt
+            ? "· 具出勤管理權限者可點格子登記；請假 / 出差 / 在家工作 由請假簽核頁的事件自動帶入；週末預設放假，皆不列入缺席統計"
+            : "· 出缺勤以打卡為準（唯讀）；忘記打卡請用下方「補打卡」申請；請假 / 出差請至請假簽核頁"}
           {checkInEnabled &&
             "；開啟打卡後，平日未打卡者於次日起自動標記缺席"}
         </span>
       </div>
+
+      {!canViewAll && (
+        <p className="text-muted-foreground text-xs">
+          你目前只看得到自己的出勤。若需查看 / 管理全體出勤，請由管理者指派具「查看全體出勤」權限的角色（如人資）。
+        </p>
+      )}
 
       {members.length === 0 ? (
         <div className="text-muted-foreground rounded-xl border border-dashed py-16 text-center">
@@ -266,14 +289,24 @@ export default async function AttendancePage({
         <AttendanceGrid
           members={members}
           days={days}
-          viewerUserId={user.id}
           canManage={canManageAtt}
+          leaveTypes={leaveTypes.map((lt) => ({
+            id: lt.id,
+            name: lt.name,
+            color: lt.color,
+          }))}
         />
       )}
 
       {showTimecard && (
         <AttendanceTimecard days={timecardDays} todayStr={todayStr} />
       )}
+
+      <CheckInCorrections
+        mine={myCorrections}
+        pending={pendingCorrections}
+        canReview={canManageAtt}
+      />
     </div>
   );
 }

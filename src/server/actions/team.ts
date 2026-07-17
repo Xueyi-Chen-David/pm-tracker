@@ -6,6 +6,7 @@ import { db } from "@/server/db";
 import {
   requireActiveOrg,
   requireActiveOrgWithRole,
+  requireOrgPermission,
   canManageMembers,
 } from "@/server/org";
 import { getMembershipGraph } from "@/server/queries";
@@ -260,164 +261,59 @@ async function resolveEmailUpdate(
   return { email: lowerEmail };
 }
 
-const ProfileInput = z.object({
-  id: z.string().min(1), // User id
-  name: z.string().trim().max(120).optional(),
-  nickname: z.string().trim().max(120).optional(),
-  useNickname: z.boolean().optional(),
-  email: z.string().trim().email("Email 格式不正確").optional(),
-  jobTitle: z.string().trim().max(120).optional(),
-  department: z.string().trim().max(120).optional(),
-  attendance: z.string().trim().max(200).optional(),
-  bio: z.string().trim().max(4000).optional(),
-  isBoss: z.boolean().optional(),
-  active: z.boolean().optional(),
-  managerId: z.string().optional(), // 上級主管的 membership id（空＝清除）
-});
+// ── 人事頁：單一欄位 setter（依細分權限授權，管理者天生擁有全部權限故一律通過） ──
 
-/** 更新成員 profile：身分欄位寫 User，組織內欄位寫 membership。需擁有者 / 管理員。 */
-export async function updateProfileAction(
-  _prev: TeamActionState,
-  formData: FormData,
-): Promise<TeamActionState> {
-  const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
-  const parsed = ProfileInput.safeParse({
-    id: formData.get("id"),
-    name: formData.get("name") || undefined,
-    nickname: formData.get("nickname") || undefined,
-    useNickname: formData.get("useNickname") === "on",
-    email: formData.get("email") || undefined,
-    jobTitle: formData.get("jobTitle") || undefined,
-    department: formData.get("department") || undefined,
-    attendance: formData.get("attendance") || undefined,
-    bio: formData.get("bio") || undefined,
-    active: formData.get("active") === "on",
-    managerId: formData.get("managerId") || undefined,
+/** 更新成員職稱（人事頁）。空＝清除。需 hr.manage_position。 */
+export async function setMemberJobTitle(userId: string, jobTitle: string) {
+  const { org } = await requireOrgPermission("hr.manage_position");
+  const title = jobTitle.trim().slice(0, 120);
+  const res = await db.organizationMember.updateMany({
+    where: { organizationId: org.id, userId },
+    data: { jobTitle: title || null },
   });
-  if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "資料格式錯誤" };
-  }
-  const d = parsed.data;
+  if (res.count === 0) throw new Error("該成員不屬於目前組織。");
+  revalidatePath("/hr");
+  revalidatePath("/team");
+  revalidatePath(`/me/${userId}`);
+}
 
-  // 目標必須是本組織成員。
+/** 更新成員到職日（人事頁）。yyyy-mm-dd；空＝清除。需 hr.manage_employment。 */
+export async function setMemberHireDate(userId: string, hireDate: string) {
+  const { org } = await requireOrgPermission("hr.manage_employment");
+  const v = hireDate.trim();
+  if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new Error("到職日格式錯誤。");
+  const res = await db.organizationMember.updateMany({
+    where: { organizationId: org.id, userId },
+    data: { hireDate: v ? new Date(`${v}T00:00:00.000Z`) : null },
+  });
+  if (res.count === 0) throw new Error("該成員不屬於目前組織。");
+  revalidatePath("/hr");
+  revalidatePath("/team");
+  revalidatePath(`/me/${userId}`);
+}
+
+/** 覆蓋成員的自訂角色指派（人事頁）。只接受本組織的角色 id。需 hr.manage_roles。 */
+export async function setMemberRoles(userId: string, roleIds: string[]) {
+  const { org } = await requireOrgPermission("hr.manage_roles");
   const membership = await db.organizationMember.findUnique({
-    where: { organizationId_userId: { organizationId: org.id, userId: d.id } },
+    where: { organizationId_userId: { organizationId: org.id, userId } },
     select: { id: true },
   });
-  if (!membership) return { error: "該成員不屬於目前組織。" };
-
-  // 上級主管（membership id）：驗證同組織、非自己、不成循環。空＝清除。
-  let managerId: string | null = null;
-  if (d.managerId) {
-    if (d.managerId === membership.id) {
-      return { error: "不能把自己設為自己的主管。" };
-    }
-    const graph = await getMembershipGraph(org.id);
-    const target = graph.find((m) => m.id === d.managerId);
-    if (!target) return { error: "指定的主管不在目前組織。" };
-    if (wouldCycle(graph, membership.id, d.managerId)) {
-      return { error: "此指派會造成主管關係循環。" };
-    }
-    managerId = d.managerId;
-  }
-
-  const trackAttendance = formData.get("trackAttendance") === "on";
-  const lowerEmail = d.email ? d.email.toLowerCase() : undefined;
-
-  // 組織內欄位（成員設定），re-link 與一般路徑共用。
-  const memberData = {
-    jobTitle: d.jobTitle || null,
-    department: d.department || null,
-    attendance: d.attendance || null,
-    bio: d.bio || null,
-    active: d.active ?? true,
-    trackAttendance,
-    managerId,
-  };
-
-  // email 是否真的變更（不分大小寫）。
-  const targetUser = await db.user.findUnique({
-    where: { id: d.id },
-    select: { email: true },
-  });
-  const currentLower = (targetUser?.email ?? "").toLowerCase();
-  const emailChanged = lowerEmail !== undefined && lowerEmail !== currentLower;
-
-  // email 改成「別的既有帳號」的 email 時（唯一性擋住、無法直接改）：
-  //   - 若這位成員是「還沒登入過的占位帳號」→ 視為「其實就是本人」，把此成員合併連到既有
-  //     帳號（例如你先用占位 email 建了人，對方其實早已用該 email 登入 / 在別的組織）。
-  //     合併後跳到本人頁面，不會留下舊 email 的殘影。
-  //   - 若這位成員本身也已登入過（是真人帳號）→ 兩個真人不能合併，清楚報錯。
-  if (emailChanged) {
-    const existingOther = await db.user.findFirst({
-      where: { email: { equals: lowerEmail, mode: "insensitive" }, id: { not: d.id } },
-      select: { id: true },
-    });
-    if (existingOther) {
-      const already = await db.organizationMember.findUnique({
-        where: {
-          organizationId_userId: { organizationId: org.id, userId: existingOther.id },
-        },
+  if (!membership) throw new Error("該成員不屬於目前組織。");
+  const requested = Array.from(new Set(roleIds.map(String).filter(Boolean)));
+  const validRoles = requested.length
+    ? await db.orgRoleDef.findMany({
+        where: { organizationId: org.id, id: { in: requested } },
         select: { id: true },
-      });
-      if (already) {
-        return { error: "這個 Email 對應的帳號已經是組織成員了。" };
-      }
-      // 目前這位成員有沒有登入過？（有 OAuth Account ＝ 真人，不能被合併掉。）
-      const current = await db.user.findUnique({
-        where: { id: d.id },
-        select: { _count: { select: { accounts: true } } },
-      });
-      if ((current?._count.accounts ?? 0) > 0) {
-        return {
-          error:
-            "這個 Email 屬於另一個已登入的帳號，無法把目前這位成員改成該 Email。",
-        };
-      }
-      // 占位帳號 → 合併：把成員改連到既有帳號（不覆蓋對方本人的姓名 / email），跳到本人頁。
-      await db.organizationMember.update({
-        where: { id: membership.id },
-        data: { userId: existingOther.id, email: lowerEmail, ...memberData },
-      });
-      revalidatePath("/team");
-      revalidatePath(`/me/${existingOther.id}`);
-      revalidatePath("/attendance");
-      revalidatePath("/daily");
-      return { ok: true, redirectTo: `/me/${existingOther.id}` };
-    }
-  }
-
-  // 一般情形：email 沒變、或改成尚未被使用的新 email（才寫入 email）。
-  const setEmail = emailChanged;
-  try {
-    await db.$transaction([
-      // 身分（全域）
-      db.user.update({
-        where: { id: d.id },
-        data: {
-          name: d.name ?? null,
-          nickname: d.nickname || null,
-          useNickname: d.useNickname ?? false,
-          ...(setEmail ? { email: lowerEmail } : {}),
-        },
-      }),
-      // 組織內欄位
-      db.organizationMember.update({
-        where: { id: membership.id },
-        data: { ...(setEmail ? { email: lowerEmail } : {}), ...memberData },
-      }),
-    ]);
-  } catch (e) {
-    if ((e as { code?: string })?.code === "P2002") {
-      return { error: "此 Email 已被其他帳號使用，請改用其他 Email。" };
-    }
-    throw e;
-  }
+      })
+    : [];
+  await db.organizationMember.update({
+    where: { id: membership.id },
+    data: { roleDefs: { set: validRoles.map((r) => ({ id: r.id })) } },
+  });
+  revalidatePath("/hr");
   revalidatePath("/team");
-  revalidatePath(`/me/${d.id}`);
-  revalidatePath("/attendance");
-  revalidatePath("/daily");
-  return { ok: true };
+  revalidatePath(`/me/${userId}`);
 }
 
 /**
@@ -465,7 +361,7 @@ export async function setMemberManager(
   userId: string,
   managerMembershipId: string | null,
 ) {
-  const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
+  const { org } = await requireOrgPermission("hr.manage_position");
   const membership = await db.organizationMember.findUnique({
     where: { organizationId_userId: { organizationId: org.id, userId } },
     select: { id: true },
@@ -491,6 +387,7 @@ export async function setMemberManager(
     where: { id: membership.id },
     data: { managerId },
   });
+  revalidatePath("/hr");
   revalidatePath("/team");
   revalidatePath(`/me/${userId}`);
   revalidatePath("/daily");
@@ -505,7 +402,7 @@ export async function setMemberSecondaryManagers(
   userId: string,
   membershipIds: string[],
 ) {
-  const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
+  const { org } = await requireOrgPermission("hr.manage_position");
   const membership = await db.organizationMember.findUnique({
     where: { organizationId_userId: { organizationId: org.id, userId } },
     select: { id: true },
@@ -522,33 +419,133 @@ export async function setMemberSecondaryManagers(
     where: { id: membership.id },
     data: { secondaryManagerIds: cleaned },
   });
+  revalidatePath("/hr");
   revalidatePath("/team");
   revalidatePath(`/me/${userId}`);
   revalidatePath("/daily");
 }
 
-/** 就地設定某成員的部門（組織架構頁用）。空字串＝清除。需擁有者 / 管理員。 */
+/** 就地設定某成員的部門（組織架構 / 人事頁用）。空字串＝清除。需 hr.manage_position。 */
 export async function setMemberDepartment(userId: string, department: string) {
-  const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
+  const { org } = await requireOrgPermission("hr.manage_position");
   const dept = department.trim().slice(0, 120);
   const res = await db.organizationMember.updateMany({
     where: { organizationId: org.id, userId },
     data: { department: dept || null },
   });
   if (res.count === 0) throw new Error("該成員不屬於目前組織。");
+  revalidatePath("/hr");
   revalidatePath("/team");
   revalidatePath(`/me/${userId}`);
 }
 
-/** 設定成員在本組織是否在職 / 啟用。需擁有者 / 管理員。 */
+// ── 批次設定（團隊清單多選）：一次對多位成員套用同一設定。需擁有者 / 管理員。 ──
+const BulkIds = z
+  .array(z.string().min(1))
+  .min(1, "請先選擇成員")
+  .max(1000);
+
+export type BulkResult = { ok: true; count: number; skipped?: number };
+
+/** 批次設定「在職 / 停用」。回傳實際更新筆數。 */
+export async function bulkSetMemberActive(
+  userIds: string[],
+  active: boolean,
+): Promise<BulkResult> {
+  const { org } = await requireOrgPermission("hr.manage_employment");
+  const ids = BulkIds.parse(userIds);
+  const res = await db.organizationMember.updateMany({
+    where: { organizationId: org.id, userId: { in: ids } },
+    data: { active },
+  });
+  revalidatePath("/hr");
+  revalidatePath("/team");
+  revalidatePath("/attendance");
+  revalidatePath("/daily");
+  return { ok: true, count: res.count };
+}
+
+/** 批次設定「是否納入出席追蹤」（出勤概念，與 attendance 頁一致）。需 attendance.manage。 */
+export async function bulkSetMemberTrackAttendance(
+  userIds: string[],
+  track: boolean,
+): Promise<BulkResult> {
+  const { org } = await requireOrgPermission("attendance.manage");
+  const ids = BulkIds.parse(userIds);
+  const res = await db.organizationMember.updateMany({
+    where: { organizationId: org.id, userId: { in: ids } },
+    data: { trackAttendance: track },
+  });
+  revalidatePath("/team");
+  revalidatePath("/attendance");
+  return { ok: true, count: res.count };
+}
+
+/**
+ * 批次設定「上級主管」。managerMembershipId 為空＝清除所有選取者的主管。
+ * 指派時逐一擋掉：主管不在組織、把某人設成自己的主管、會造成循環者（略過並回報 skipped）。
+ */
+export async function bulkSetMemberManager(
+  userIds: string[],
+  managerMembershipId: string | null,
+): Promise<BulkResult> {
+  const { org } = await requireOrgPermission("hr.manage_position");
+  const ids = BulkIds.parse(userIds);
+
+  if (!managerMembershipId) {
+    const res = await db.organizationMember.updateMany({
+      where: { organizationId: org.id, userId: { in: ids } },
+      data: { managerId: null },
+    });
+    revalidatePath("/hr");
+    revalidatePath("/team");
+    revalidatePath("/daily");
+    return { ok: true, count: res.count };
+  }
+
+  const graph = await getMembershipGraph(org.id);
+  const manager = graph.find((m) => m.id === managerMembershipId);
+  if (!manager) throw new Error("指定的主管不在目前組織。");
+  const byUser = new Map(graph.map((m) => [m.userId, m]));
+
+  // 全部指向同一位主管：對每個選取成員以「原始圖」檢查即可（不會互相影響是否成環）。
+  const valid: string[] = [];
+  let skipped = 0;
+  for (const uid of ids) {
+    const node = byUser.get(uid);
+    if (!node || node.id === managerMembershipId) {
+      skipped++; // 不在組織 / 不能設成自己的主管
+      continue;
+    }
+    if (wouldCycle(graph, node.id, managerMembershipId)) {
+      skipped++; // 會造成主管關係循環
+      continue;
+    }
+    valid.push(uid);
+  }
+  if (valid.length) {
+    await db.organizationMember.updateMany({
+      where: { organizationId: org.id, userId: { in: valid } },
+      data: { managerId: managerMembershipId },
+    });
+  }
+  revalidatePath("/team");
+  revalidatePath("/daily");
+  return { ok: true, count: valid.length, skipped };
+}
+
+/** 設定成員在本組織是否在職 / 啟用（人事頁）。需 hr.manage_employment。 */
 export async function setMemberActive(id: string, active: boolean) {
-  const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
+  const { org } = await requireOrgPermission("hr.manage_employment");
   await db.organizationMember.update({
     where: { organizationId_userId: { organizationId: org.id, userId: id } },
     data: { active },
   });
+  revalidatePath("/hr");
   revalidatePath("/team");
   revalidatePath(`/me/${id}`);
+  revalidatePath("/attendance");
+  revalidatePath("/daily");
 }
 
 /**
@@ -557,7 +554,7 @@ export async function setMemberActive(id: string, active: boolean) {
  * 出席 / 事件，最後刪除組織成員關係。不能移除自己。需擁有者 / 管理員。
  */
 export async function deleteWorkspaceMember(id: string) {
-  const { user: me, org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
+  const { user: me, org } = await requireOrgPermission("hr.manage_employment");
   if (id === me.id) {
     throw new Error("不能移除自己。");
   }
@@ -608,5 +605,6 @@ export async function deleteWorkspaceMember(id: string) {
       where: { organizationId_userId: { organizationId: org.id, userId: id } },
     }),
   ]);
+  revalidatePath("/hr");
   revalidatePath("/team");
 }

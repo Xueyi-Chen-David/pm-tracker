@@ -6,27 +6,21 @@ import {
   FolderKanban,
   Users2,
   CalendarCheck,
-  CalendarRange,
   CheckCircle2,
   Circle,
   ListChecks,
   ClipboardList,
+  UserCog,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { db } from "@/server/db";
 import { requireManageContext } from "@/server/org";
-import {
-  getMemberProfile,
-  getOrgMemberDirectory,
-} from "@/server/queries";
+import { getMemberProfile, getOrgMemberDirectory } from "@/server/queries";
 import { fmtDateShort } from "@/lib/date";
 import { displayName, displayInitial } from "@/lib/display";
 import { MemberName } from "@/components/member-name";
 import { AvatarUploader } from "@/components/avatar-uploader";
-import { ProfileForm } from "@/components/profile-form";
 import { MyProfileForm } from "@/components/my-profile-form";
-import { MemberDeleteButton } from "@/components/member-delete-button";
-import { MemberEventsPanel } from "@/components/member-events-panel";
 import { HealthDot, TypeBadge } from "@/components/badges";
 import { ProgressBar } from "@/components/progress-bar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -38,17 +32,18 @@ export default async function MemberProfilePage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const { org, user, canManage } = await requireManageContext();
+  const { org, user, canManage, can } = await requireManageContext();
   const m = await getMemberProfile(org.id, id);
   if (!m) notFound();
   const isSelf = m.id === user.id; // m.id ＝ userId
+  // 具任一人事管理權限者，可從此頁深連到「人事」頁編輯此成員的職務 / 任職狀態 / 角色。
+  const canEditHr =
+    can("hr.manage_position") ||
+    can("hr.manage_employment") ||
+    can("hr.manage_roles");
 
-  // 名錄：主管下拉選單（僅管理者用）＋ 解析「額外回報對象」的顯示名稱（所有人可見）。
+  // 名錄：解析「額外回報對象」的顯示名稱（所有人可見）。
   const directory = await getOrgMemberDirectory(org.id);
-  const memberOptions = directory.map((d) => ({
-    membershipId: d.membershipId,
-    label: d.jobTitle ? `${displayName(d)}（${d.jobTitle}）` : displayName(d),
-  }));
   const secondaryNames = (m.secondaryManagerIds ?? [])
     .map((mid) => directory.find((d) => d.membershipId === mid))
     .filter((d): d is (typeof directory)[number] => Boolean(d))
@@ -264,38 +259,21 @@ export default async function MemberProfilePage({
         <div className="space-y-5">
           <Card>
             <CardHeader>
-              <CardTitle>{isSelf && !canManage ? "我的資料" : "個人 Profile"}</CardTitle>
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle>{isSelf ? "我的資料" : "個人資料"}</CardTitle>
+                {!isSelf && canEditHr && (
+                  <Link
+                    href={`/hr?expand=${m.id}`}
+                    className="text-primary inline-flex items-center gap-1 text-sm hover:underline"
+                  >
+                    <UserCog className="h-4 w-4" /> 編輯人事資料
+                  </Link>
+                )}
+              </div>
             </CardHeader>
             <CardContent>
-              {canManage ? (
-                <ProfileForm
-                  values={{
-                    id: m.id,
-                    membershipId: m.membershipId,
-                    name: m.name,
-                    nickname: m.nickname,
-                    useNickname: m.useNickname,
-                    email: m.email,
-                    jobTitle: m.jobTitle,
-                    department: m.department,
-                    attendance: m.attendance,
-                    bio: m.bio,
-                    isBoss: m.isBoss,
-                    active: m.active,
-                    trackAttendance: m.trackAttendance,
-                    managerId: m.managerId,
-                  }}
-                  memberOptions={memberOptions}
-                  departments={Array.from(
-                    new Set(
-                      directory
-                        .map((d) => d.department?.trim())
-                        .filter(Boolean) as string[],
-                    ),
-                  ).sort((a, b) => a.localeCompare(b, "zh-Hant"))}
-                />
-              ) : isSelf ? (
-                // 本人（非管理者）：可自行編輯姓名 / 綽號 / Email / 簡介。
+              {isSelf ? (
+                // 本人：可自行編輯姓名 / 綽號 / Email / 簡介（職務 / 任職狀態 / 角色由人事頁管理）。
                 <MyProfileForm
                   values={{
                     name: m.name,
@@ -308,8 +286,8 @@ export default async function MemberProfilePage({
               ) : (
                 <dl className="space-y-2.5 text-sm">
                   <ReadOnlyRow label="職稱" value={m.jobTitle} />
+                  <ReadOnlyRow label="部門" value={m.department} />
                   <ReadOnlyRow label="Email" value={m.email} />
-                  <ReadOnlyRow label="出席情況" value={m.attendance} />
                   <ReadOnlyRow
                     label="上級主管"
                     value={m.manager ? displayName(m.manager.user) : null}
@@ -418,48 +396,8 @@ export default async function MemberProfilePage({
               )}
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-1.5">
-                <CalendarRange className="h-4 w-4" /> 請假 / 出差 / 事件
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <MemberEventsPanel
-                userId={m.id}
-                events={m.memberEvents.map((ev) => ({
-                  id: ev.id,
-                  type: ev.type,
-                  startDate: ev.startDate,
-                  endDate: ev.endDate,
-                  note: ev.note,
-                }))}
-              />
-            </CardContent>
-          </Card>
-
         </div>
       </div>
-
-      {canManage && !isSelf && (
-        <div className="rounded-xl border border-red-200 bg-red-50/40 p-4">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-sm font-semibold text-red-700">移除成員</div>
-              <p className="text-muted-foreground text-xs">
-                將此成員從目前組織移除；他在本組織建立 / 負責的專案會轉由你接手，成員資格一併移除（不影響其他組織）。此動作無法復原。
-              </p>
-            </div>
-            <MemberDeleteButton
-              id={m.id}
-              name={displayName(m)}
-              mode="button"
-              redirectTo="/team"
-            />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

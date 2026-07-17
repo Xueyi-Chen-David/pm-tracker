@@ -46,20 +46,25 @@ export type GridMember = {
   marks: Record<string, Mark>;
 };
 
+export type GridLeaveType = { id: string; name: string; color: string | null };
+
 const WEEKDAY_LABEL = ["日", "一", "二", "三", "四", "五", "六"];
 
 export function AttendanceGrid({
   members,
   days,
-  viewerUserId,
   canManage,
+  leaveTypes = [],
 }: {
   members: GridMember[];
   days: GridDay[];
-  /** 目前檢視者的 userId：非管理者只能編輯自己的列。 */
-  viewerUserId: string;
-  /** 管理者可編輯所有人；否則只有自己那列可編輯。 */
+  /**
+   * 是否可編輯格子（出席 / 缺席 / 請假…）：僅具「登記 / 修改全體出勤」權限(attendance.manage)者可編輯。
+   * 一般成員（含本人自己那列）一律唯讀——出缺勤以打卡為準，忘記打卡走「補打卡」申請。
+   */
   canManage: boolean;
+  /** 可選假別（請假時挑，決定薪資扣薪比例）。 */
+  leaveTypes?: GridLeaveType[];
 }) {
   // 每日在勤人數（頁尾）＝出席，含在外工作（出差 / 在家工作），依伺服器資料計算。
   const dayPresent = days.map(
@@ -131,8 +136,9 @@ export function AttendanceGrid({
                       dateStr={d.dateStr}
                       label={d.label}
                       mark={m.marks[d.dateStr]}
-                      editable={canManage || m.id === viewerUserId}
+                      editable={canManage}
                       weekend={d.weekend}
+                      leaveTypes={leaveTypes}
                     />
                   </td>
                 ))}
@@ -236,6 +242,7 @@ function AttendanceCell({
   mark,
   editable,
   weekend,
+  leaveTypes = [],
 }: {
   userId: string;
   dateStr: string;
@@ -244,6 +251,7 @@ function AttendanceCell({
   editable: boolean;
   /** 週末＝預設放假：格子顯示「休」、且不提供「缺席」（放假不算缺席）。 */
   weekend?: boolean;
+  leaveTypes?: GridLeaveType[];
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -254,11 +262,12 @@ function AttendanceCell({
   if (!editable) return <StaticCell label={label} mark={mark} weekend={weekend} />;
 
   // status=offsite 時（出差 / 在家工作）用 offsiteReason 帶入類型文字。
-  // status=leave 時以下方輸入的事由（reason）為請假事由。
+  // status=leave 時可帶 leave={ id, name }：以假別名稱為事由，並記下 leaveTypeId 供薪資扣薪。
   function apply(
     status: "present" | "absent" | "offsite" | "holiday" | "leave" | "clear",
-    opts?: { offsiteReason?: string },
+    opts?: { offsiteReason?: string; leave?: { id: string; name: string } },
   ) {
+    const leaveReason = opts?.leave?.name ?? (status === "leave" ? reason : "");
     start(async () => {
       try {
         await setAttendance({
@@ -266,11 +275,14 @@ function AttendanceCell({
           date: dateStr,
           status,
           reason:
-            status === "absent" || status === "leave"
+            status === "absent"
               ? reason
-              : status === "offsite"
-                ? opts?.offsiteReason
-                : undefined,
+              : status === "leave"
+                ? leaveReason
+                : status === "offsite"
+                  ? opts?.offsiteReason
+                  : undefined,
+          leaveTypeId: status === "leave" ? opts?.leave?.id : undefined,
         });
         setState(
           status === "clear"
@@ -279,11 +291,13 @@ function AttendanceCell({
                 // 出席 / 在外工作算出席；缺席 / 休假 / 請假不算。
                 present: status === "present" || status === "offsite",
                 reason:
-                  status === "absent" || status === "leave"
+                  status === "absent"
                     ? reason.trim() || null
-                    : status === "offsite"
-                      ? (opts?.offsiteReason ?? null)
-                      : null,
+                    : status === "leave"
+                      ? leaveReason.trim() || null
+                      : status === "offsite"
+                        ? (opts?.offsiteReason ?? null)
+                        : null,
                 offsite: status === "offsite",
                 holiday: status === "holiday",
                 leave: status === "leave",
@@ -375,8 +389,8 @@ function AttendanceCell({
               休假
             </button>
           )}
-          {/* 請假：事由填在下方（選填）。 */}
-          {!weekend && (
+          {/* 沒有定義假別時：單一「請假」按鈕（事由填在下方）。有假別時改用下方假別清單。 */}
+          {!weekend && leaveTypes.length === 0 && (
             <button
               type="button"
               onClick={() => apply("leave")}
@@ -393,6 +407,28 @@ function AttendanceCell({
             清除
           </button>
         </div>
+        {/* 請假（挑假別）：假別的給付比例決定薪資扣薪。週末已放假，不提供。 */}
+        {!weekend && leaveTypes.length > 0 && (
+          <div>
+            <div className="text-muted-foreground mb-1 text-[11px]">請假（挑假別）</div>
+            <div className="flex flex-wrap gap-1">
+              {leaveTypes.map((lt) => (
+                <button
+                  key={lt.id}
+                  type="button"
+                  onClick={() => apply("leave", { leave: { id: lt.id, name: lt.name } })}
+                  className="rounded-full border px-2 py-0.5 text-xs font-medium hover:opacity-80"
+                  style={{
+                    borderColor: lt.color ?? "#f9a8d4",
+                    color: lt.color ?? "#be185d",
+                  }}
+                >
+                  {lt.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-1.5">
           <button
             type="button"

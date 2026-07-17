@@ -339,15 +339,15 @@ export function PomodoroIndicator() {
       >
         <Timer
           className={cn(
-            "h-4 w-4",
+            "h-4 w-4 shrink-0",
             running ? "text-primary" : "text-muted-foreground",
           )}
         />
-        <span className="text-sm font-semibold tabular-nums">
+        <span className="shrink-0 text-sm font-semibold tabular-nums">
           {fmtClock(remainingSec)}
         </span>
         {todoTitle && (
-          <span className="text-muted-foreground max-w-[8rem] truncate text-xs">
+          <span className="text-muted-foreground max-w-[8rem] break-words text-xs">
             {todoTitle}
           </span>
         )}

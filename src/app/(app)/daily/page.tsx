@@ -30,8 +30,9 @@ const WEEKS = 4; // 一週分頁可回溯的週數
 const DAY_MS = 86_400_000;
 
 export default async function DailyPage() {
-  const { user, org, membership, canManage } = await requireManageContext();
-  const isManager = canManage;
+  const { user, org, membership, canManage, previewing } =
+    await requireManageContext();
+  const isManager = canManage; // 員工視角預覽時降為非管理者
 
   const today = todayUtc();
   const todayKey = today.toISOString().slice(0, 10);
@@ -86,11 +87,10 @@ export default async function DailyPage() {
   const todayReport = myReports.find((r) => r.date.getTime() === today.getTime());
 
   // 團隊（下屬）資料——依可見範圍（管理者指派的主管、graph 上有下屬者才看得到）。
-  const visibleMemberIds = visibleReportMemberIds(
-    graph,
-    membership.id,
-    chainVisible,
-  );
+  // 員工視角預覽時一律當成沒有下屬的一般員工，因此不顯示團隊日報。
+  const visibleMemberIds = previewing
+    ? new Set<string>()
+    : visibleReportMemberIds(graph, membership.id, chainVisible);
   const subordinates = directory.filter((d) =>
     visibleMemberIds.has(d.membershipId),
   );

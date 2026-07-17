@@ -13,6 +13,11 @@ import { fmtDate, toDateInput } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  AttachmentField,
+  AttachmentLink,
+  type AttachmentValue,
+} from "@/components/attachment-field";
 
 type EventItem = {
   id: string;
@@ -20,6 +25,8 @@ type EventItem = {
   startDate: Date | string;
   endDate: Date | string | null;
   note: string | null;
+  attachment?: string | null;
+  attachmentName?: string | null;
 };
 
 const inputCls =
@@ -28,9 +35,12 @@ const inputCls =
 export function MemberEventsPanel({
   userId,
   events,
+  types = MEMBER_EVENT_TYPES,
 }: {
   userId: string;
   events: EventItem[];
+  /** 可登記的事件類型建議清單（預設全部；「出差 / 事件」情境會排除請假）。 */
+  types?: readonly string[];
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -38,6 +48,7 @@ export function MemberEventsPanel({
   const [startDate, setStartDate] = useState(toDateInput(new Date()));
   const [endDate, setEndDate] = useState("");
   const [note, setNote] = useState("");
+  const [attachment, setAttachment] = useState<AttachmentValue>(null);
 
   function add() {
     if (!type.trim() || !startDate) return;
@@ -49,11 +60,14 @@ export function MemberEventsPanel({
           startDate,
           endDate: endDate || undefined,
           note: note || undefined,
+          attachment: attachment?.dataUrl,
+          attachmentName: attachment?.name,
         });
         setType("");
         setEndDate("");
         setNote("");
         setStartDate(toDateInput(new Date()));
+        setAttachment(null);
         toast.success("已新增事件");
         router.refresh();
       } catch (e) {
@@ -100,6 +114,13 @@ export function MemberEventsPanel({
               {ev.note && (
                 <span className="ml-2 whitespace-pre-wrap">{ev.note}</span>
               )}
+              {ev.attachment && (
+                <AttachmentLink
+                  attachment={ev.attachment}
+                  name={ev.attachmentName}
+                  className="ml-2"
+                />
+              )}
             </div>
             <Button
               variant="ghost"
@@ -123,11 +144,11 @@ export function MemberEventsPanel({
             list="member-event-types"
             value={type}
             onChange={(e) => setType(e.target.value)}
-            placeholder="類型（例：請假）"
+            placeholder="類型（例：出差）"
             className={cn(inputCls, "w-28")}
           />
           <datalist id="member-event-types">
-            {MEMBER_EVENT_TYPES.map((t) => (
+            {types.map((t) => (
               <option key={t} value={t} />
             ))}
           </datalist>
@@ -165,6 +186,11 @@ export function MemberEventsPanel({
             <Plus className="h-4 w-4" /> 新增
           </Button>
         </div>
+        <AttachmentField
+          value={attachment}
+          onChange={setAttachment}
+          label="證明附件（選填，如出差單 / 診斷證明）"
+        />
       </div>
     </div>
   );
