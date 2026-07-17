@@ -455,8 +455,10 @@ export function ProjectManageCard({
       {tasksOpen && (
         <div className="border-t">
           {tasks.length > 0 && (
-            <div>
-              <table className="w-full table-fixed">
+            /* 手機：8 個欄位擠在 375px 誰都讀不了 → 比照 OKR 的 KR 表，橫向捲動 +
+               保底寬度，讓每欄至少有能用的寬度（欄寬百分比才有意義）。 */
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] table-fixed">
                 <colgroup>
                   {canEdit && <col className="w-7" />}
                   <col className="w-[26%]" />

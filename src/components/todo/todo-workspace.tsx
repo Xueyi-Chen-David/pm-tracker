@@ -74,6 +74,8 @@ const selectCls =
   "border-input bg-transparent dark:bg-input/30 h-8 rounded-md border px-2 text-sm outline-none focus-visible:border-ring";
 const dateCls =
   "border-input bg-transparent dark:bg-input/30 h-8 rounded-md border px-2 text-xs outline-none focus-visible:border-ring";
+// popover 在手機上不能比視窗還寬（w-72＝288px 對 320px 的機器已經頂到邊）。
+const popoverCls = "w-[min(18rem,calc(100vw-2rem))]";
 
 export function TodoWorkspace({
   todos,
@@ -104,8 +106,10 @@ export function TodoWorkspace({
   }
 
   return (
+    // grid 子項預設 min-width:auto＝不肯縮到比內容還窄，長字串 / 長選項的 <select>
+    // 會把整欄撐開，手機就變成整頁左右捲。min-w-0 是讓它們願意縮的關鍵。
     <div className="grid gap-4 lg:h-full lg:min-h-0 lg:auto-rows-fr lg:grid-cols-3">
-      <div className="lg:col-span-2 lg:min-h-0">
+      <div className="min-w-0 lg:col-span-2 lg:min-h-0">
         <TodoList
           todos={todos}
           taskOptions={taskOptions}
@@ -114,7 +118,7 @@ export function TodoWorkspace({
           run={run}
         />
       </div>
-      <div className="flex flex-col gap-4 lg:min-h-0">
+      <div className="flex min-w-0 flex-col gap-4 lg:min-h-0">
         <Pomodoro todos={todos} />
         <PomodoroRecords
           pomodoros={pomodoros}
@@ -195,12 +199,14 @@ function TodoList({
           </Button>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <label className="text-muted-foreground inline-flex items-center gap-1 text-xs">
-            <Link2 className="h-3.5 w-3.5" />
+          {/* min-w-0：flex 項目預設不肯縮到比內容窄，長 option 的 select 一旦哪天
+              被算進 min-content 就會頂破 max-w。純防禦，不影響現況外觀。 */}
+          <label className="text-muted-foreground inline-flex min-w-0 max-w-full items-center gap-1 text-xs">
+            <Link2 className="h-3.5 w-3.5 shrink-0" />
             <select
               value={taskId}
               onChange={(e) => setTaskId(e.target.value)}
-              className={selectCls + " max-w-[16rem]"}
+              className={selectCls + " min-w-0 max-w-[16rem]"}
               title="關聯任務（選填）"
             >
               <option value="">（不關聯任務）</option>
@@ -365,9 +371,11 @@ function TodoRow({
         className="min-w-0 flex-1 rounded-md px-1 py-0.5 text-left hover:bg-muted/50"
         title="點擊編輯這筆待辦"
       >
+        {/* wrap-anywhere 而非 break-words：break-words(overflow-wrap:break-word) 不會縮小
+            元素的 min-content 寬，長字串照樣把外層撐爆；anywhere 才會連 min-content 一起算。 */}
         <span
           className={cn(
-            "block text-sm break-words",
+            "block text-sm wrap-anywhere",
             todo.done && "text-muted-foreground line-through",
           )}
         >
@@ -375,14 +383,14 @@ function TodoRow({
         </span>
         <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]">
           {todo.taskLabel && (
-            <span className="bg-muted inline-flex max-w-[16rem] items-center gap-1 rounded-full px-2 py-0.5">
+            <span className="bg-muted inline-flex min-w-0 max-w-full items-center gap-1 rounded-full px-2 py-0.5 sm:max-w-[16rem]">
               <Link2 className="h-3 w-3 shrink-0" />
               <span className="truncate">{todo.taskLabel}</span>
             </span>
           )}
           {(todo.startDate || todo.dueDate) && (
-            <span className="text-muted-foreground inline-flex items-center gap-1 tabular-nums">
-              <CalendarDays className="h-3 w-3" />
+            <span className="text-muted-foreground inline-flex shrink-0 items-center gap-1 tabular-nums">
+              <CalendarDays className="h-3 w-3 shrink-0" />
               {todo.startDate ? fmtDateShort(todo.startDate) : "—"}
               {" → "}
               {todo.dueDate ? fmtDateShort(todo.dueDate) : "—"}
@@ -393,7 +401,7 @@ function TodoRow({
           )}
         </span>
         {todo.note && (
-          <span className="text-muted-foreground mt-0.5 block text-xs break-words whitespace-pre-wrap">
+          <span className="text-muted-foreground mt-0.5 block text-xs whitespace-pre-wrap wrap-anywhere">
             {todo.note}
           </span>
         )}
@@ -408,7 +416,7 @@ function TodoRow({
           run(() => addTodoToDailyReport(todo.id), "已加入今日報告")
         }
         className={cn(
-          "mt-0.5 rounded-md p-1",
+          "mt-0.5 shrink-0 rounded-md p-1",
           inReport
             ? "text-emerald-600"
             : "text-muted-foreground hover:bg-muted hover:text-foreground",
@@ -430,12 +438,12 @@ function TodoRow({
         }}
       >
         <PopoverTrigger
-          className="text-muted-foreground hover:bg-muted mt-0.5 rounded-md p-1"
+          className="text-muted-foreground hover:bg-muted mt-0.5 shrink-0 rounded-md p-1"
           title="編輯"
         >
           <Pencil className="h-4 w-4" />
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-72 space-y-3">
+        <PopoverContent align="end" className={cn(popoverCls, "space-y-3")}>
           <div className="text-sm font-medium">編輯待辦</div>
           <div className="space-y-1">
             <div className="text-muted-foreground text-xs">內容</div>
@@ -528,7 +536,7 @@ function TodoRow({
           if (confirm(`刪除待辦「${todo.title}」？`))
             run(() => deleteTodo(todo.id), "已刪除");
         }}
-        className="text-muted-foreground hover:text-destructive mt-0.5 rounded-md p-1"
+        className="text-muted-foreground hover:text-destructive mt-0.5 shrink-0 rounded-md p-1"
       >
         <Trash2 className="h-4 w-4" />
       </button>
@@ -793,7 +801,10 @@ function PomodoroRow({
       <span className="shrink-0">🍅</span>
       <div className="min-w-0 flex-1">
         <div className="tabular-nums">{fmtDuration(p.durationSec)}</div>
-        <div className="text-muted-foreground truncate text-[11px]">
+        <div
+          className="text-muted-foreground truncate text-[11px]"
+          title={p.todoTitle ?? undefined}
+        >
           {format(new Date(p.startedAt), "yyyy/MM/dd HH:mm")}
           {p.todoTitle ? ` · ${p.todoTitle}` : ""}
         </div>
@@ -806,12 +817,12 @@ function PomodoroRow({
         }}
       >
         <PopoverTrigger
-          className="text-muted-foreground hover:bg-muted rounded-md p-1"
+          className="text-muted-foreground hover:bg-muted shrink-0 rounded-md p-1"
           title="編輯這筆紀錄"
         >
           <Pencil className="h-4 w-4" />
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-64 space-y-2.5">
+        <PopoverContent align="end" className={cn(popoverCls, "space-y-2.5")}>
           <div className="text-sm font-medium">編輯番茄鐘紀錄</div>
           <div className="space-y-1">
             <div className="text-muted-foreground text-xs">時長</div>
@@ -885,7 +896,7 @@ function PomodoroRow({
         disabled={pending}
         title="刪除這筆紀錄"
         onClick={() => run(() => deletePomodoro(p.id), "已刪除紀錄")}
-        className="text-muted-foreground hover:text-destructive rounded-md p-1"
+        className="text-muted-foreground hover:text-destructive shrink-0 rounded-md p-1"
       >
         <Trash2 className="h-4 w-4" />
       </button>

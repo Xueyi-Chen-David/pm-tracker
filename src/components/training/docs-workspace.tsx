@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -176,6 +176,30 @@ export function DocsWorkspace({
   const draftImages = useMemo(() => findImages(draftContent), [draftContent]);
   const activeImage =
     selectedImg != null ? (draftImages[selectedImg] ?? null) : null;
+
+  // 選取圖片的原始像素寬：寬度滑桿以像素為單位，用它當上限 / 「原始大小」的基準。
+  // 圖片已在預覽中載入過，這裡只是讀瀏覽器快取，不會再打一次網路。
+  // 量到的值連同來源網址一起存，換選其他圖時自然算出 null，不必在 effect 裡清狀態。
+  const activeUrl = activeImage?.url ?? null;
+  const [measured, setMeasured] = useState<{ url: string; width: number } | null>(
+    null,
+  );
+  useEffect(() => {
+    if (!activeUrl) return;
+    let alive = true;
+    const probe = new Image();
+    probe.onload = () => {
+      if (alive && probe.naturalWidth) {
+        setMeasured({ url: activeUrl, width: probe.naturalWidth });
+      }
+    };
+    probe.src = activeUrl;
+    return () => {
+      alive = false;
+    };
+  }, [activeUrl]);
+  const naturalW =
+    measured && measured.url === activeUrl ? measured.width : null;
 
   // 拖放（像 VSCode）：可把文件 / 資料夾拖進資料夾或彼此調整順序。
   // dragItem＝正在拖的項目；dragOver＝目前放置目標的標記（`${id}:${zone}` 或 "root"）。
@@ -510,7 +534,7 @@ export function DocsWorkspace({
     setSelectedImg(wrap ? Number(wrap.getAttribute("data-md-imgwrap")) : null);
   }
 
-  /** 預覽區按下：若壓在某張圖右下角的把手上，開始拖曳縮放（依游標水平位移改寬度 %）。 */
+  /** 預覽區按下：若壓在某張圖右下角的把手上，開始拖曳縮放（依游標水平位移改寬度）。 */
   function onPreviewPointerDown(e: React.PointerEvent) {
     const target = e.target as HTMLElement;
     const handle = target.closest("[data-md-resize]");
@@ -525,16 +549,20 @@ export function DocsWorkspace({
     const base = draftContent; // 每次位移都從這份原始內容重算，避免累積誤差
     const startX = e.clientX;
     const startW = img.getBoundingClientRect().width;
-    const refW = refEl.clientWidth || startW;
+    // 寬度存絕對像素而非百分比：預覽欄只有閱讀版面的一半寬，存 % 會在儲存後
+    // 用另一個容器寬重新解析，看起來就像「拖了半天大小根本沒變」。
+    // 上限收在預覽欄寬，讓拖曳結果一定不會被 max-width:100% 截掉（＝所見即所得）。
+    const maxW = Math.round(refEl.clientWidth || startW);
     const move = (ev: PointerEvent) => {
-      const px = Math.max(20, startW + (ev.clientX - startX));
-      const pct = Math.round(Math.min(100, Math.max(5, (px / refW) * 100)));
+      const px = Math.round(
+        Math.min(maxW, Math.max(20, startW + (ev.clientX - startX))),
+      );
       const im = findImages(base)[idx];
       if (!im) return;
       const md = serializeImage({
         alt: im.alt,
         url: im.url,
-        width: `${pct}%`,
+        width: `${px}px`,
         align: im.align,
       });
       setDraftContent(base.slice(0, im.start) + md + base.slice(im.end));
@@ -1209,6 +1237,7 @@ export function DocsWorkspace({
             {activeImage && (
               <ImageControls
                 image={activeImage}
+                naturalWidth={naturalW}
                 onAlign={(align) => updateActiveImage({ align })}
                 onWidth={(width) => updateActiveImage({ width })}
                 onDelete={deleteActiveImage}
@@ -1614,23 +1643,31 @@ function TbSep() {
   return <span className="bg-border mx-1 h-5 w-px shrink-0" />;
 }
 
-// 選取圖片後的控制列：對齊（置左 / 置中 / 置右）、寬度（%）、原始大小、刪除。
+// 選取圖片後的控制列：對齊（置左 / 置中 / 置右）、寬度（像素）、原始大小、刪除。
 function ImageControls({
   image,
+  naturalWidth,
   onAlign,
   onWidth,
   onDelete,
 }: {
   image: { width?: string; align?: ImgAlign };
+  /** 圖片原始像素寬（尚未量到＝null），當滑桿上限。 */
+  naturalWidth: number | null;
   onAlign: (a: ImgAlign) => void;
   onWidth: (w: string | null) => void;
   onDelete: () => void;
 }) {
   const align: ImgAlign = image.align ?? "left";
-  const pct =
-    image.width && image.width.endsWith("%")
-      ? (parseInt(image.width, 10) || 100)
-      : 100;
+  // 寬度以像素為單位，這樣預覽與儲存後的閱讀版面才會一模一樣（百分比會各自
+  // 相對於不同寬度的容器解析）。
+  // 舊文件可能存的是百分比 → 換算不出像素，滑桿就先停在最大值，一動即轉成像素。
+  const curPx =
+    image.width && image.width.endsWith("px")
+      ? Math.max(40, parseInt(image.width, 10) || 0) || null
+      : null;
+  // 上限以原始寬為準（避免把圖拉糊），但目前寬度已超過時不倒縮滑桿。
+  const max = Math.min(4000, Math.max(120, naturalWidth ?? 1600, curPx ?? 0));
   const aligns: [ImgAlign, typeof AlignLeft, string][] = [
     ["left", AlignLeft, "置左"],
     ["center", AlignCenter, "置中"],
@@ -1662,15 +1699,15 @@ function ImageControls({
       <span className="text-muted-foreground shrink-0 text-xs">寬度</span>
       <input
         type="range"
-        min={20}
-        max={100}
-        step={5}
-        value={pct}
+        min={40}
+        max={max}
+        step={10}
+        value={curPx ?? max}
         onMouseDown={(e) => e.preventDefault()}
-        onChange={(e) => onWidth(`${e.target.value}%`)}
+        onChange={(e) => onWidth(`${e.target.value}px`)}
         className="accent-primary w-24 cursor-pointer sm:w-28"
       />
-      <span className="w-12 shrink-0 text-right text-xs tabular-nums">
+      <span className="w-14 shrink-0 text-right text-xs tabular-nums">
         {image.width ?? "原始"}
       </span>
       <button

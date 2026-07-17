@@ -63,6 +63,16 @@ const HEALTH_CYCLE: Record<Health, Health> = {
 const inputCls =
   "border-input h-8 w-full rounded-md border bg-transparent px-2 text-sm outline-none focus:border-ring";
 
+// 任務名稱下那一列 meta（說明 / 日期）的共用外觀：矮、灰、hover 才浮出底色。
+// min-w-0 讓 truncate 在 flex 容器裡真的能截斷；max-w-full 擋住長說明把欄位撐爆。
+const metaCls =
+  "text-muted-foreground hover:bg-muted/60 hover:text-foreground flex min-w-0 max-w-full items-center gap-1 rounded-md px-1 py-0.5 text-left text-[11px] transition-colors";
+// 沒有內容時只留圖示：淡一點、不佔一整行，滑過 / 聚焦才變明顯。
+const emptyMetaCls =
+  "text-muted-foreground/40 focus-visible:text-foreground";
+// popover 在手機上不能比視窗寬。
+const popoverCls = "w-[min(18rem,calc(100vw-2rem))]";
+
 function autoSizeNote(el: HTMLTextAreaElement | null) {
   if (!el) return;
   el.style.height = "auto";
@@ -207,73 +217,69 @@ export function TaskRow({
           }}
           className="hover:bg-muted/50 focus:bg-muted/50 min-w-0 w-full rounded-md bg-transparent px-1 py-0.5 text-sm font-medium outline-none"
         />
-        {/* 任務說明：顯示在任務名稱下，點一下開 popover 編輯（同日期做法）。 */}
-        <Popover>
-          <PopoverTrigger
-            className={cn(
-              "flex w-full items-start gap-1 rounded-md px-1 py-0.5 text-left text-[11px]",
-              task.description
-                ? "text-muted-foreground hover:bg-muted/60"
-                : "text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/60",
-            )}
-            title="任務說明"
-          >
-            <AlignLeft className="mt-0.5 h-3 w-3 shrink-0" />
-            {task.description ? (
-              <span className="line-clamp-2 break-words whitespace-pre-wrap">
-                {task.description}
-              </span>
-            ) : (
-              <span>新增說明</span>
-            )}
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-72">
-            <div className="text-muted-foreground mb-1 text-xs">任務說明</div>
-            <textarea
-              defaultValue={task.description ?? ""}
-              placeholder="這個任務要做什麼…"
-              rows={4}
-              disabled={pending}
-              onBlur={(e) => {
-                const v = e.currentTarget.value;
-                if (v !== (task.description ?? "")) patch({ description: v });
-              }}
-              className="border-input focus:border-ring block w-full resize-y rounded-md border bg-transparent px-2 py-1.5 text-sm leading-snug outline-none"
-            />
-          </PopoverContent>
-        </Popover>
-        {/* 開始 / 結束日：直接顯示在任務名稱下，點一下就能設定（不用進 ⋯ 選單）。 */}
-        <Popover>
-          <PopoverTrigger
-            className={cn(
-              "mt-0.5 flex items-center gap-1 rounded-md px-1 py-0.5 text-[11px]",
-              task.startDate || task.dueDate
-                ? "text-muted-foreground hover:bg-muted/60"
-                : "text-muted-foreground/50 hover:text-muted-foreground hover:bg-muted/60",
-            )}
-            title="設定開始 / 結束日期"
-          >
-            <CalendarDays className="h-3 w-3 shrink-0" />
-            {task.startDate || task.dueDate ? (
-              <span className="tabular-nums">
-                {task.startDate ? fmtDateShort(task.startDate) : "—"}
-                {" → "}
-                {task.dueDate ? fmtDateShort(task.dueDate) : "—"}
-              </span>
-            ) : (
-              <span>設定日期</span>
-            )}
-            {reminders.length > 0 && (
-              <span
-                className="inline-flex items-center gap-0.5 text-amber-600"
-                title={`到期前 ${reminders.join("、")} 天提醒`}
-              >
-                <Bell className="h-3 w-3 shrink-0" />
-                {reminders.join(",")}
-              </span>
-            )}
-          </PopoverTrigger>
-          <PopoverContent align="start" className="w-64">
+        {/* 說明 / 日期：併成任務名稱下的同一列 meta。有值＝顯示內容，沒值＝只留一個
+            淡淡的圖示鈕（不再每列都印一次「新增說明」「設定日期」的灰字）。 */}
+        <div className="mt-0.5 flex flex-wrap items-center gap-x-1 gap-y-0.5">
+          <Popover>
+            <PopoverTrigger
+              className={cn(metaCls, !task.description && emptyMetaCls)}
+              // 說明被截斷時，滑過原生 tooltip 就能看全文，不必特地打開 popover。
+              title={task.description || "新增說明"}
+              aria-label={task.description ? "編輯任務說明" : "新增說明"}
+            >
+              <AlignLeft className="h-3 w-3 shrink-0" />
+              {task.description && (
+                <span className="truncate">{task.description}</span>
+              )}
+            </PopoverTrigger>
+            <PopoverContent align="start" className={popoverCls}>
+              <div className="mb-1.5 text-xs font-medium">任務說明</div>
+              <textarea
+                defaultValue={task.description ?? ""}
+                placeholder="這個任務要做什麼…"
+                rows={4}
+                disabled={pending}
+                onBlur={(e) => {
+                  const v = e.currentTarget.value;
+                  if (v !== (task.description ?? "")) patch({ description: v });
+                }}
+                className="border-input focus:border-ring block w-full resize-y rounded-md border bg-transparent px-2 py-1.5 text-sm leading-snug outline-none"
+              />
+              <p className="text-muted-foreground/70 mt-1 text-[11px]">
+                點擊外面即自動儲存
+              </p>
+            </PopoverContent>
+          </Popover>
+
+          {/* 開始 / 結束日：點一下就能設定（不用進 ⋯ 選單）。 */}
+          <Popover>
+            <PopoverTrigger
+              className={cn(
+                metaCls,
+                !(task.startDate || task.dueDate) && !reminders.length && emptyMetaCls,
+              )}
+              title="設定開始 / 結束日期"
+              aria-label="設定開始 / 結束日期"
+            >
+              <CalendarDays className="h-3 w-3 shrink-0" />
+              {(task.startDate || task.dueDate) && (
+                <span className="tabular-nums">
+                  {task.startDate ? fmtDateShort(task.startDate) : "—"}
+                  {" → "}
+                  {task.dueDate ? fmtDateShort(task.dueDate) : "—"}
+                </span>
+              )}
+              {reminders.length > 0 && (
+                <span
+                  className="inline-flex items-center gap-0.5 text-amber-600"
+                  title={`到期前 ${reminders.join("、")} 天提醒`}
+                >
+                  <Bell className="h-3 w-3 shrink-0" />
+                  {reminders.join(",")}
+                </span>
+              )}
+            </PopoverTrigger>
+            <PopoverContent align="start" className={popoverCls}>
             <div className="space-y-1">
               <div className="text-muted-foreground text-xs">開始日</div>
               <input
@@ -377,8 +383,9 @@ export function TaskRow({
                 </span>
               </div>
             </div>
-          </PopoverContent>
-        </Popover>
+            </PopoverContent>
+          </Popover>
+        </div>
       </td>
 
       {/* 負責人 */}
