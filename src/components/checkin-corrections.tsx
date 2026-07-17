@@ -48,37 +48,46 @@ const STATUS_META: Record<string, { label: string; cls: string }> = {
 /**
  * 補打卡：本人送出申請 + 檢視自己的申請；具 attendance.manage 者另有待審核清單可核准 / 駁回。
  */
+/**
+ * 補打卡：本人的申請（mine）與管理者的待審核（pending）。
+ *
+ * 兩區各自可獨立顯示——「打卡 / 出勤」頁只放本人的申請，「出席狀況」頁只放待審核，
+ * 故 mine=null 代表不渲染本人區、canReview=false 代表不渲染待審核區。
+ */
 export function CheckInCorrections({
   mine,
   pending,
   canReview,
 }: {
-  mine: CheckInCorrectionRow[];
+  /** 本人的補打卡申請；null＝不顯示「我的補打卡」區。 */
+  mine: CheckInCorrectionRow[] | null;
   pending: PendingCheckInCorrection[] | null;
   canReview: boolean;
 }) {
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
+    <div className={cn("grid gap-4", mine && canReview && "lg:grid-cols-2")}>
       {/* 本人：補打卡申請 */}
-      <div className="bg-card rounded-xl border p-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h3 className="flex items-center gap-1.5 text-sm font-semibold">
-            <Clock className="h-4 w-4" /> 我的補打卡
-          </h3>
-          <RequestDialog />
+      {mine && (
+        <div className="bg-card rounded-xl border p-4">
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="flex items-center gap-1.5 text-sm font-semibold">
+              <Clock className="h-4 w-4" /> 我的補打卡
+            </h3>
+            <RequestDialog />
+          </div>
+          {mine.length === 0 ? (
+            <p className="text-muted-foreground text-sm">
+              忘記上 / 下班打卡時，點「補打卡」送出申請，經主管核准後補計工時。
+            </p>
+          ) : (
+            <ul className="divide-y">
+              {mine.map((c) => (
+                <MyRow key={c.id} c={c} />
+              ))}
+            </ul>
+          )}
         </div>
-        {mine.length === 0 ? (
-          <p className="text-muted-foreground text-sm">
-            忘記上 / 下班打卡時，點「補打卡」送出申請，經主管核准後補計工時。
-          </p>
-        ) : (
-          <ul className="divide-y">
-            {mine.map((c) => (
-              <MyRow key={c.id} c={c} />
-            ))}
-          </ul>
-        )}
-      </div>
+      )}
 
       {/* 管理者：待審核清單 */}
       {canReview && (

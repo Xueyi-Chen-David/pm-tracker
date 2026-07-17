@@ -69,9 +69,18 @@ function MethodIcon({ method }: { method: string | null }) {
 export function AttendanceTimecard({
   days,
   todayStr,
+  title = "我的打卡紀錄",
+  emptyHint = "本月尚無打卡紀錄。到「打卡 / 出勤」頁即可上/下班打卡。",
+  headerExtra,
 }: {
   days: TimecardDay[];
   todayStr: string;
+  /** 區塊標題；看他人紀錄時由呼叫端改成該成員名稱。 */
+  title?: string;
+  /** 無資料時的說明文字。 */
+  emptyHint?: string;
+  /** 標題右側的額外控制項（如「看誰的紀錄」的成員選單）。 */
+  headerExtra?: React.ReactNode;
 }) {
   const workedDays = days.filter((d) => d.inAt || d.outAt).length;
   const totalMs = days.reduce((sum, d) => {
@@ -85,7 +94,10 @@ export function AttendanceTimecard({
   return (
     <section className="bg-card overflow-hidden rounded-xl border shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-        <h2 className="text-base font-semibold">我的打卡紀錄</h2>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <h2 className="text-base font-semibold">{title}</h2>
+          {headerExtra}
+        </div>
         <div className="text-muted-foreground text-xs">
           出勤 {workedDays} 天 · 總在勤 {totalMs > 0 ? fmtDuration(totalMs) : "0 分 0 秒"}
         </div>
@@ -93,7 +105,7 @@ export function AttendanceTimecard({
 
       {days.length === 0 ? (
         <p className="text-muted-foreground px-4 py-8 text-center text-sm">
-          本月尚無打卡紀錄。到「每日報告」頁即可上/下班打卡。
+          {emptyHint}
         </p>
       ) : (
         <div className="max-h-[28rem] overflow-auto">

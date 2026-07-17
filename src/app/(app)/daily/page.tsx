@@ -1,5 +1,5 @@
 import { format } from "date-fns";
-import { ClipboardList, Fingerprint, History } from "lucide-react";
+import { ClipboardList, History } from "lucide-react";
 import { requireManageContext } from "@/server/org";
 import { db } from "@/server/db";
 import {
@@ -13,8 +13,6 @@ import { PageHeader } from "@/components/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DailyReportForm } from "@/components/daily-report-form";
 import { DailyReportCard } from "@/components/daily-report-card";
-import { CheckInCard } from "@/components/check-in-card";
-import { parseMatchMode } from "@/lib/checkin";
 import { DailyVisibilityToggle } from "@/components/daily-visibility-toggle";
 import {
   DailyBoard,
@@ -60,28 +58,15 @@ export default async function DailyPage() {
 
   const orgRow = await db.organization.findUnique({
     where: { id: org.id },
-    select: {
-      dailyReportChainVisible: true,
-      checkInEnabled: true,
-      checkInMatchMode: true,
-    },
+    select: { dailyReportChainVisible: true },
   });
   const chainVisible = orgRow?.dailyReportChainVisible ?? false;
-  const checkInEnabled = orgRow?.checkInEnabled ?? false;
-  const checkInMatchMode = parseMatchMode(orgRow?.checkInMatchMode);
 
   // 我的資料。
-  const [myReports, graph, directory, todayPunches] = await Promise.all([
+  const [myReports, graph, directory] = await Promise.all([
     getDailyReportsForUsers(org.id, [user.id], mySince),
     getMembershipGraph(org.id),
     getOrgMemberDirectory(org.id),
-    checkInEnabled
-      ? db.checkIn.findMany({
-          where: { organizationId: org.id, userId: user.id, date: today },
-          orderBy: { at: "asc" },
-          select: { id: true, kind: true, at: true, method: true },
-        })
-      : Promise.resolve([]),
   ]);
 
   const todayReport = myReports.find((r) => r.date.getTime() === today.getTime());
@@ -150,21 +135,9 @@ export default async function DailyPage() {
     })),
   }));
 
-  // 「我的今日」卡片（打卡 + 今日報告表單）。
+  // 「我的今日」卡片（今日報告表單）。打卡已移至個人的「打卡 / 出勤」頁。
   const myTodayCards = (
     <>
-      {checkInEnabled && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-1.5">
-              <Fingerprint className="h-4 w-4" /> 今日打卡
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <CheckInCard todayPunches={todayPunches} matchMode={checkInMatchMode} />
-          </CardContent>
-        </Card>
-      )}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-1.5">

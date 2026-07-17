@@ -16,6 +16,7 @@ import {
   Library,
   NotebookPen,
   ClipboardList,
+  Fingerprint,
   ListTodo,
   CircleUser,
   Handshake,
@@ -72,21 +73,22 @@ const NAV_SECTIONS: NavSection[] = [
       { key: "timeline", href: "/timeline", label: "時程藍圖", icon: CalendarRange },
     ],
   },
-  // 團隊協作：會議、團隊、出席，週報靠近底部，公司文件置於最底。
+  // 團隊協作：會議、團隊，週報靠近底部，公司文件置於最底。
   {
     title: "團隊協作",
     items: [
       { key: "meetings", href: "/meetings", label: "會議記錄", icon: NotebookPen },
       { key: "team", href: "/team", label: "團隊", icon: Users },
-      { key: "attendance", href: "/attendance", label: "出席狀況", icon: UserCheck },
       { key: "report", href: "/report", label: "週報", icon: FileText },
       { key: "training", href: "/training", label: "公司文件", icon: Library },
     ],
   },
-  // 人資 / 會計：請假簽核（alwaysVisible，人人可見）＋薪資（僅具 payroll.view 權限者可見）。
+  // 人資 / 會計：出席 → 請假 → 薪資（差勤資料一路流到薪資計算的順序）。
+  // 請假簽核 alwaysVisible 人人可見；薪資僅具 payroll.view 權限者可見。
   {
     title: "人資/會計",
     items: [
+      { key: "attendance", href: "/attendance", label: "出席狀況", icon: UserCheck },
       { key: "leave", href: "/leave", label: "請假簽核", icon: ClipboardCheck },
       { key: "payroll", href: "/payroll", label: "薪資", icon: Wallet },
     ],
@@ -102,6 +104,7 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { key: "daily", href: "/daily", label: "每日報告", icon: ClipboardList },
       { key: "todo", href: "/todo", label: "待辦 / 番茄鐘", icon: ListTodo },
+      { key: "checkin", href: "/checkin", label: "打卡 / 出勤", icon: Fingerprint },
       { key: "me", href: "/me", label: "個人資料", icon: CircleUser },
     ],
   },

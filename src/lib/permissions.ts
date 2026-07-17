@@ -18,6 +18,7 @@ export type PermissionKey =
   | "hr.manage_employment"
   | "hr.manage_roles"
   | "attendance.view_all"
+  | "attendance.view_punch_times"
   | "attendance.manage"
   | "leave.manage"
   | "payroll.view"
@@ -61,7 +62,14 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   {
     key: "attendance.view_all",
     label: "查看全體出勤",
-    description: "看得到所有人的出席月曆與打卡紀錄（未授予者只能看自己的）。",
+    description: "看得到所有人的出席月曆（未授予者只能看自己的）。",
+    group: "出勤差勤",
+  },
+  {
+    key: "attendance.view_punch_times",
+    label: "查看他人打卡時間",
+    description:
+      "可在「出席狀況」看到每個人每天實際的上 / 下班打卡時間與在勤時數（未授予者只看得到出席與否）。需搭配「查看全體出勤」才有對象可看；每個人一律看得到自己的打卡紀錄。",
     group: "出勤差勤",
   },
   {

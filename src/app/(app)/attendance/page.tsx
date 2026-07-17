@@ -6,17 +6,19 @@ import {
   getSelfAttendanceMonth,
   getTrackableMembers,
   getOrgLeaveTypes,
-  getMyCheckInCorrections,
-  getPendingCheckInCorrections,
 } from "@/server/queries";
 import { parseGeofences, parseMatchMode } from "@/lib/checkin";
 import { todayUtc } from "@/lib/date";
-import { PageHeader } from "@/components/page-header";
+import { displayName } from "@/lib/display";
 import {
-  AttendanceGrid,
-  type GridDay,
-  type GridMember,
-} from "@/components/attendance-grid";
+  parseMonth,
+  ym,
+  monthRange,
+  buildGridMembers,
+  buildTimecardDays,
+} from "@/lib/attendance-month";
+import { PageHeader } from "@/components/page-header";
+import { AttendanceGrid } from "@/components/attendance-grid";
 import { AttendanceMonthNav } from "@/components/attendance-month-nav";
 import { AttendanceTrackManager } from "@/components/attendance-track-manager";
 import { AttendanceExportButton } from "@/components/attendance-export-button";
@@ -26,30 +28,11 @@ import {
 } from "@/components/attendance-export-png-button";
 import { CheckInSettings } from "@/components/check-in-settings";
 import {
-  AttendanceTimecard,
-  type TimecardDay,
-} from "@/components/attendance-timecard";
-import { CheckInCorrections } from "@/components/checkin-corrections";
+  MemberTimecards,
+  type MemberTimecard,
+} from "@/components/member-timecards";
 
 export const metadata = { title: "出席狀況 · Project Pulse" };
-
-const WEEKDAY_LABEL = ["日", "一", "二", "三", "四", "五", "六"];
-
-/** yyyy-MM → { year, month(1-12) }；無效則回退到指定的預設。 */
-function parseMonth(
-  s: string | undefined,
-  fallback: { year: number; month: number },
-) {
-  if (s && /^\d{4}-\d{2}$/.test(s)) {
-    const [y, m] = s.split("-").map(Number);
-    if (y && m >= 1 && m <= 12) return { year: y, month: m };
-  }
-  return fallback;
-}
-
-function ym(year: number, month: number): string {
-  return `${year}-${String(month).padStart(2, "0")}`;
-}
 
 export default async function AttendancePage({
   searchParams,
@@ -61,30 +44,17 @@ export default async function AttendancePage({
   const canViewAll = can("attendance.view_all");
   // 出勤管理權限：可登記 / 修改他人、管理追蹤成員與打卡設定。
   const canManageAtt = can("attendance.manage");
+  // 打卡時間可見性：可看到每個人每天實際的上 / 下班時間（月曆只看得出有沒有出席）。
+  const canViewPunchTimes = can("attendance.view_punch_times");
   const { month: monthParam } = await searchParams;
 
   const now = new Date();
   const thisMonth = { year: now.getFullYear(), month: now.getMonth() + 1 };
   const { year, month } = parseMonth(monthParam, thisMonth);
+  const { start, end, days } = monthRange(year, month);
+  const todayStr = todayUtc().toISOString().slice(0, 10);
 
-  const start = new Date(Date.UTC(year, month - 1, 1));
-  const end = new Date(Date.UTC(year, month, 1)); // 下月一號（不含）
-  const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
-
-  const days: GridDay[] = Array.from({ length: daysInMonth }, (_, i) => {
-    const day = i + 1;
-    const d = new Date(Date.UTC(year, month - 1, day));
-    const weekday = d.getUTCDay();
-    return {
-      day,
-      dateStr: `${ym(year, month)}-${String(day).padStart(2, "0")}`,
-      weekday,
-      weekend: weekday === 0 || weekday === 6,
-      label: `${month}/${day}（${WEEKDAY_LABEL[weekday]}）`,
-    };
-  });
-
-  const [rows, trackable, leaveTypes, orgConfig, firstCheckIn, myCheckIns] =
+  const [rows, trackable, leaveTypes, orgConfig, firstCheckIn] =
     await Promise.all([
       canViewAll
         ? getAttendanceMonth(org.id, start, end)
@@ -107,116 +77,43 @@ export default async function AttendancePage({
         orderBy: { date: "asc" },
         select: { date: true },
       }),
-      // 個人「打卡紙」：本人本月的所有打卡（依實際時間排序）。
-      db.checkIn.findMany({
-        where: {
-          organizationId: org.id,
-          userId: user.id,
-          date: { gte: start, lt: end },
-        },
-        orderBy: { at: "asc" },
-        select: { date: true, at: true, kind: true, method: true },
-      }),
     ]);
 
-  // 補打卡：本人近期申請 + （管理者）待審核清單。
-  const [myCorrections, pendingCorrections] = await Promise.all([
-    getMyCheckInCorrections(org.id, user.id),
-    canManageAtt
-      ? getPendingCheckInCorrections(org.id)
-      : Promise.resolve(null),
-  ]);
-
-  // 自動缺席規則：企業有開打卡、且某平日落在 [第一次打卡日, 今天) 之間、
-  // 該成員當天完全沒有出席紀錄（沒打卡 / 請假 / 手動 / 出差）→ 視為缺席（未打卡）。
-  // 純顯示層，不寫入資料庫；手動 / 打卡 / 事件產生的紀錄一律優先。
   const checkInEnabled = orgConfig?.checkInEnabled ?? false;
   const anchorStr = firstCheckIn
     ? firstCheckIn.date.toISOString().slice(0, 10)
     : null;
-  const todayStr = todayUtc().toISOString().slice(0, 10);
-  const autoAbsentEnabled = checkInEnabled && anchorStr !== null;
 
-  const members: GridMember[] = rows.map((m) => {
-    const marks: GridMember["marks"] = {};
-    // 被人工「清除」的日子：不放進 marks（顯示為未記錄），但要記下來，
-    // 否則下面的自動缺席層會把它當成「沒紀錄」又標成缺席——那正是清除後會自己恢復的原因。
-    const clearedDates = new Set<string>();
-    for (const r of m.attendanceRecords) {
-      const ds = r.date.toISOString().slice(0, 10);
-      if (r.cleared) {
-        clearedDates.add(ds);
-        continue;
-      }
-      marks[ds] = {
-        present: r.present,
-        reason: r.reason,
-        offsite: r.offsite,
-        holiday: r.holiday,
-        leave: r.leave,
-        leaveTypeName: r.leaveType?.name ?? null,
-      };
-    }
-    if (autoAbsentEnabled) {
-      for (const d of days) {
-        if (d.weekend) continue; // 週末不判缺席
-        if (d.dateStr >= todayStr) continue; // 今天與未來先不動（還可補打卡）
-        if (anchorStr && d.dateStr < anchorStr) continue; // 打卡導入前不追溯
-        if (clearedDates.has(d.dateStr)) continue; // 人工清除過：尊重人工，不自動判缺席
-        if (marks[d.dateStr]) continue; // 已有紀錄者一律優先
-        marks[d.dateStr] = {
-          present: false,
-          reason: "未打卡",
-          offsite: false,
-          holiday: false,
-          leave: false,
-          leaveTypeName: null,
-        };
-      }
-    }
-    return {
-      id: m.id,
-      name: m.name,
-      nickname: m.nickname,
-      useNickname: m.useNickname,
-      email: m.email,
-      image: m.image,
-      isBoss: m.isBoss,
-      marks,
-    };
+  const members = buildGridMembers(rows, days, {
+    autoAbsentEnabled: checkInEnabled && anchorStr !== null,
+    anchorStr,
+    todayStr,
   });
 
-  // 個人打卡紙：把本人本月打卡依日期彙整（最早上班 / 最晚下班），只列到今天為止。
-  const punchesByDate = new Map<
-    string,
-    { at: Date; kind: string; method: string | null }[]
-  >();
-  for (const c of myCheckIns) {
-    const ds = c.date.toISOString().slice(0, 10);
-    const arr = punchesByDate.get(ds) ?? [];
-    arr.push(c);
-    punchesByDate.set(ds, arr);
-  }
-  const timecardDays: TimecardDay[] = days
-    .filter((d) => d.dateStr <= todayStr)
-    .map((d) => {
-      const punches = punchesByDate.get(d.dateStr) ?? [];
-      const ins = punches.filter((p) => p.kind === "in");
-      const outs = punches.filter((p) => p.kind === "out");
-      const firstIn = ins[0];
-      const lastOut = outs[outs.length - 1];
-      return {
-        day: d.day,
-        dateStr: d.dateStr,
-        weekday: d.weekday,
-        weekend: d.weekend,
-        inAt: firstIn?.at.toISOString() ?? null,
-        outAt: lastOut?.at.toISOString() ?? null,
-        inMethod: firstIn?.method ?? null,
-        outMethod: lastOut?.method ?? null,
-      };
+  // 每人打卡時間：只在具備權限時才查（沒權限就連資料都不撈到伺服器記憶體）。
+  let memberTimecards: MemberTimecard[] = [];
+  if (canViewPunchTimes && members.length > 0) {
+    const punches = await db.checkIn.findMany({
+      where: {
+        organizationId: org.id,
+        userId: { in: members.map((m) => m.id) },
+        date: { gte: start, lt: end },
+      },
+      orderBy: { at: "asc" },
+      select: { userId: true, date: true, at: true, kind: true, method: true },
     });
-  const showTimecard = checkInEnabled || myCheckIns.length > 0;
+    const byUser = new Map<string, typeof punches>();
+    for (const p of punches) {
+      const arr = byUser.get(p.userId) ?? [];
+      arr.push(p);
+      byUser.set(p.userId, arr);
+    }
+    memberTimecards = members.map((m) => ({
+      userId: m.id,
+      label: displayName(m),
+      days: buildTimecardDays(byUser.get(m.id) ?? [], days, todayStr),
+    }));
+  }
 
   return (
     <div className="space-y-4">
@@ -290,8 +187,8 @@ export default async function AttendancePage({
         </div>
         <span>
           {canManageAtt
-            ? "· 具出勤管理權限者可點格子登記；請假 / 出差 / 在家工作 由請假簽核頁的事件自動帶入；週末預設放假，皆不列入缺席統計"
-            : "· 出缺勤以打卡為準（唯讀）；忘記打卡請用下方「補打卡」申請；請假 / 出差請至請假簽核頁"}
+            ? "· 具出勤管理權限者可點格子登記；請假 / 出差 / 在家工作 由請假簽核頁的事件自動帶入；週末預設放假，皆不列入缺席統計；打卡與補打卡審核請至「打卡 / 出勤」頁"
+            : "· 出缺勤以打卡為準（唯讀）；打卡、補打卡與自己的打卡紀錄請至「打卡 / 出勤」頁；請假 / 出差請至請假簽核頁"}
           {checkInEnabled &&
             "；開啟打卡後，平日未打卡者於次日起自動標記缺席"}
         </span>
@@ -328,15 +225,11 @@ export default async function AttendancePage({
         />
       )}
 
-      {showTimecard && (
-        <AttendanceTimecard days={timecardDays} todayStr={todayStr} />
+      {/* 每人打卡時間（需「查看他人打卡時間」權限）。自己的打卡紀錄在「打卡 / 出勤」頁。 */}
+      {canViewPunchTimes && memberTimecards.length > 0 && (
+        <MemberTimecards members={memberTimecards} todayStr={todayStr} />
       )}
 
-      <CheckInCorrections
-        mine={myCorrections}
-        pending={pendingCorrections}
-        canReview={canManageAtt}
-      />
     </div>
   );
 }

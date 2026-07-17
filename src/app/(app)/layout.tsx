@@ -8,6 +8,8 @@ import {
   getOrgMemberUsers,
   getNotifications,
   getUnreadNotificationCount,
+  isEligibleLeaveApprover,
+  countPendingApprovalsForMember,
 } from "@/server/queries";
 import { visibleModules } from "@/lib/modules";
 import { AppSidebar } from "@/components/app-sidebar";
@@ -29,8 +31,15 @@ export default async function AppLayout({
   // 真實身分是否為管理者 / 老闆（決定是否顯示「視角預覽」選單）。
   const manager = isManagerOrBoss(membership);
 
-  const [users, notifications, unread, resolved, previewRoles] =
-    await Promise.all([
+  const [
+    users,
+    notifications,
+    unread,
+    resolved,
+    previewRoles,
+    isLeaveApprover,
+    pendingApprovals,
+  ] = await Promise.all([
       getOrgMemberUsers(org.id),
       getNotifications(org.id, user.id, 20),
       getUnreadNotificationCount(org.id, user.id),
@@ -43,10 +52,24 @@ export default async function AppLayout({
             orderBy: { sortOrder: "asc" },
           })
         : Promise.resolve([]),
+      // 「請假簽核」的可見性有一半是 DB 決定的（被排進簽核流程的人），靜態模組表算不出來。
+      // 側欄每頁都跑，故兩者都是輕量查詢（一個小 findMany + 一個 count）。
+      isEligibleLeaveApprover(org.id, membership.id),
+      countPendingApprovalsForMember(org.id, membership.id),
     ]);
 
   const { access, previewing, preview, previewRoleName } = resolved;
   const moduleKeys = visibleModules(access).map((m) => m.key);
+  // 請假簽核：leave.manage（HR / 管理者）已由模組表的 requiresPermission 放行；這裡再補上
+  // 「被指派為簽核者」的一般成員——他們沒有 leave.manage，但頁面對他們有意義（待我簽核）。
+  // 預覽他人視角時不補，否則管理者切成員工視角會看到自己的簽核分頁而失真。
+  const showLeaveAsApprover =
+    !previewing && (isLeaveApprover || pendingApprovals > 0);
+  if (showLeaveAsApprover && !moduleKeys.includes("leave")) {
+    // 插在模組表原本的位置（出席狀況之後），維持側欄順序穩定。
+    const at = moduleKeys.indexOf("attendance");
+    moduleKeys.splice(at >= 0 ? at + 1 : moduleKeys.length, 0, "leave");
+  }
   const orgs = memberships.map((m) => ({
     id: m.organization.id,
     name: m.organization.name,

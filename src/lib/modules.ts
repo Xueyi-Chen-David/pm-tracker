@@ -17,6 +17,7 @@ export type ModuleKey =
   | "daily"
   | "me"
   | "todo"
+  | "checkin"
   | "projects"
   | "company"
   | "crm"
@@ -50,6 +51,14 @@ export const MODULES: readonly AppModule[] = [
   { key: "dashboard", label: "總覽", href: "/dashboard" },
   { key: "daily", label: "每日報告", href: "/daily", alwaysVisible: true },
   { key: "todo", label: "待辦 / 番茄鐘", href: "/todo", alwaysVisible: true },
+  // 打卡 / 請假 / 出差＝每個人自己的差勤自助頁（打卡、出勤月曆、請假、出差、補打卡），
+  // 故 alwaysVisible（同每日報告 / 待辦）。企業沒開打卡時仍可看月曆 / 請假 / 登記出差。
+  {
+    key: "checkin",
+    label: "打卡 / 請假 / 出差",
+    href: "/checkin",
+    alwaysVisible: true,
+  },
   { key: "me", label: "個人資料", href: "/me", alwaysVisible: true },
   { key: "projects", label: "專案與任務", href: "/projects" },
   { key: "company", label: "公司OKR", href: "/company" },
@@ -58,7 +67,15 @@ export const MODULES: readonly AppModule[] = [
   { key: "team", label: "團隊", href: "/team" },
   { key: "hr", label: "人事", href: "/hr", requiresPermission: "hr.view" },
   { key: "attendance", label: "出席狀況", href: "/attendance" },
-  { key: "leave", label: "請假簽核", href: "/leave", alwaysVisible: true },
+  // 請假簽核＝只給「要簽核的人」：送出自己的請假已搬到「打卡 / 請假 / 出差」。
+  // leave.manage（HR / 管理者）由 requiresPermission 靜態放行；被排進簽核流程但沒有
+  // 該權限的一般成員是 DB 決定的，靜態算不出來——由 app/layout.tsx 動態補上（見該處）。
+  {
+    key: "leave",
+    label: "請假簽核",
+    href: "/leave",
+    requiresPermission: "leave.manage",
+  },
   {
     key: "payroll",
     label: "薪資",

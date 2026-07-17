@@ -1022,6 +1022,27 @@ export async function getPendingApprovalsForMember(
 }
 
 /**
+ * 「手上是否還卡著待簽核」——只給側欄判斷要不要顯示「請假簽核」用（見 app/(app)/layout.tsx）。
+ *
+ * 側欄在每一頁都會跑，不能為了一個布林值去撈 getPendingApprovalsForMember 的完整請假單
+ * （含巢狀簽核關卡）。這裡刻意省略「這關正好輪到我」(sortOrder === currentStep) 的比對——
+ * Prisma 無法直接比兩個欄位，得撈回來用 JS 過濾。因此本函式回的是**超集**：夠格顯示入口即可，
+ * 精確的「輪到我」判斷仍由 /leave 頁自己做。
+ */
+export async function countPendingApprovalsForMember(
+  orgId: string,
+  membershipId: string,
+) {
+  return db.leaveRequest.count({
+    where: {
+      organizationId: orgId,
+      status: "PENDING",
+      approvals: { some: { approverMemberId: membershipId, status: "PENDING" } },
+    },
+  });
+}
+
+/**
  * 這位成員「有沒有可能」出現在待我簽核 —— 依目前的簽核關卡設定判斷：
  *   - 有任一關卡是 MEMBER 且指定就是他 → 是。
  *   - 有任一關卡是 MANAGER，且他目前是至少一位在職成員的直屬主管 → 是（會動態解析到他）。
