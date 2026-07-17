@@ -142,6 +142,7 @@ export default async function AttendancePage({
         offsite: r.offsite,
         holiday: r.holiday,
         leave: r.leave,
+        leaveTypeName: r.leaveType?.name ?? null,
       };
     }
     if (autoAbsentEnabled) {
@@ -156,6 +157,7 @@ export default async function AttendancePage({
           offsite: false,
           holiday: false,
           leave: false,
+          leaveTypeName: null,
         };
       }
     }

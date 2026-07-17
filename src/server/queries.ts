@@ -248,6 +248,8 @@ export async function getAttendanceMonth(orgId: string, start: Date, end: Date) 
               offsite: true,
               holiday: true,
               leave: true,
+              // 假別名稱（特休 / 事假…）：供月曆 tooltip 與 Excel 匯出顯示。
+              leaveType: { select: { name: true } },
             },
           },
         },
@@ -287,6 +289,8 @@ export async function getSelfAttendanceMonth(
               offsite: true,
               holiday: true,
               leave: true,
+              // 假別名稱（特休 / 事假…）：供月曆 tooltip 與 Excel 匯出顯示。
+              leaveType: { select: { name: true } },
             },
           },
         },

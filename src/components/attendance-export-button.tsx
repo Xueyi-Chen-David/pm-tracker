@@ -12,14 +12,18 @@ const WEEKEND_BG = "#F1F5F9";
 
 type Mark = GridMember["marks"][string];
 
-/** 格子的簡寫（與月曆一致）：出／外／缺／休／假；未記錄為空白。 */
-function shortMark(mark: Mark | undefined): string | undefined {
+/**
+ * 格子文字：一律用看得懂的詞（出席 / 在外 / 缺席 / 休假 / 特休…），未記錄為空白。
+ * 請假優先顯示「假別名稱」（特休 / 事假 / 病假…），未指定假別才退回「請假」。
+ * 判定優先序與月曆一致：休假 → 請假 → 在外 → 出席 / 缺席。
+ */
+function cellLabel(mark: Mark | undefined): string | undefined {
   if (!mark) return undefined;
-  if (mark.holiday) return "休";
-  if (mark.leave) return "假";
-  if (mark.offsite) return "外";
-  if (mark.present) return "出";
-  return "缺";
+  if (mark.holiday) return "休假";
+  if (mark.leave) return mark.leaveTypeName ?? "請假";
+  if (mark.offsite) return "在外";
+  if (mark.present) return "出席";
+  return "缺席";
 }
 
 /** 一位成員整月的統計（與頁面統計口徑一致：休假 / 請假不計缺席；出差算在外）。 */
@@ -87,7 +91,7 @@ export function AttendanceExportButton({
         return [
           { value: displayName(m), type: String },
           ...days.map((d) => ({
-            value: shortMark(m.marks[d.dateStr]),
+            value: cellLabel(m.marks[d.dateStr]),
             type: String,
             align: "center" as const,
             backgroundColor: d.weekend ? WEEKEND_BG : undefined,
@@ -100,15 +104,22 @@ export function AttendanceExportButton({
         ];
       });
 
-      // 圖例列（空一行後說明簡寫），方便收到檔案的人看得懂。
+      // 說明列（空一行後補充），方便收到檔案的人看得懂。
       const legend = [
         [],
-        [{ value: "圖例：出＝出席、外＝出差/在家工作、缺＝缺席、休＝休假/放假、假＝請假；空白＝未記錄", type: String }],
+        [
+          {
+            value:
+              "說明：在外＝出差 / 在家工作；請假欄位顯示假別名稱（特休 / 事假 / 病假…），未指定假別顯示「請假」；空白＝未記錄。休假 / 請假不列入缺席統計。",
+            type: String,
+          },
+        ],
       ];
 
       const columns = [
         { width: 16 },
-        ...days.map(() => ({ width: 5 })),
+        // 兩個字的欄位需要多一點寬度才不會被截掉。
+        ...days.map(() => ({ width: 7 })),
         ...Array.from({ length: 5 }, () => ({ width: 6 })),
       ];
 

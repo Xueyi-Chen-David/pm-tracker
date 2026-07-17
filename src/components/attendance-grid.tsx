@@ -33,6 +33,8 @@ type Mark = {
   offsite: boolean;
   holiday: boolean;
   leave: boolean;
+  /** 假別名稱（特休 / 事假…）；leave=true 時才有意義。無指定假別則為 null。 */
+  leaveTypeName: string | null;
 };
 
 export type GridMember = {
@@ -196,7 +198,7 @@ function StaticCell({
   const isAbsent = !isHoliday && !isLeave && !isOffsite && mark?.present === false;
   return (
     <div
-      title={`${label}${isHoliday ? " · 休假" : isLeave ? " · 請假" : weekend && !mark ? " · 放假" : ""}${(isAbsent || isOffsite || isLeave) && mark?.reason ? ` · ${mark.reason}` : ""}`}
+      title={`${label}${isHoliday ? " · 休假" : isLeave ? ` · ${mark?.leaveTypeName ?? "請假"}` : weekend && !mark ? " · 放假" : ""}${(isAbsent || isOffsite || isLeave) && mark?.reason ? ` · ${mark.reason}` : ""}`}
       className={cn(
         "mx-auto flex h-7 w-7 items-center justify-center rounded-md border text-xs",
         isPresent && "border-emerald-300 bg-emerald-100 text-emerald-700",
@@ -301,6 +303,8 @@ function AttendanceCell({
                 offsite: status === "offsite",
                 holiday: status === "holiday",
                 leave: status === "leave",
+                // 請假才記假別名稱（供 tooltip / 匯出顯示 特休、事假…）。
+                leaveTypeName: status === "leave" ? (opts?.leave?.name ?? null) : null,
               },
         );
         setOpen(false);
@@ -321,7 +325,7 @@ function AttendanceCell({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        title={`${label}${isHoliday ? " · 休假" : isLeave ? " · 請假" : weekend && !state ? " · 放假" : ""}${(isAbsent || isOffsite || isLeave) && state?.reason ? ` · ${state.reason}` : ""}`}
+        title={`${label}${isHoliday ? " · 休假" : isLeave ? ` · ${state?.leaveTypeName ?? "請假"}` : weekend && !state ? " · 放假" : ""}${(isAbsent || isOffsite || isLeave) && state?.reason ? ` · ${state.reason}` : ""}`}
         className={cn(
           "mx-auto flex h-7 w-7 items-center justify-center rounded-md border text-xs transition-colors",
           isPresent && "border-emerald-300 bg-emerald-100 text-emerald-700",
