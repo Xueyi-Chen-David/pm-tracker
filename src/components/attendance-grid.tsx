@@ -53,15 +53,15 @@ const WEEKDAY_LABEL = ["日", "一", "二", "三", "四", "五", "六"];
 export function AttendanceGrid({
   members,
   days,
-  viewerUserId,
   canManage,
   leaveTypes = [],
 }: {
   members: GridMember[];
   days: GridDay[];
-  /** 目前檢視者的 userId：非管理者只能編輯自己的列。 */
-  viewerUserId: string;
-  /** 管理者可編輯所有人；否則只有自己那列可編輯。 */
+  /**
+   * 是否可編輯格子（出席 / 缺席 / 請假…）：僅具「登記 / 修改全體出勤」權限(attendance.manage)者可編輯。
+   * 一般成員（含本人自己那列）一律唯讀——出缺勤以打卡為準，忘記打卡走「補打卡」申請。
+   */
   canManage: boolean;
   /** 可選假別（請假時挑，決定薪資扣薪比例）。 */
   leaveTypes?: GridLeaveType[];
@@ -136,7 +136,7 @@ export function AttendanceGrid({
                       dateStr={d.dateStr}
                       label={d.label}
                       mark={m.marks[d.dateStr]}
-                      editable={canManage || m.id === viewerUserId}
+                      editable={canManage}
                       weekend={d.weekend}
                       leaveTypes={leaveTypes}
                     />

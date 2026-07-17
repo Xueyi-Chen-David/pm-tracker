@@ -22,6 +22,7 @@ export type ModuleKey =
   | "crm"
   | "timeline"
   | "team"
+  | "hr"
   | "attendance"
   | "leave"
   | "payroll"
@@ -55,6 +56,7 @@ export const MODULES: readonly AppModule[] = [
   { key: "crm", label: "CRM", href: "/crm" },
   { key: "timeline", label: "時程藍圖", href: "/timeline" },
   { key: "team", label: "團隊", href: "/team" },
+  { key: "hr", label: "人事", href: "/hr", requiresPermission: "hr.view" },
   { key: "attendance", label: "出席狀況", href: "/attendance" },
   { key: "leave", label: "請假簽核", href: "/leave", alwaysVisible: true },
   {

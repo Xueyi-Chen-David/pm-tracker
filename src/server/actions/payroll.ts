@@ -17,7 +17,11 @@ import {
   employerSupplementaryPremium,
   type PayrollRates,
 } from "@/lib/insurance";
-import { resolveSalaryItems, parseMemberItems } from "@/lib/salary-items";
+import {
+  resolveSalaryItems,
+  resolveAdjustments,
+  parseMemberItems,
+} from "@/lib/salary-items";
 
 /** 四捨五入到兩位小數（金額）。 */
 function round2(n: number): number {
@@ -257,22 +261,55 @@ export async function computePayslip(input: z.input<typeof PeriodSchema>) {
   });
   const resolvedItems = resolveSalaryItems(itemDefs, parseMemberItems(sp.items));
 
-  // 合併：舊的自由加給 / 扣除（未分類）＋科目展開的加項 / 減項。
+  // 當月一次性獎金 / 調整（三節 / 臨時 / 年終…）：只影響本月，不進常駐薪資設定。
+  const adjustments = await db.payslipAdjustment.findMany({
+    where: {
+      organizationId: org.id,
+      memberId: d.memberId,
+      periodYear: d.year,
+      periodMonth: d.month,
+    },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      label: true,
+      kind: true,
+      amount: true,
+      taxable: true,
+      countsToInsurance: true,
+      recurring: true,
+      taxFreeLimit: true,
+    },
+  });
+  const resolvedAdj = resolveAdjustments(
+    adjustments.map((a) => ({ ...a, amount: Number(a.amount) })),
+  );
+
+  // 合併：舊的自由加給 / 扣除（未分類）＋科目展開的加項 / 減項 ＋當月調整。
   const legacyAllowances = parseMoneyLines(sp.allowances);
   const legacyAllowanceSum = legacyAllowances.reduce((a, l) => a + l.amount, 0);
-  const allowances = [...legacyAllowances, ...resolvedItems.earnings];
+  const allowances = [
+    ...legacyAllowances,
+    ...resolvedItems.earnings,
+    ...resolvedAdj.earnings,
+  ];
   const deductionLines = [
     ...parseMoneyLines(sp.deductions),
     ...resolvedItems.deductions,
+    ...resolvedAdj.deductions,
   ];
 
-  // 投保用月工資：本薪（時薪換算月薪）＋計入投保的科目加項＋未分類加給。
+  // 投保用月工資：本薪＋計入投保的科目加項＋未分類加給＋（少見）計入投保的當月調整。
+  // 註：一次性獎金預設「非經常性、不計入投保」，故通常不改變投保級距。
   const baseMonthlyEquiv =
     sp.payType === "HOURLY"
       ? Number(sp.baseAmount) * sp.standardHoursPerDay * sp.standardWorkDays
       : Number(sp.baseAmount);
   const monthlyWage =
-    baseMonthlyEquiv + resolvedItems.wageForInsurance + legacyAllowanceSum;
+    baseMonthlyEquiv +
+    resolvedItems.wageForInsurance +
+    resolvedAdj.wageForInsurance +
+    legacyAllowanceSum;
 
   // 勞健保 / 勞退：只有在組織已設定 PayrollSetting（帶過法定預設）時才自動計算，
   // 否則維持舊行為（僅手動固定扣除），確保未設定的組織不受影響。
@@ -371,8 +408,10 @@ export async function computePayslip(input: z.input<typeof PeriodSchema>) {
     (statutory?.employerTotal ?? 0) + supplementaryEmployer;
 
   // ── Phase 3：員工端二代健保（高額獎金）＋薪資所得就源扣繳 ──
-  const taxableIncome = Math.max(0, round2(result.grossPay - resolvedItems.taxFreeTotal));
-  const bonusAmount = resolvedItems.bonusAmount;
+  // 免稅合計 / 非經常性獎金：薪資科目 ＋ 當月一次性調整一併計入。
+  const taxFreeTotal = resolvedItems.taxFreeTotal + resolvedAdj.taxFreeTotal;
+  const taxableIncome = Math.max(0, round2(result.grossPay - taxFreeTotal));
+  const bonusAmount = round2(resolvedItems.bonusAmount + resolvedAdj.bonusAmount);
 
   // 二代健保員工自付：年度累計非經常性獎金超過「投保金額 × 倍數」的部分 × 費率。
   let supplementaryEmployee = 0;
@@ -481,6 +520,81 @@ export async function computeAllPayslips(input: { year: number; month: number })
   }
   revalidatePath("/payroll");
   return { count: members.length };
+}
+
+// ── 當月一次性獎金 / 調整（三節 / 臨時 / 年終獎金、臨時扣款…）──
+
+const AdjustmentInput = z.object({
+  memberId: z.string().min(1),
+  year: z.coerce.number().int().min(2000).max(2100),
+  month: z.coerce.number().int().min(1).max(12),
+  label: z.string().trim().min(1, "請輸入名稱").max(40),
+  kind: z.enum(["EARNING", "DEDUCTION"]).default("EARNING"),
+  amount: z.coerce.number().positive("金額需大於 0").max(99_999_999),
+  taxable: z.boolean().default(true),
+  countsToInsurance: z.boolean().default(false),
+  recurring: z.boolean().default(false),
+  taxFreeLimit: z.coerce.number().int().min(0).max(10_000_000).nullish(),
+  sourceDefId: z.string().nullish(),
+  note: z.string().trim().max(200).optional(),
+});
+
+/**
+ * 新增一筆「當月獎金 / 調整」，並立即重算該成員該月薪資單（草稿）。
+ * 旗標於此快照存下，日後改科目不影響此筆歷史。需 payroll.manage。
+ */
+export async function addPayslipAdjustment(input: z.input<typeof AdjustmentInput>) {
+  const { org, user } = await requireOrgPermission("payroll.manage");
+  const d = AdjustmentInput.parse(input);
+  const member = await db.organizationMember.findFirst({
+    where: { id: d.memberId, organizationId: org.id },
+    select: { id: true, salaryProfile: { select: { id: true } } },
+  });
+  if (!member) throw new Error("該成員不屬於目前組織。");
+  if (!member.salaryProfile) {
+    throw new Error("請先設定該成員的薪資，才能加當月獎金 / 調整。");
+  }
+
+  await db.payslipAdjustment.create({
+    data: {
+      organizationId: org.id,
+      memberId: d.memberId,
+      periodYear: d.year,
+      periodMonth: d.month,
+      label: d.label,
+      kind: d.kind,
+      amount: d.amount,
+      taxable: d.taxable,
+      // 減項不涉及投保 / 獎金累計；一律關掉，避免誤入投保或二代健保。
+      countsToInsurance: d.kind === "EARNING" ? d.countsToInsurance : false,
+      recurring: d.kind === "EARNING" ? d.recurring : false,
+      taxFreeLimit: d.taxFreeLimit ?? null,
+      sourceDefId: d.sourceDefId ?? null,
+      note: d.note || null,
+      createdById: user.id,
+    },
+  });
+
+  // 立即重算，讓薪資單即時反映。
+  await computePayslip({ memberId: d.memberId, year: d.year, month: d.month });
+  revalidatePath("/payroll");
+}
+
+/** 刪除一筆「當月獎金 / 調整」，並重算該月薪資單。需 payroll.manage。 */
+export async function deletePayslipAdjustment(id: string) {
+  const { org } = await requireOrgPermission("payroll.manage");
+  const adj = await db.payslipAdjustment.findFirst({
+    where: { id, organizationId: org.id },
+    select: { memberId: true, periodYear: true, periodMonth: true },
+  });
+  if (!adj) return;
+  await db.payslipAdjustment.deleteMany({ where: { id, organizationId: org.id } });
+  await computePayslip({
+    memberId: adj.memberId,
+    year: adj.periodYear,
+    month: adj.periodMonth,
+  });
+  revalidatePath("/payroll");
 }
 
 /** 核定 / 取消核定薪資單（finalized / draft）。 */

@@ -5,6 +5,8 @@ import {
   getSelfAttendanceMonth,
   getTrackableMembers,
   getOrgLeaveTypes,
+  getMyCheckInCorrections,
+  getPendingCheckInCorrections,
 } from "@/server/queries";
 import { parseGeofences, parseMatchMode } from "@/lib/checkin";
 import { todayUtc } from "@/lib/date";
@@ -21,6 +23,7 @@ import {
   AttendanceTimecard,
   type TimecardDay,
 } from "@/components/attendance-timecard";
+import { CheckInCorrections } from "@/components/checkin-corrections";
 
 export const metadata = { title: "出席狀況 · Project Pulse" };
 
@@ -109,6 +112,14 @@ export default async function AttendancePage({
         select: { date: true, at: true, kind: true, method: true },
       }),
     ]);
+
+  // 補打卡：本人近期申請 + （管理者）待審核清單。
+  const [myCorrections, pendingCorrections] = await Promise.all([
+    getMyCheckInCorrections(org.id, user.id),
+    canManageAtt
+      ? getPendingCheckInCorrections(org.id)
+      : Promise.resolve(null),
+  ]);
 
   // 自動缺席規則：企業有開打卡、且某平日落在 [第一次打卡日, 今天) 之間、
   // 該成員當天完全沒有出席紀錄（沒打卡 / 請假 / 手動 / 出差）→ 視為缺席（未打卡）。
@@ -248,8 +259,9 @@ export default async function AttendancePage({
           請假
         </span>
         <span>
-          · 點格子登記；請假 / 出差 / 在家工作 由團隊成員頁的事件自動帶入
-          ；週末預設放假、平日可點格子設為休假 / 請假，皆不列入缺席統計
+          {canManageAtt
+            ? "· 具出勤管理權限者可點格子登記；請假 / 出差 / 在家工作 由請假簽核頁的事件自動帶入；週末預設放假，皆不列入缺席統計"
+            : "· 出缺勤以打卡為準（唯讀）；忘記打卡請用下方「補打卡」申請；請假 / 出差請至請假簽核頁"}
           {checkInEnabled &&
             "；開啟打卡後，平日未打卡者於次日起自動標記缺席"}
         </span>
@@ -277,7 +289,6 @@ export default async function AttendancePage({
         <AttendanceGrid
           members={members}
           days={days}
-          viewerUserId={user.id}
           canManage={canManageAtt}
           leaveTypes={leaveTypes.map((lt) => ({
             id: lt.id,
@@ -290,6 +301,12 @@ export default async function AttendancePage({
       {showTimecard && (
         <AttendanceTimecard days={timecardDays} todayStr={todayStr} />
       )}
+
+      <CheckInCorrections
+        mine={myCorrections}
+        pending={pendingCorrections}
+        canReview={canManageAtt}
+      />
     </div>
   );
 }

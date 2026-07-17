@@ -8,6 +8,8 @@ import { recomputeAttendance, weekdaysInRange } from "@/lib/attendance-sync";
 import { resolveApprovalChain, countWorkdays } from "@/lib/leave-approval";
 import { fmtDate } from "@/lib/date";
 import { displayName } from "@/lib/display";
+import { validateAttachment } from "@/lib/attachment";
+import { createNotification } from "@/server/notify";
 
 /**
  * 請假申請與逐關簽核。
@@ -42,7 +44,7 @@ function rangeLabel(
   return parts.join(" · ");
 }
 
-/** 建立一則站內通知（收件者為 userId；預設連到 /leave）。 */
+/** 建立一則站內通知 + 桌面推播（收件者為 userId；預設連到 /leave）。 */
 async function notify(opts: {
   orgId: string;
   userId: string;
@@ -51,15 +53,13 @@ async function notify(opts: {
   body?: string | null;
   link?: string;
 }) {
-  await db.notification.create({
-    data: {
-      organizationId: opts.orgId,
-      userId: opts.userId,
-      type: opts.type,
-      title: opts.title,
-      body: opts.body ?? null,
-      link: opts.link ?? "/leave",
-    },
+  await createNotification({
+    orgId: opts.orgId,
+    userId: opts.userId,
+    type: opts.type,
+    title: opts.title,
+    body: opts.body ?? null,
+    link: opts.link ?? "/leave",
   });
 }
 
@@ -75,6 +75,8 @@ async function materializeApprovedLeave(opts: {
   endDate: Date;
   leaveTypeId: string | null;
   reason: string | null;
+  attachment?: string | null;
+  attachmentName?: string | null;
 }) {
   const { orgId, userId, createdById, startDate, endDate, leaveTypeId, reason } =
     opts;
@@ -86,6 +88,8 @@ async function materializeApprovedLeave(opts: {
       startDate,
       endDate: endDate.getTime() > startDate.getTime() ? endDate : null,
       note: reason,
+      attachment: opts.attachment ?? null,
+      attachmentName: opts.attachmentName ?? null,
       createdById,
     },
   });
@@ -108,6 +112,8 @@ const SubmitInput = z.object({
   startDate: z.string().min(1, "請選擇開始日期"),
   endDate: z.string().min(1, "請選擇結束日期"),
   reason: z.string().trim().max(2000).optional(),
+  attachment: z.string().optional(), // 證明附件 data URL（選填）
+  attachmentName: z.string().trim().max(200).optional(),
 });
 
 /** 送出一筆請假申請（替自己）。回傳是否因未設定簽核關卡而自動核准。 */
@@ -119,6 +125,13 @@ export async function submitLeaveRequest(input: z.input<typeof SubmitInput>) {
   if (end.getTime() < start.getTime()) {
     throw new Error("結束日期不能早於開始日期。");
   }
+  // 證明附件（選填）：驗證格式與大小。
+  const attachment = d.attachment?.trim() || null;
+  if (attachment) {
+    const err = validateAttachment(attachment);
+    if (err) throw new Error(err);
+  }
+  const attachmentName = attachment ? d.attachmentName?.trim() || null : null;
 
   let leaveTypeName: string | null = null;
   if (d.leaveTypeId) {
@@ -163,6 +176,8 @@ export async function submitLeaveRequest(input: z.input<typeof SubmitInput>) {
       endDate: end,
       days,
       reason: d.reason || null,
+      attachment,
+      attachmentName,
       status: chain.length ? "PENDING" : "APPROVED",
       currentStep: 0,
       decidedAt: chain.length ? null : now,
@@ -189,6 +204,8 @@ export async function submitLeaveRequest(input: z.input<typeof SubmitInput>) {
       endDate: end,
       leaveTypeId: d.leaveTypeId || null,
       reason: d.reason || null,
+      attachment,
+      attachmentName,
     });
   } else {
     // 通知第一關簽核人。
@@ -297,6 +314,8 @@ export async function decideLeaveApproval(input: z.input<typeof DecideInput>) {
       endDate: request.endDate,
       leaveTypeId: request.leaveTypeId,
       reason: request.reason,
+      attachment: request.attachment,
+      attachmentName: request.attachmentName,
     });
     await notify({
       orgId: org.id,

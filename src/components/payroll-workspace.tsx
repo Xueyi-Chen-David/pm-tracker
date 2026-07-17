@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { Fragment, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -13,6 +13,9 @@ import {
   Plus,
   Download,
   Sparkles,
+  Gift,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import {
   computePayslip,
@@ -20,6 +23,8 @@ import {
   upsertSalaryProfile,
   setPayslipStatus,
   deletePayslip,
+  addPayslipAdjustment,
+  deletePayslipAdjustment,
 } from "@/server/actions/payroll";
 import type {
   PayrollMember,
@@ -163,6 +168,73 @@ function exportPayrollCsv(
 
 type Tab = "payslips" | "salary" | "items" | "settings" | "leave";
 
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
+/** pageSize === 0 表示「全部」，不分頁。 */
+const DEFAULT_PAGE_SIZE = 20;
+
+/**
+ * 成員一多，表格就用分頁 + 可調每頁人數；表格容器高度固定（h-[60vh]），超過內部捲動
+ * （表頭 sticky），所以表格框框的下緣位置固定。分頁列就是一般表格下方的普通內容列（非固定定位）。
+ */
+function MemberPagination({
+  page,
+  pageSize,
+  total,
+  onPageChange,
+  onPageSizeChange,
+}: {
+  page: number;
+  pageSize: number;
+  total: number;
+  onPageChange: (p: number) => void;
+  onPageSizeChange: (n: number) => void;
+}) {
+  if (total === 0) return null;
+  const effectiveSize = pageSize === 0 ? total : pageSize;
+  const totalPages = Math.max(1, Math.ceil(total / effectiveSize));
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+      <div className="text-muted-foreground flex items-center gap-2">
+        <span>每頁</span>
+        <select
+          value={pageSize}
+          onChange={(e) => onPageSizeChange(Number(e.target.value))}
+          className="border-input bg-transparent dark:bg-input/30 h-8 rounded-md border px-2 text-sm outline-none"
+        >
+          {PAGE_SIZE_OPTIONS.map((n) => (
+            <option key={n} value={n}>
+              {n} 人
+            </option>
+          ))}
+          <option value={0}>全部</option>
+        </select>
+        <span>共 {total} 位</span>
+      </div>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={page <= 1}
+          onClick={() => onPageChange(page - 1)}
+        >
+          上一頁
+        </Button>
+        <span className="text-muted-foreground tabular-nums">
+          第 {page} / {totalPages} 頁
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={page >= totalPages}
+          onClick={() => onPageChange(page + 1)}
+        >
+          下一頁
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function PayrollWorkspace({
   members,
   leaveTypes,
@@ -189,8 +261,29 @@ export function PayrollWorkspace({
   const [editing, setEditing] = useState<PayrollMember | null>(null);
   const [viewing, setViewing] = useState<PayrollMember | null>(null);
   const [pending, start] = useTransition();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
+
+  // 換月份時人數可能不同（到職/離職），回到第一頁避免停在一個空頁（渲染期間調整衍生狀態，不用 effect）。
+  const monthKey = `${year}-${month}`;
+  const [prevMonthKey, setPrevMonthKey] = useState(monthKey);
+  if (monthKey !== prevMonthKey) {
+    setPrevMonthKey(monthKey);
+    setPage(1);
+  }
 
   const withSalary = members.filter((m) => m.salary);
+
+  const effectivePageSize = pageSize === 0 ? Math.max(members.length, 1) : pageSize;
+  const totalPages = Math.max(1, Math.ceil(members.length / effectivePageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageStart = (safePage - 1) * effectivePageSize;
+  const pagedMembers = members.slice(pageStart, pageStart + effectivePageSize);
+
+  function changePageSize(n: number) {
+    setPageSize(n);
+    setPage(1);
+  }
 
   function computeAll() {
     start(async () => {
@@ -263,9 +356,9 @@ export function PayrollWorkspace({
               </Button>
             </div>
           )}
-          <div className="overflow-x-auto rounded-xl border">
+          <div className="h-[60vh] overflow-y-auto overflow-x-auto rounded-xl border">
             <table className="w-full text-sm">
-              <thead className="bg-muted/40 text-muted-foreground text-xs">
+              <thead className="bg-muted text-muted-foreground sticky top-0 z-10 text-xs">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">成員</th>
                   <th className="px-3 py-2 text-left font-medium">制別</th>
@@ -278,13 +371,14 @@ export function PayrollWorkspace({
                 </tr>
               </thead>
               <tbody>
-                {members.map((m) => (
+                {pagedMembers.map((m) => (
                   <PayslipRow
                     key={m.membershipId}
                     m={m}
                     year={year}
                     month={month}
                     canManage={canManage}
+                    salaryItems={salaryItems}
                     onView={() => setViewing(m)}
                     onSetup={() => setEditing(m)}
                   />
@@ -293,6 +387,13 @@ export function PayrollWorkspace({
               <PayrollTotals members={members} />
             </table>
           </div>
+          <MemberPagination
+            page={safePage}
+            pageSize={pageSize}
+            total={members.length}
+            onPageChange={setPage}
+            onPageSizeChange={changePageSize}
+          />
           <p className="text-muted-foreground text-xs">
             薪資單依當月出席紀錄（出勤 / 請假各假別 / 缺勤）與打卡工時，套用各成員薪資設定即時計算。
             「代扣」＝勞健保自付＋勞退自提＋固定扣除；「公司負擔」＝勞健保雇主＋勞退6%＋職災＋二代健保（不含應發）。
@@ -302,49 +403,58 @@ export function PayrollWorkspace({
       )}
 
       {tab === "salary" && canManage && (
-        <div className="overflow-x-auto rounded-xl border">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/40 text-muted-foreground text-xs">
-              <tr>
-                <th className="px-3 py-2 text-left font-medium">成員</th>
-                <th className="px-3 py-2 text-left font-medium">制別</th>
-                <th className="px-3 py-2 text-right font-medium">底薪</th>
-                <th className="px-3 py-2 text-right font-medium">加給 / 扣除</th>
-                <th className="px-3 py-2 text-right font-medium">操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              {members.map((m) => (
-                <tr key={m.membershipId} className="hover:bg-muted/30 border-t">
-                  <td className="px-3 py-2">{displayName(m)}</td>
-                  <td className="px-3 py-2">
-                    {m.salary ? PAY_TYPE_LABEL[m.salary.payType] ?? m.salary.payType : "—"}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    {m.salary
-                      ? `${fmt(m.salary.baseAmount)} ${m.salary.currency}${m.salary.payType === "HOURLY" ? " /時" : " /月"}`
-                      : <span className="text-muted-foreground">未設定</span>}
-                  </td>
-                  <td className="text-muted-foreground px-3 py-2 text-right text-xs">
-                    {m.salary
-                      ? `+${toLines(m.salary.allowances).length} / -${toLines(m.salary.deductions).length}`
-                      : "—"}
-                  </td>
-                  <td className="px-3 py-2 text-right">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setEditing(m)}
-                      className="gap-1"
-                    >
-                      <Pencil className="h-3.5 w-3.5" />
-                      {m.salary ? "編輯" : "設定"}
-                    </Button>
-                  </td>
+        <div className="space-y-3">
+          <div className="h-[60vh] overflow-y-auto overflow-x-auto rounded-xl border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted text-muted-foreground sticky top-0 z-10 text-xs">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium">成員</th>
+                  <th className="px-3 py-2 text-left font-medium">制別</th>
+                  <th className="px-3 py-2 text-right font-medium">底薪</th>
+                  <th className="px-3 py-2 text-right font-medium">加給 / 扣除</th>
+                  <th className="px-3 py-2 text-right font-medium">操作</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {pagedMembers.map((m) => (
+                  <tr key={m.membershipId} className="hover:bg-muted/30 border-t">
+                    <td className="px-3 py-2">{displayName(m)}</td>
+                    <td className="px-3 py-2">
+                      {m.salary ? PAY_TYPE_LABEL[m.salary.payType] ?? m.salary.payType : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {m.salary
+                        ? `${fmt(m.salary.baseAmount)} ${m.salary.currency}${m.salary.payType === "HOURLY" ? " /時" : " /月"}`
+                        : <span className="text-muted-foreground">未設定</span>}
+                    </td>
+                    <td className="text-muted-foreground px-3 py-2 text-right text-xs">
+                      {m.salary
+                        ? `+${toLines(m.salary.allowances).length} / -${toLines(m.salary.deductions).length}`
+                        : "—"}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setEditing(m)}
+                        className="gap-1"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                        {m.salary ? "編輯" : "設定"}
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <MemberPagination
+            page={safePage}
+            pageSize={pageSize}
+            total={members.length}
+            onPageChange={setPage}
+            onPageSizeChange={changePageSize}
+          />
         </div>
       )}
 
@@ -409,6 +519,7 @@ function PayslipRow({
   year,
   month,
   canManage,
+  salaryItems,
   onView,
   onSetup,
 }: {
@@ -416,12 +527,15 @@ function PayslipRow({
   year: number;
   month: number;
   canManage: boolean;
+  salaryItems: SalaryItemDefRow[];
   onView: () => void;
   onSetup: () => void;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  const [showAdj, setShowAdj] = useState(false);
   const ps = m.payslip;
+  const adjCount = m.adjustments.length;
 
   function compute() {
     start(async () => {
@@ -462,8 +576,36 @@ function PayslipRow({
   }
 
   return (
+    <Fragment>
     <tr className="hover:bg-muted/30 border-t">
-      <td className="px-3 py-2">{displayName(m)}</td>
+      <td className="px-3 py-2">
+        <div className="flex items-center gap-1.5">
+          {canManage && m.salary && (
+            <button
+              type="button"
+              onClick={() => setShowAdj((v) => !v)}
+              title="當月獎金 / 調整"
+              className="text-muted-foreground hover:text-foreground -ml-1 rounded p-0.5"
+            >
+              {showAdj ? (
+                <ChevronDown className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronRight className="h-3.5 w-3.5" />
+              )}
+            </button>
+          )}
+          <span>{displayName(m)}</span>
+          {adjCount > 0 && (
+            <span
+              title={`${adjCount} 筆當月獎金 / 調整`}
+              className="inline-flex items-center gap-0.5 rounded-full bg-violet-100 px-1.5 text-[10px] font-medium text-violet-700"
+            >
+              <Gift className="h-3 w-3" />
+              {adjCount}
+            </span>
+          )}
+        </div>
+      </td>
       <td className="px-3 py-2">
         {m.salary ? PAY_TYPE_LABEL[m.salary.payType] ?? m.salary.payType : "—"}
       </td>
@@ -513,6 +655,17 @@ function PayslipRow({
                 <>
                   <button
                     type="button"
+                    onClick={() => setShowAdj((v) => !v)}
+                    title="當月獎金 / 調整"
+                    className={cn(
+                      "hover:bg-muted rounded p-1.5",
+                      showAdj && "bg-muted text-violet-600",
+                    )}
+                  >
+                    <Gift className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
                     onClick={compute}
                     disabled={pending}
                     title={ps ? "重算" : "產生"}
@@ -557,6 +710,222 @@ function PayslipRow({
         </div>
       </td>
     </tr>
+    {showAdj && (
+      <tr>
+        <td colSpan={8} className="bg-muted/20 border-t px-4 py-3">
+          <AdjustmentPanel
+            m={m}
+            year={year}
+            month={month}
+            salaryItems={salaryItems}
+          />
+        </td>
+      </tr>
+    )}
+    </Fragment>
+  );
+}
+
+/** 當月獎金 / 調整面板：列出本月調整 + 新增表單（可選科目帶旗標，或自訂一筆）。 */
+function AdjustmentPanel({
+  m,
+  year,
+  month,
+  salaryItems,
+}: {
+  m: PayrollMember;
+  year: number;
+  month: number;
+  salaryItems: SalaryItemDefRow[];
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const [defId, setDefId] = useState(""); // "" ＝ 自訂
+  const [label, setLabel] = useState("");
+  const [kind, setKind] = useState<"EARNING" | "DEDUCTION">("EARNING");
+  const [amount, setAmount] = useState("");
+
+  const activeItems = salaryItems.filter((d) => d.active);
+
+  function pickDef(id: string) {
+    setDefId(id);
+    const def = salaryItems.find((d) => d.id === id);
+    if (def) {
+      setLabel(def.name);
+      setKind(def.kind === "DEDUCTION" ? "DEDUCTION" : "EARNING");
+    }
+  }
+
+  function add() {
+    const amt = Number(amount);
+    if (!label.trim()) {
+      toast.error("請輸入名稱");
+      return;
+    }
+    if (!(amt > 0)) {
+      toast.error("金額需大於 0");
+      return;
+    }
+    const def = defId ? salaryItems.find((d) => d.id === defId) : undefined;
+    start(async () => {
+      try {
+        await addPayslipAdjustment({
+          memberId: m.membershipId,
+          year,
+          month,
+          label: label.trim(),
+          kind,
+          amount: amt,
+          // 選科目 → 沿用科目旗標；自訂 → 預設「應稅獎金、不計投保、非經常性」。
+          taxable: def ? def.taxable : true,
+          countsToInsurance: def ? def.countsToInsurance : false,
+          recurring: def ? def.recurring : false,
+          taxFreeLimit: def?.taxFreeLimit ?? null,
+          sourceDefId: def?.id ?? null,
+        });
+        toast.success("已加入當月獎金 / 調整並重算");
+        setDefId("");
+        setLabel("");
+        setKind("EARNING");
+        setAmount("");
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "新增失敗");
+      }
+    });
+  }
+
+  function remove(id: string) {
+    if (!confirm("刪除這筆當月獎金 / 調整？將重算薪資單。")) return;
+    start(async () => {
+      try {
+        await deletePayslipAdjustment(id);
+        toast.success("已刪除並重算");
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "刪除失敗");
+      }
+    });
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground">
+        <Gift className="h-3.5 w-3.5" /> 當月獎金 / 調整（{year}/{month}）
+      </div>
+      <p className="text-muted-foreground text-[11px]">
+        只影響本月、不進常駐薪資設定，發完即結束。三節 / 年終 / 績效 / 臨時獎金請用這裡；
+        非經常性獎金會自動併入二代健保高額獎金累計。
+      </p>
+
+      {/* 現有清單 */}
+      {m.adjustments.length > 0 && (
+        <div className="divide-y rounded-md border bg-background">
+          {m.adjustments.map((a) => (
+            <div key={a.id} className="flex items-center gap-2 px-3 py-1.5 text-sm">
+              <span
+                className={cn(
+                  "shrink-0 rounded px-1.5 text-[10px] font-medium",
+                  a.kind === "DEDUCTION"
+                    ? "bg-rose-100 text-rose-700"
+                    : "bg-emerald-100 text-emerald-700",
+                )}
+              >
+                {a.kind === "DEDUCTION" ? "減項" : "加項"}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{a.label}</span>
+              {!a.recurring && a.kind === "EARNING" && (
+                <span className="text-muted-foreground shrink-0 text-[10px]">獎金</span>
+              )}
+              <span
+                className={cn(
+                  "shrink-0 tabular-nums",
+                  a.kind === "DEDUCTION" ? "text-rose-600" : "",
+                )}
+              >
+                {a.kind === "DEDUCTION" ? "-" : "+"}
+                {fmt(a.amount)}
+              </span>
+              <button
+                type="button"
+                onClick={() => remove(a.id)}
+                disabled={pending}
+                title="刪除"
+                className="hover:bg-muted shrink-0 rounded p-1 text-rose-600 disabled:opacity-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 新增一筆 */}
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="space-y-1">
+          <label className="text-muted-foreground text-[11px]">科目（選填）</label>
+          <select
+            value={defId}
+            onChange={(e) => pickDef(e.target.value)}
+            className="border-input bg-transparent dark:bg-input/30 h-9 rounded-md border px-2 text-sm outline-none"
+          >
+            <option value="">自訂（應稅獎金）</option>
+            {activeItems.map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.kind === "EARNING" ? "＋" : "－"} {d.name}
+                {d.recurring ? "" : "（獎金）"}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-muted-foreground text-[11px]">名稱</label>
+          <Input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="例：三節獎金（端午）"
+            className="h-9 w-44"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-muted-foreground text-[11px]">類別</label>
+          <div className="flex h-9 items-center gap-1 rounded-md border p-0.5">
+            {(["EARNING", "DEDUCTION"] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setKind(k)}
+                disabled={defId !== ""}
+                className={cn(
+                  "rounded px-2 py-1 text-xs font-medium disabled:opacity-50",
+                  kind === k
+                    ? k === "DEDUCTION"
+                      ? "bg-rose-100 text-rose-700"
+                      : "bg-emerald-100 text-emerald-700"
+                    : "text-muted-foreground",
+                )}
+              >
+                {k === "DEDUCTION" ? "減項" : "加項"}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-1">
+          <label className="text-muted-foreground text-[11px]">金額</label>
+          <Input
+            type="number"
+            min={0}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="金額"
+            className="h-9 w-28"
+          />
+        </div>
+        <Button size="sm" disabled={pending} onClick={add} className="gap-1">
+          <Plus className="h-4 w-4" /> 加入
+        </Button>
+      </div>
+    </div>
   );
 }
 

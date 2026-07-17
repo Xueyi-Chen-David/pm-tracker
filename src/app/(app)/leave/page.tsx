@@ -2,11 +2,13 @@ import { requireManageContext } from "@/server/org";
 import {
   getMyLeaveRequests,
   getPendingApprovalsForMember,
+  isEligibleLeaveApprover,
   getAllLeaveRequests,
   getLeaveApprovalFlow,
   getOrgLeaveTypes,
   getOrgMemberDirectory,
   getLeaveQuotaOverview,
+  getMemberEventsForUser,
 } from "@/server/queries";
 import { displayName } from "@/lib/display";
 import { PageHeader } from "@/components/page-header";
@@ -17,12 +19,16 @@ export const metadata = { title: "請假簽核 · Project Pulse" };
 export default async function LeavePage() {
   const { org, user, membership, can } = await requireManageContext();
   const canManageLeave = can("leave.manage");
+  const canManageAttendance = can("attendance.manage");
+  const needsDirectory = canManageLeave || canManageAttendance;
 
   const quotaYear = new Date().getFullYear();
   const [
     myRequests,
     pending,
+    isEligibleApprover,
     leaveTypes,
+    myEvents,
     allRequests,
     flow,
     directory,
@@ -30,10 +36,12 @@ export default async function LeavePage() {
   ] = await Promise.all([
     getMyLeaveRequests(org.id, user.id),
     getPendingApprovalsForMember(org.id, membership.id),
+    isEligibleLeaveApprover(org.id, membership.id),
     getOrgLeaveTypes(org.id, true),
+    getMemberEventsForUser(org.id, user.id),
     canManageLeave ? getAllLeaveRequests(org.id) : Promise.resolve(null),
     canManageLeave ? getLeaveApprovalFlow(org.id) : Promise.resolve(null),
-    canManageLeave ? getOrgMemberDirectory(org.id) : Promise.resolve(null),
+    needsDirectory ? getOrgMemberDirectory(org.id) : Promise.resolve(null),
     canManageLeave
       ? getLeaveQuotaOverview(org.id, quotaYear)
       : Promise.resolve(null),
@@ -53,6 +61,14 @@ export default async function LeavePage() {
         : displayName(d),
     })) ?? null;
 
+  // 出勤管理者可切換檢視 / 登記其他成員的請假 / 出差 / 事件（見 LeaveEventsSection）。
+  const eventMembers = canManageAttendance
+    ? (directory?.map((d) => ({
+        userId: d.id,
+        label: d.jobTitle ? `${displayName(d)}（${d.jobTitle}）` : displayName(d),
+      })) ?? [])
+    : null;
+
   return (
     <div className="space-y-4">
       <PageHeader
@@ -62,6 +78,7 @@ export default async function LeavePage() {
       <LeaveWorkspace
         myRequests={myRequests}
         pending={pending}
+        isEligibleApprover={isEligibleApprover}
         allRequests={allRequests}
         leaveTypes={leaveTypes}
         canManageLeave={canManageLeave}
@@ -69,6 +86,11 @@ export default async function LeavePage() {
         members={members}
         quota={quota}
         quotaYear={quotaYear}
+        myUserId={user.id}
+        myLabel={displayName(user)}
+        myEvents={myEvents}
+        canManageAttendance={canManageAttendance}
+        eventMembers={eventMembers}
       />
     </div>
   );

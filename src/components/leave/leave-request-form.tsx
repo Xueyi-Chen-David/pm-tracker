@@ -10,6 +10,10 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
+  AttachmentField,
+  type AttachmentValue,
+} from "@/components/attachment-field";
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -37,12 +41,14 @@ export function LeaveRequestForm({
   const [startDate, setStartDate] = useState(toDateInput(new Date()));
   const [endDate, setEndDate] = useState(toDateInput(new Date()));
   const [reason, setReason] = useState("");
+  const [attachment, setAttachment] = useState<AttachmentValue>(null);
 
   function reset() {
     setLeaveTypeId("");
     setStartDate(toDateInput(new Date()));
     setEndDate(toDateInput(new Date()));
     setReason("");
+    setAttachment(null);
   }
 
   function submit() {
@@ -61,6 +67,8 @@ export function LeaveRequestForm({
           startDate,
           endDate,
           reason: reason.trim() || undefined,
+          attachment: attachment?.dataUrl,
+          attachmentName: attachment?.name,
         });
         toast.success(
           res?.autoApproved
@@ -155,6 +163,7 @@ export function LeaveRequestForm({
               maxLength={2000}
             />
           </div>
+          <AttachmentField value={attachment} onChange={setAttachment} />
         </div>
 
         <DialogFooter>

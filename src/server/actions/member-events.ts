@@ -6,6 +6,7 @@ import { db } from "@/server/db";
 import { requireActiveOrg, membershipHas } from "@/server/org";
 import { eventAttendanceEffect } from "@/lib/constants";
 import { recomputeAttendance, weekdaysInRange } from "@/lib/attendance-sync";
+import { validateAttachment } from "@/lib/attachment";
 
 const EventInput = z.object({
   userId: z.string().min(1),
@@ -13,6 +14,8 @@ const EventInput = z.object({
   startDate: z.string().min(1, "請選擇開始日期"),
   endDate: z.string().optional(),
   note: z.string().trim().max(2000).optional(),
+  attachment: z.string().optional(), // 證明附件 data URL（選填）
+  attachmentName: z.string().trim().max(200).optional(),
 });
 
 /** yyyy-mm-dd → UTC 午夜（對應 @db.Date，避免時區位移）。 */
@@ -40,6 +43,12 @@ export async function createMemberEvent(input: z.input<typeof EventInput>) {
   // 結束日早於開始日時忽略結束日
   const endDate = end && end.getTime() >= start.getTime() ? end : null;
 
+  const attachment = d.attachment?.trim() || null;
+  if (attachment) {
+    const err = validateAttachment(attachment);
+    if (err) throw new Error(err);
+  }
+
   await db.memberEvent.create({
     data: {
       organizationId: org.id,
@@ -48,6 +57,8 @@ export async function createMemberEvent(input: z.input<typeof EventInput>) {
       startDate: start,
       endDate,
       note: d.note || null,
+      attachment,
+      attachmentName: attachment ? d.attachmentName?.trim() || null : null,
       createdById: user.id,
     },
   });
@@ -63,9 +74,31 @@ export async function createMemberEvent(input: z.input<typeof EventInput>) {
     );
   }
 
-  revalidatePath(`/me/${d.userId}`);
+  revalidatePath("/leave");
   revalidatePath("/team");
   revalidatePath("/attendance");
+}
+
+/** 請假簽核頁用：切換檢視對象時，即時抓該成員的事件清單。 */
+export async function getMemberEventsAction(userId: string) {
+  const { org, user, membership } = await requireActiveOrg();
+  if (userId !== user.id && !membershipHas(membership, "attendance.manage")) {
+    throw new Error("只能查看自己的事件；需具備出勤管理權限才能查看他人的。");
+  }
+  return db.memberEvent.findMany({
+    where: { organizationId: org.id, userId },
+    orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
+    take: 50,
+    select: {
+      id: true,
+      type: true,
+      startDate: true,
+      endDate: true,
+      note: true,
+      attachment: true,
+      attachmentName: true,
+    },
+  });
 }
 
 export async function deleteMemberEvent(input: { id: string; userId: string }) {
@@ -94,7 +127,7 @@ export async function deleteMemberEvent(input: { id: string; userId: string }) {
     );
   }
 
-  revalidatePath(`/me/${input.userId}`);
+  revalidatePath("/leave");
   revalidatePath("/team");
   revalidatePath("/attendance");
 }

@@ -119,3 +119,36 @@ export function resolveSalaryItems(
     bonusAmount: round2(bonusAmount),
   };
 }
+
+/** 當月一次性獎金 / 調整（PayslipAdjustment 的計算子集）。旗標已於建立時快照，計算不再回查科目。 */
+export type AdjustmentLike = {
+  id: string;
+  label: string;
+  kind: string; // EARNING | DEDUCTION
+  amount: number;
+  taxable: boolean;
+  countsToInsurance: boolean;
+  recurring: boolean;
+  taxFreeLimit: number | null;
+};
+
+/**
+ * 把「當月獎金 / 調整」折算成與薪資科目相同的 ResolvedItems（沿用同一套旗標邏輯）。
+ * 每筆調整都自帶旗標快照，故合成一個一次性的 def 餵進 resolveSalaryItems 即可。
+ */
+export function resolveAdjustments(adjustments: AdjustmentLike[]): ResolvedItems {
+  const defs: SalaryItemDefLike[] = adjustments.map((a) => ({
+    id: `adj:${a.id}`,
+    name: a.label,
+    kind: a.kind,
+    taxable: a.taxable,
+    countsToInsurance: a.countsToInsurance,
+    recurring: a.recurring,
+    taxFreeLimit: a.taxFreeLimit,
+  }));
+  const items: MemberItem[] = adjustments.map((a) => ({
+    defId: `adj:${a.id}`,
+    amount: a.amount,
+  }));
+  return resolveSalaryItems(defs, items);
+}

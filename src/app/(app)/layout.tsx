@@ -15,6 +15,7 @@ import { AppContainer } from "@/components/app-container";
 import { ViewAsBanner } from "@/components/view-as-banner";
 import { WhatsNew } from "@/components/whats-new";
 import { PushManager } from "@/components/push-manager";
+import { NotificationWatcher } from "@/components/notification-watcher";
 import { PomodoroIndicator } from "@/components/pomodoro";
 
 export default async function AppLayout({
@@ -100,6 +101,8 @@ export default async function AppLayout({
       <WhatsNew />
       {/* 桌面通知：登入後自動註冊 SW + 訂閱推播（預設開啟）。 */}
       <PushManager />
+      {/* 站內即時彈窗：分頁開著時，新通知以 toast 跳出（Slack 式）。 */}
+      <NotificationWatcher />
       {/* 全域番茄鐘浮動計時器（模組級 store，切頁 / 關網頁都持續倒數；進行中才顯示）。 */}
       <PomodoroIndicator />
     </div>

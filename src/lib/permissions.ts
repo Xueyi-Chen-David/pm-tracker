@@ -13,6 +13,10 @@
 
 /** 權限 key。新增權限時同步更新此聯集與下方 PERMISSIONS 目錄。 */
 export type PermissionKey =
+  | "hr.view"
+  | "hr.manage_position"
+  | "hr.manage_employment"
+  | "hr.manage_roles"
   | "attendance.view_all"
   | "attendance.manage"
   | "leave.manage"
@@ -29,6 +33,31 @@ export type PermissionDef = {
 
 /** 權限目錄（角色設定的勾選清單依此顯示，依 group 分組）。 */
 export const PERMISSIONS: readonly PermissionDef[] = [
+  {
+    key: "hr.view",
+    label: "查看人事資料",
+    description: "可進入「人事」頁，查看全體成員的任職資訊（職稱、部門、主管、到職日、在職狀態、角色）。",
+    group: "人事資料",
+  },
+  {
+    key: "hr.manage_position",
+    label: "管理職務資料",
+    description: "可編輯成員的職稱、部門、直屬主管與協同主管。",
+    group: "人事資料",
+  },
+  {
+    key: "hr.manage_employment",
+    label: "管理任職狀態",
+    description: "可設定成員的在職 / 停用、到職日，並移除成員（敏感操作）。",
+    group: "人事資料",
+  },
+  {
+    key: "hr.manage_roles",
+    label: "指派角色與權限",
+    description:
+      "可替成員指派 / 移除自訂角色（＝間接調整其權限）。這是敏感權限，通常僅授予人資主管。",
+    group: "人事資料",
+  },
   {
     key: "attendance.view_all",
     label: "查看全體出勤",

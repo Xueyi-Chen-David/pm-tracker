@@ -48,6 +48,7 @@ model User {
   dailyReportReactions DailyReportReaction[]
   notifications        Notification[]
   checkIns             CheckIn[]
+  checkInCorrections   CheckInCorrection[]
   trainingAssignments  TrainingAssignment[]
   crmContactsOwned     CrmContact[]          @relation("CrmContactOwner")
   crmDealsOwned        CrmDeal[]             @relation("CrmDealOwner")
@@ -149,6 +150,7 @@ model Organization {
   dailyReports        DailyReport[]
   notifications       Notification[]
   checkIns            CheckIn[]
+  checkInCorrections  CheckInCorrection[]
   trainingCourses     TrainingCourse[]
   trainingAssignments TrainingAssignment[]
   trainingDocFolders  TrainingDocFolder[]
@@ -170,6 +172,7 @@ model Organization {
   payrollSetting      PayrollSetting?
   insuranceBrackets   InsuranceBracket[]
   salaryItemDefs      SalaryItemDef[]
+  payslipAdjustments  PayslipAdjustment[]
 }
 
 /**
@@ -213,6 +216,8 @@ model OrganizationMember {
   // 人資：薪資設定（每位成員一份）與歷月薪資單。
   salaryProfile SalaryProfile?
   payslips      Payslip[]
+  // 當月一次性獎金 / 調整（三節 / 臨時 / 年終…；不進常駐薪資設定，僅影響指定月份）。
+  payslipAdjustments PayslipAdjustment[]
 
   // 請假簽核：作為簽核關卡的指定簽核人 / 作為申請人 / 作為某申請某關的實際簽核人。
   leaveStepApprovals LeaveApprovalStep[] @relation("LeaveStepApprover")
@@ -549,6 +554,8 @@ model MemberEvent {
   startDate   DateTime  @db.Date
   endDate     DateTime? @db.Date // 範圍結束（null＝單日）
   note        String?   @db.Text
+  attachment     String? @db.Text // 證明附件（data URL；圖片 / PDF）
+  attachmentName String? // 附件原始檔名
   createdById String?
   createdAt   DateTime  @default(now())
 
@@ -783,6 +790,29 @@ model CheckIn {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, date])
+  @@index([userId, date])
+}
+
+/// 補打卡申請：成員忘記上/下班打卡時提出，經具 attendance.manage 者核准後補一筆有效打卡（計入工時）。
+model CheckInCorrection {
+  id     String   @id @default(cuid())
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date   DateTime @db.Date // 要補的打卡日
+  kind   String // "in"（上班）/ "out"（下班）
+  at     DateTime // 申請補登的實際打卡時間
+  reason String?  @db.Text // 事由（忘記打卡原因）
+
+  status       String    @default("pending") // pending | approved | rejected
+  reviewedById String? // 審核者 userId
+  reviewedAt   DateTime?
+  reviewNote   String? // 審核備註（駁回原因等）
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, status])
   @@index([userId, date])
 }
 
@@ -1214,6 +1244,8 @@ model LeaveRequest {
   endDate     DateTime   @db.Date
   days        Float      @default(0) // 換算工作天（週末不計；顯示 / 統計用）
   reason      String?    @db.Text
+  attachment     String? @db.Text // 證明附件（data URL；圖片 / PDF）
+  attachmentName String? // 附件原始檔名
 
   // PENDING（待簽核）| APPROVED（已核准）| REJECTED（已駁回）| CANCELLED（已取消）
   status      String    @default("PENDING")
@@ -1421,4 +1453,35 @@ model Payslip {
   @@unique([organizationId, memberId, periodYear, periodMonth])
   @@index([organizationId, periodYear, periodMonth])
   @@index([memberId])
+}
+
+/// 當月一次性獎金 / 調整（三節 / 臨時 / 年終獎金、臨時扣款…）。
+/// 只影響「某成員某年某月」，不寫進常駐薪資設定；重算薪資單時會被折算進去，發完該月即結束。
+/// 旗標（應稅 / 計入投保 / 非經常性 / 免稅上限）在建立當下由科目快照下來，之後改科目不影響歷史。
+model PayslipAdjustment {
+  id             String             @id @default(cuid())
+  organizationId String
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberId       String
+  member         OrganizationMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  periodYear  Int
+  periodMonth Int // 1–12
+
+  label String // 顯示名稱（如「三節獎金（端午）」；選科目時預帶科目名，可自訂）
+  kind  String  @default("EARNING") // EARNING（加項，如獎金）| DEDUCTION（減項，如臨時扣款）
+  amount Decimal @db.Decimal(12, 2)
+
+  // 旗標快照（自由填或選科目時一併存；計算時只看這裡，不再回查科目）
+  taxable           Boolean @default(true) // 應稅（false＝免稅）
+  countsToInsurance Boolean @default(false) // 是否計入投保薪資（一次性獎金通常 false）
+  recurring         Boolean @default(false) // 經常性（一次性一律 false＝獎金，供二代健保累計）
+  taxFreeLimit      Int? // 免稅上限（免稅科目用）
+
+  sourceDefId String? // 來源薪資科目 id（僅記錄，計算不依賴；科目刪除也不影響）
+  note        String?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([organizationId, memberId, periodYear, periodMonth])
 }

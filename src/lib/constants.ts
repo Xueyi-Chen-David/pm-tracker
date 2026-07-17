@@ -146,6 +146,14 @@ export const LEAVE_EVENT_TYPES = new Set<string>(["請假"]);
 export const ABSENT_EVENT_TYPES = new Set<string>([]);
 export const OFFSITE_EVENT_TYPES = new Set<string>(["出差", "在家工作"]);
 
+/**
+ * 「出差 / 事件」登記可選的類型（排除請假）——正式請假一律走簽核流程，不在此直接登記，
+ * 避免與「請假申請」重複。缺席原因等其他情境仍用完整的 MEMBER_EVENT_TYPES。
+ */
+export const NON_LEAVE_EVENT_TYPES = MEMBER_EVENT_TYPES.filter(
+  (t) => !LEAVE_EVENT_TYPES.has(t),
+);
+
 export type AttendanceEffect = "absent" | "offsite" | "leave";
 
 /** 該事件類型會如何影響出席月曆（null＝不影響）。 */

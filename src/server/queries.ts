@@ -297,6 +297,63 @@ export async function getSelfAttendanceMonth(
   return [{ ...member.user, isBoss: member.isBoss }];
 }
 
+/** 本人近期補打卡申請（最新在前）。 */
+export async function getMyCheckInCorrections(orgId: string, userId: string) {
+  const rows = await db.checkInCorrection.findMany({
+    where: { organizationId: orgId, userId },
+    orderBy: { createdAt: "desc" },
+    take: 20,
+    select: {
+      id: true,
+      date: true,
+      kind: true,
+      at: true,
+      reason: true,
+      status: true,
+      reviewNote: true,
+    },
+  });
+  return rows.map((r) => ({
+    ...r,
+    date: r.date.toISOString().slice(0, 10),
+    at: r.at.toISOString(),
+  }));
+}
+
+export type CheckInCorrectionRow = Awaited<
+  ReturnType<typeof getMyCheckInCorrections>
+>[number];
+
+/** 待審核的補打卡申請（出勤管理者用），附申請人身分。 */
+export async function getPendingCheckInCorrections(orgId: string) {
+  const rows = await db.checkInCorrection.findMany({
+    where: { organizationId: orgId, status: "pending" },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      userId: true,
+      date: true,
+      kind: true,
+      at: true,
+      reason: true,
+      user: { select: userIdentitySelect },
+    },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    userId: r.userId,
+    date: r.date.toISOString().slice(0, 10),
+    kind: r.kind,
+    at: r.at.toISOString(),
+    reason: r.reason,
+    requester: r.user,
+  }));
+}
+
+export type PendingCheckInCorrection = Awaited<
+  ReturnType<typeof getPendingCheckInCorrections>
+>[number];
+
 /** 出席追蹤成員管理：本組織所有在職成員 + 是否已納入追蹤。 */
 export async function getTrackableMembers(orgId: string) {
   const members = await db.organizationMember.findMany({
@@ -354,11 +411,6 @@ export async function getMemberProfile(orgId: string, userId: string) {
           health: true,
           progress: true,
         },
-      },
-      memberEvents: {
-        where: { organizationId: orgId },
-        orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
-        take: 50,
       },
       // 被指派的任務：以「專案與任務」頁的真實 Task 為唯一來源（本人為負責人之一）。
       // 「參與的專案」也由此推導（有負責任務即算參與該專案）。
@@ -763,6 +815,57 @@ export type OrgMemberDirectoryEntry = Awaited<
   ReturnType<typeof getOrgMemberDirectory>
 >[number];
 
+/**
+ * 人事頁：本組織全體成員的任職資訊（含到職日、在職狀態、已指派角色）。
+ * hireDate 轉成 yyyy-mm-dd 字串（給 <input type=date> 與年資計算用），Date 不直接傳給 client。
+ */
+export async function getHrDirectory(orgId: string) {
+  const members = await db.organizationMember.findMany({
+    where: { organizationId: orgId },
+    orderBy: [{ active: "desc" }, { isBoss: "desc" }, { user: { name: "asc" } }],
+    select: {
+      id: true,
+      role: true,
+      isBoss: true,
+      active: true,
+      jobTitle: true,
+      department: true,
+      hireDate: true,
+      managerId: true,
+      secondaryManagerIds: true,
+      user: { select: userIdentitySelect },
+      roleDefs: { select: { id: true } },
+    },
+  });
+  // 展開後 id＝userId（連結 / action 用），membershipId＝成員關係 id（主管欄位的值）。
+  return members.map((m) => ({
+    ...m.user,
+    membershipId: m.id,
+    role: m.role,
+    isBoss: m.isBoss,
+    active: m.active,
+    jobTitle: m.jobTitle,
+    department: m.department,
+    hireDate: m.hireDate ? m.hireDate.toISOString().slice(0, 10) : null,
+    managerId: m.managerId,
+    secondaryManagerIds: m.secondaryManagerIds,
+    roleIds: m.roleDefs.map((r) => r.id),
+  }));
+}
+
+export type HrDirectoryEntry = Awaited<ReturnType<typeof getHrDirectory>>[number];
+
+/** 本組織現有部門清單（去重、排序），供人事頁部門欄位的 datalist 建議。 */
+export async function getOrgDepartments(orgId: string): Promise<string[]> {
+  const rows = await db.organizationMember.findMany({
+    where: { organizationId: orgId, department: { not: null } },
+    select: { department: true },
+    distinct: ["department"],
+    orderBy: { department: "asc" },
+  });
+  return rows.map((r) => r.department).filter((d): d is string => Boolean(d));
+}
+
 // ─────────────────────────────────────────────
 // 人資：角色 / 假別
 // ─────────────────────────────────────────────
@@ -847,6 +950,8 @@ const leaveRequestSelect = {
   endDate: true,
   days: true,
   reason: true,
+  attachment: true,
+  attachmentName: true,
   status: true,
   currentStep: true,
   createdAt: true,
@@ -905,6 +1010,54 @@ export async function getPendingApprovalsForMember(
     return (
       current?.approverMemberId === membershipId && current.status === "PENDING"
     );
+  });
+}
+
+/**
+ * 這位成員「有沒有可能」出現在待我簽核 —— 依目前的簽核關卡設定判斷：
+ *   - 有任一關卡是 MEMBER 且指定就是他 → 是。
+ *   - 有任一關卡是 MANAGER，且他目前是至少一位在職成員的直屬主管 → 是（會動態解析到他）。
+ * 一般成員（兩者皆非）不該在請假頁看到「待我簽核」分頁。
+ */
+export async function isEligibleLeaveApprover(
+  orgId: string,
+  membershipId: string,
+): Promise<boolean> {
+  const steps = await db.leaveApprovalStep.findMany({
+    where: { organizationId: orgId },
+    select: { approverType: true, approverMemberId: true },
+  });
+  if (steps.length === 0) return false;
+
+  const isDirectlyNamed = steps.some(
+    (s) => s.approverType === "MEMBER" && s.approverMemberId === membershipId,
+  );
+  if (isDirectlyNamed) return true;
+
+  const hasManagerStep = steps.some((s) => s.approverType === "MANAGER");
+  if (!hasManagerStep) return false;
+
+  const managedCount = await db.organizationMember.count({
+    where: { organizationId: orgId, managerId: membershipId, active: true },
+  });
+  return managedCount > 0;
+}
+
+/** 某成員的請假 / 出差 / 事件登記（原個人資料頁的區塊，現移到請假簽核頁）。 */
+export async function getMemberEventsForUser(orgId: string, userId: string) {
+  return db.memberEvent.findMany({
+    where: { organizationId: orgId, userId },
+    orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
+    take: 50,
+    select: {
+      id: true,
+      type: true,
+      startDate: true,
+      endDate: true,
+      note: true,
+      attachment: true,
+      attachmentName: true,
+    },
   });
 }
 
@@ -995,6 +1148,21 @@ export async function getPayrollOverview(
           bonusAmount: true,
         },
       },
+      // 當月一次性獎金 / 調整（三節 / 臨時 / 年終…）。
+      payslipAdjustments: {
+        where: { periodYear: year, periodMonth: month },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          label: true,
+          kind: true,
+          amount: true,
+          taxable: true,
+          countsToInsurance: true,
+          recurring: true,
+          note: true,
+        },
+      },
     },
   });
 
@@ -1069,6 +1237,16 @@ export async function getPayrollOverview(
             bonusAmount: Number(ps.bonusAmount),
           }
         : null,
+      adjustments: m.payslipAdjustments.map((a) => ({
+        id: a.id,
+        label: a.label,
+        kind: a.kind,
+        amount: Number(a.amount),
+        taxable: a.taxable,
+        countsToInsurance: a.countsToInsurance,
+        recurring: a.recurring,
+        note: a.note,
+      })),
     };
   });
 }
@@ -1193,6 +1371,173 @@ export type LeaveQuotaOverview = Awaited<
   ReturnType<typeof getLeaveQuotaOverview>
 >;
 export type LeaveQuotaRow = LeaveQuotaOverview["rows"][number];
+
+/**
+ * 人事「當月概況」：一頁看到每位在職成員本月的出勤 / 缺勤 / 各假別請假天數 / 打卡完整度 / 特休剩餘。
+ * 特休剩餘＝依到職日年資的法定特休 − 本年度已休特休。
+ */
+export async function getHrMonthlyOverview(
+  orgId: string,
+  year: number,
+  month: number,
+) {
+  const monthStart = new Date(Date.UTC(year, month - 1, 1));
+  const monthEnd = new Date(Date.UTC(year, month, 1));
+  const yearStart = new Date(Date.UTC(year, 0, 1));
+  const yearEnd = new Date(Date.UTC(year + 1, 0, 1));
+  const asOf = new Date();
+
+  const [members, monthRecords, yearSpecial, monthCheckIns, specialType] =
+    await Promise.all([
+      db.organizationMember.findMany({
+        where: { organizationId: orgId, active: true },
+        orderBy: [{ isBoss: "desc" }, { user: { name: "asc" } }],
+        select: {
+          id: true,
+          userId: true,
+          jobTitle: true,
+          hireDate: true,
+          user: { select: userIdentitySelect },
+        },
+      }),
+      db.attendanceRecord.findMany({
+        where: { organizationId: orgId, date: { gte: monthStart, lt: monthEnd } },
+        select: {
+          userId: true,
+          present: true,
+          offsite: true,
+          holiday: true,
+          leave: true,
+          leaveType: { select: { name: true } },
+        },
+      }),
+      db.attendanceRecord.findMany({
+        where: {
+          organizationId: orgId,
+          leave: true,
+          date: { gte: yearStart, lt: yearEnd },
+          leaveType: { name: "特休" },
+        },
+        select: { userId: true },
+      }),
+      db.checkIn.findMany({
+        where: {
+          organizationId: orgId,
+          valid: true,
+          date: { gte: monthStart, lt: monthEnd },
+        },
+        select: { userId: true, date: true, kind: true },
+      }),
+      db.leaveType.findFirst({
+        where: { organizationId: orgId, name: "特休" },
+        select: { id: true },
+      }),
+    ]);
+
+  // 本月應上班日（平日，到「今天」或月底較早者為止）。
+  const todayMs = Date.UTC(
+    asOf.getUTCFullYear(),
+    asOf.getUTCMonth(),
+    asOf.getUTCDate(),
+  );
+  let expectedWorkdays = 0;
+  for (let t = monthStart.getTime(); t < monthEnd.getTime(); t += 86_400_000) {
+    if (t > todayMs) break;
+    const wd = new Date(t).getUTCDay();
+    if (wd !== 0 && wd !== 6) expectedWorkdays += 1;
+  }
+
+  // 年度特休已休（天）。
+  const specialUsedByUser = new Map<string, number>();
+  for (const r of yearSpecial) {
+    specialUsedByUser.set(r.userId, (specialUsedByUser.get(r.userId) ?? 0) + 1);
+  }
+
+  // 本月打卡：每人 → 日期 → { in, out }。
+  const punchByUser = new Map<string, Map<string, { in: boolean; out: boolean }>>();
+  for (const c of monthCheckIns) {
+    const ds = c.date.toISOString().slice(0, 10);
+    const um = punchByUser.get(c.userId) ?? new Map();
+    const slot = um.get(ds) ?? { in: false, out: false };
+    if (c.kind === "in") slot.in = true;
+    else if (c.kind === "out") slot.out = true;
+    um.set(ds, slot);
+    punchByUser.set(c.userId, um);
+  }
+
+  // 本月出勤彙總（每人）。
+  type MonthAgg = {
+    present: number;
+    absent: number;
+    leaveDays: number;
+    offsite: number;
+    leaveByType: Map<string, number>;
+  };
+  const aggByUser = new Map<string, MonthAgg>();
+  const getAgg = (uid: string): MonthAgg => {
+    let a = aggByUser.get(uid);
+    if (!a) {
+      a = { present: 0, absent: 0, leaveDays: 0, offsite: 0, leaveByType: new Map() };
+      aggByUser.set(uid, a);
+    }
+    return a;
+  };
+  for (const r of monthRecords) {
+    if (r.holiday) continue;
+    const a = getAgg(r.userId);
+    if (r.leave) {
+      a.leaveDays += 1;
+      const name = r.leaveType?.name ?? "未指定";
+      a.leaveByType.set(name, (a.leaveByType.get(name) ?? 0) + 1);
+    } else if (r.present) {
+      a.present += 1;
+      if (r.offsite) a.offsite += 1;
+    } else {
+      a.absent += 1;
+    }
+  }
+
+  const rows = members.map((m) => {
+    const a = aggByUser.get(m.userId);
+    const punches = punchByUser.get(m.userId);
+    const clockInDays = punches
+      ? [...punches.values()].filter((p) => p.in).length
+      : 0;
+    const completeDays = punches
+      ? [...punches.values()].filter((p) => p.in && p.out).length
+      : 0;
+    const specialTotal = specialLeaveDays(m.hireDate, asOf);
+    const specialUsed = specialType ? (specialUsedByUser.get(m.userId) ?? 0) : 0;
+    const specialRemaining =
+      specialTotal != null ? Math.max(0, specialTotal - specialUsed) : null;
+    return {
+      membershipId: m.id,
+      userId: m.userId,
+      name: m.user.name,
+      nickname: m.user.nickname,
+      useNickname: m.user.useNickname,
+      email: m.user.email,
+      image: m.user.image,
+      jobTitle: m.jobTitle,
+      present: a?.present ?? 0,
+      absent: a?.absent ?? 0,
+      leaveDays: a?.leaveDays ?? 0,
+      offsite: a?.offsite ?? 0,
+      leaveByType: a
+        ? [...a.leaveByType.entries()].map(([name, days]) => ({ name, days }))
+        : [],
+      clockInDays,
+      completeDays,
+      specialTotal,
+      specialRemaining,
+    };
+  });
+
+  return { rows, expectedWorkdays };
+}
+
+export type HrMonthlyOverview = Awaited<ReturnType<typeof getHrMonthlyOverview>>;
+export type HrMonthlyRow = HrMonthlyOverview["rows"][number];
 
 /** 薪資 / 勞健保設定（每組織一份）；未設定回 null（＝尚未帶入法定預設）。 */
 export async function getPayrollSetting(orgId: string) {

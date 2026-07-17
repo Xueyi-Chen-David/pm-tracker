@@ -32,14 +32,25 @@ import {
 import { LeaveRequestForm } from "@/components/leave/leave-request-form";
 import { LeaveApprovalFlowManager } from "@/components/leave/leave-approval-flow-manager";
 import { LeaveQuotaPanel } from "@/components/leave/leave-quota-panel";
+import { LeaveEventsSection } from "@/components/leave/leave-events-section";
+import { AttachmentLink } from "@/components/attachment-field";
 import type { LeaveQuotaOverview } from "@/server/queries";
 
 type MemberOption = { membershipId: string; label: string };
+type EventMemberOption = { userId: string; label: string };
 type FlowStep = { approverType: "MANAGER" | "MEMBER"; approverMemberId: string | null };
+type LeaveEventItem = {
+  id: string;
+  type: string;
+  startDate: Date | string;
+  endDate: Date | string | null;
+  note: string | null;
+};
 
 export function LeaveWorkspace({
   myRequests,
   pending,
+  isEligibleApprover,
   allRequests,
   leaveTypes,
   canManageLeave,
@@ -47,9 +58,15 @@ export function LeaveWorkspace({
   members,
   quota,
   quotaYear,
+  myUserId,
+  myLabel,
+  myEvents,
+  canManageAttendance,
+  eventMembers,
 }: {
   myRequests: LeaveRequestRow[];
   pending: LeaveRequestRow[];
+  isEligibleApprover: boolean;
   allRequests: LeaveRequestRow[] | null;
   leaveTypes: { id: string; name: string; color: string | null }[];
   canManageLeave: boolean;
@@ -57,21 +74,31 @@ export function LeaveWorkspace({
   members: MemberOption[] | null;
   quota: LeaveQuotaOverview | null;
   quotaYear: number;
+  myUserId: string;
+  myLabel: string;
+  myEvents: LeaveEventItem[];
+  canManageAttendance: boolean;
+  eventMembers: EventMemberOption[] | null;
 }) {
+  // 只有「簽核流程有設定到他」的人才會看到「待我簽核」——一般成員不該看到這個分頁。
+  // pending.length > 0 額外保底：即使流程設定已異動，手上還卡著舊分派的簽核仍要能處理。
+  const showPendingTab = isEligibleApprover || pending.length > 0;
   return (
     <Tabs defaultValue={pending.length > 0 ? "pending" : "mine"} className="gap-4">
       <TabsList className="h-9">
         <TabsTrigger value="mine" className="px-3">
-          我的請假
+          我的請假 / 差勤
         </TabsTrigger>
-        <TabsTrigger value="pending" className="px-3">
-          待我簽核
-          {pending.length > 0 && (
-            <span className="bg-rose-500 ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white">
-              {pending.length}
-            </span>
-          )}
-        </TabsTrigger>
+        {showPendingTab && (
+          <TabsTrigger value="pending" className="px-3">
+            待我簽核
+            {pending.length > 0 && (
+              <span className="bg-rose-500 ml-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white">
+                {pending.length}
+              </span>
+            )}
+          </TabsTrigger>
+        )}
         {canManageLeave && (
           <>
             <TabsTrigger value="all" className="px-3">
@@ -87,39 +114,67 @@ export function LeaveWorkspace({
         )}
       </TabsList>
 
-      {/* 我的請假 */}
-      <TabsContent value="mine" className="space-y-3">
-        <div className="flex justify-end">
-          <LeaveRequestForm leaveTypes={leaveTypes} />
-        </div>
-        {myRequests.length === 0 ? (
-          <Empty text="你還沒有送出任何請假申請。點右上「申請請假」開始。" />
-        ) : (
-          myRequests.map((r) => (
-            <RequestCard
-              key={r.id}
-              req={r}
-              footer={r.status === "PENDING" ? <CancelButton id={r.id} /> : null}
-            />
-          ))
-        )}
+      {/* 我的請假 / 差勤：正式請假（送簽核）＋ 出差 / 事件（直接登記）合併於同一頁 */}
+      <TabsContent value="mine" className="space-y-6">
+        {/* 正式請假：走簽核流程，核准後登記到出席月曆 */}
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold">請假申請</h3>
+              <p className="text-muted-foreground text-xs">
+                正式請假走簽核流程，核准後自動登記到出席月曆。
+              </p>
+            </div>
+            <LeaveRequestForm leaveTypes={leaveTypes} />
+          </div>
+          {myRequests.length === 0 ? (
+            <Empty text="你還沒有送出任何請假申請。點右上「申請請假」開始。" />
+          ) : (
+            myRequests.map((r) => (
+              <RequestCard
+                key={r.id}
+                req={r}
+                footer={r.status === "PENDING" ? <CancelButton id={r.id} /> : null}
+              />
+            ))
+          )}
+        </section>
+
+        {/* 出差 / 事件：免簽核，直接登記（出差 / 在家工作即時反映到出席月曆） */}
+        <section className="space-y-3 border-t pt-5">
+          <div>
+            <h3 className="text-sm font-semibold">出差 / 事件</h3>
+            <p className="text-muted-foreground text-xs">
+              出差、在家工作、外出等免簽核事件直接登記；出差 / 在家工作會即時反映到出席月曆。
+            </p>
+          </div>
+          <LeaveEventsSection
+            myUserId={myUserId}
+            myLabel={myLabel}
+            initialEvents={myEvents}
+            canManageAttendance={canManageAttendance}
+            members={eventMembers}
+          />
+        </section>
       </TabsContent>
 
       {/* 待我簽核 */}
-      <TabsContent value="pending" className="space-y-3">
-        {pending.length === 0 ? (
-          <Empty text="目前沒有輪到你簽核的請假申請。" />
-        ) : (
-          pending.map((r) => (
-            <RequestCard
-              key={r.id}
-              req={r}
-              showRequester
-              footer={<ApprovalActions requestId={r.id} />}
-            />
-          ))
-        )}
-      </TabsContent>
+      {showPendingTab && (
+        <TabsContent value="pending" className="space-y-3">
+          {pending.length === 0 ? (
+            <Empty text="目前沒有輪到你簽核的請假申請。" />
+          ) : (
+            pending.map((r) => (
+              <RequestCard
+                key={r.id}
+                req={r}
+                showRequester
+                footer={<ApprovalActions requestId={r.id} />}
+              />
+            ))
+          )}
+        </TabsContent>
+      )}
 
       {/* 全體請假（HR） */}
       {canManageLeave && (
@@ -220,6 +275,10 @@ function RequestCard({
 
       {req.reason && (
         <p className="text-sm whitespace-pre-wrap">{req.reason}</p>
+      )}
+
+      {req.attachment && (
+        <AttachmentLink attachment={req.attachment} name={req.attachmentName} />
       )}
 
       <ApprovalTimeline req={req} />
