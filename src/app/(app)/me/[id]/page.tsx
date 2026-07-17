@@ -98,7 +98,13 @@ export default async function MemberProfilePage({
         userId: id,
         date: { gte: monthStart, lt: nextMonth },
       },
-      select: { present: true, offsite: true, holiday: true, leave: true },
+      select: {
+        present: true,
+        offsite: true,
+        holiday: true,
+        leave: true,
+        cleared: true,
+      },
     }),
     db.dailyReport.count({
       where: {
@@ -113,10 +119,12 @@ export default async function MemberProfilePage({
       select: { date: true },
     }),
   ]);
-  const attPresent = attRecords.filter((r) => r.present && !r.offsite).length;
-  const attOffsite = attRecords.filter((r) => r.offsite).length;
+  // 人工「清除」的墓碑＝這天沒有紀錄，三種統計一律排除（否則 present=false 會被當成缺席）。
+  const att = attRecords.filter((r) => !r.cleared);
+  const attPresent = att.filter((r) => r.present && !r.offsite).length;
+  const attOffsite = att.filter((r) => r.offsite).length;
   // 休假 / 請假既不算出席也不算缺席，從缺席統計排除。
-  const attAbsent = attRecords.filter(
+  const attAbsent = att.filter(
     (r) => !r.present && !r.holiday && !r.leave,
   ).length;
   const lastDailyLabel = lastDaily ? fmtDateShort(lastDaily.date) : null;

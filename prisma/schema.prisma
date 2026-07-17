@@ -532,6 +532,11 @@ model AttendanceRecord {
   leaveTypeId String?
   leaveType   LeaveType? @relation(fields: [leaveTypeId], references: [id], onDelete: SetNull)
   auto        Boolean    @default(false) // 由成員事件自動產生（vs 人工登記）；人工編輯會清為 false
+  /// 人工「清除」的墓碑：明確標記這天「就是未記錄」。
+  /// 直接刪除紀錄不夠——沒有紀錄的過去平日會被「未打卡自動缺席」重新標成缺席，
+  /// 來自事件的紀錄也會被 recomputeAttendance 重新產生。留一筆 cleared+auto=false 的
+  /// 紀錄才壓得住這兩者。顯示為「未記錄」，不列入出席 / 缺席 / 薪資統計。
+  cleared     Boolean    @default(false)
   createdById String? // 登記者
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt

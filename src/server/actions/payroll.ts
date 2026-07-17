@@ -131,6 +131,7 @@ async function gatherAttendance(
         present: true,
         holiday: true,
         leave: true,
+        cleared: true,
         leaveTypeId: true,
         leaveType: { select: { name: true, paidPercent: true } },
       },
@@ -151,6 +152,8 @@ async function gatherAttendance(
   let absentDays = 0;
   const leaveMap = new Map<string, LeaveTally>();
   for (const r of records) {
+    // 人工清除的墓碑＝這天沒有紀錄。若不排除，present=false 會被當成缺勤而扣薪。
+    if (r.cleared) continue;
     if (r.holiday) continue; // 休假：不算出勤也不算缺勤，也不影響薪資
     if (r.leave) {
       const key = r.leaveTypeId ?? "__none";

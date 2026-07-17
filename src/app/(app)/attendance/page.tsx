@@ -139,8 +139,15 @@ export default async function AttendancePage({
 
   const members: GridMember[] = rows.map((m) => {
     const marks: GridMember["marks"] = {};
+    // 被人工「清除」的日子：不放進 marks（顯示為未記錄），但要記下來，
+    // 否則下面的自動缺席層會把它當成「沒紀錄」又標成缺席——那正是清除後會自己恢復的原因。
+    const clearedDates = new Set<string>();
     for (const r of m.attendanceRecords) {
       const ds = r.date.toISOString().slice(0, 10);
+      if (r.cleared) {
+        clearedDates.add(ds);
+        continue;
+      }
       marks[ds] = {
         present: r.present,
         reason: r.reason,
@@ -155,6 +162,7 @@ export default async function AttendancePage({
         if (d.weekend) continue; // 週末不判缺席
         if (d.dateStr >= todayStr) continue; // 今天與未來先不動（還可補打卡）
         if (anchorStr && d.dateStr < anchorStr) continue; // 打卡導入前不追溯
+        if (clearedDates.has(d.dateStr)) continue; // 人工清除過：尊重人工，不自動判缺席
         if (marks[d.dateStr]) continue; // 已有紀錄者一律優先
         marks[d.dateStr] = {
           present: false,

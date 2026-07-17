@@ -248,6 +248,8 @@ export async function getAttendanceMonth(orgId: string, start: Date, end: Date) 
               offsite: true,
               holiday: true,
               leave: true,
+              // 人工清除的墓碑：顯示為未記錄，且壓過「未打卡自動缺席」。
+              cleared: true,
               // 假別名稱（特休 / 事假…）：供月曆 tooltip 與 Excel 匯出顯示。
               leaveType: { select: { name: true } },
             },
@@ -289,6 +291,8 @@ export async function getSelfAttendanceMonth(
               offsite: true,
               holiday: true,
               leave: true,
+              // 人工清除的墓碑：顯示為未記錄，且壓過「未打卡自動缺席」。
+              cleared: true,
               // 假別名稱（特休 / 事假…）：供月曆 tooltip 與 Excel 匯出顯示。
               leaveType: { select: { name: true } },
             },
@@ -1412,6 +1416,7 @@ export async function getHrMonthlyOverview(
           offsite: true,
           holiday: true,
           leave: true,
+          cleared: true,
           leaveType: { select: { name: true } },
         },
       }),
@@ -1487,6 +1492,7 @@ export async function getHrMonthlyOverview(
     return a;
   };
   for (const r of monthRecords) {
+    if (r.cleared) continue; // 人工清除＝未記錄，不列入出勤 / 缺勤統計
     if (r.holiday) continue;
     const a = getAgg(r.userId);
     if (r.leave) {

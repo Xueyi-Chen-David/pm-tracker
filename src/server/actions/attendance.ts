@@ -46,8 +46,31 @@ export async function setAttendance(input: z.input<typeof SetInput>) {
   const date = toUtcDate(d.date);
 
   if (d.status === "clear") {
-    await db.attendanceRecord.deleteMany({
-      where: { organizationId: org.id, userId: d.userId, date },
+    // 「清除」不能只是刪掉紀錄——沒有紀錄的過去平日會被「未打卡自動缺席」的顯示層
+    // 重新標成缺席，來自請假 / 出差事件的紀錄也會被 recomputeAttendance 依事件長回來，
+    // 使用者就會看到「清除了卻自己恢復」。改為留下一筆 cleared 墓碑（auto=false ＝人工，
+    // 重算時一律不動），顯示為未記錄，也不列入出席 / 缺席 / 薪資統計。
+    const blank = {
+      present: false,
+      reason: null,
+      offsite: false,
+      holiday: false,
+      leave: false,
+      leaveTypeId: null,
+      cleared: true,
+      auto: false,
+      createdById: me.id,
+    };
+    await db.attendanceRecord.upsert({
+      where: {
+        organizationId_userId_date: {
+          organizationId: org.id,
+          userId: d.userId,
+          date,
+        },
+      },
+      update: blank,
+      create: { organizationId: org.id, userId: d.userId, date, ...blank },
     });
   } else {
     const holiday = d.status === "holiday";
@@ -84,6 +107,7 @@ export async function setAttendance(input: z.input<typeof SetInput>) {
         holiday,
         leave,
         leaveTypeId,
+        cleared: false, // 重新登記狀態 → 解除先前的「清除」墓碑
         auto: false,
         createdById: me.id,
       },
@@ -97,6 +121,7 @@ export async function setAttendance(input: z.input<typeof SetInput>) {
         holiday,
         leave,
         leaveTypeId,
+        cleared: false, // 重新登記狀態 → 解除先前的「清除」墓碑
         auto: false,
         createdById: me.id,
       },
@@ -235,7 +260,13 @@ export async function reviewCheckInCorrection(
               date: c.date,
             },
           },
-          update: { present: true, reason: "補打卡", auto: false, createdById: me.id },
+          update: {
+            present: true,
+            reason: "補打卡",
+            cleared: false, // 補打卡核准＝當天確實有到，解除先前的「清除」墓碑
+            auto: false,
+            createdById: me.id,
+          },
           create: {
             organizationId: org.id,
             userId: c.userId,
