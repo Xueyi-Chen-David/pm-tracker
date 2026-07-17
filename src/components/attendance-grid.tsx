@@ -52,6 +52,9 @@ export type GridLeaveType = { id: string; name: string; color: string | null };
 
 const WEEKDAY_LABEL = ["日", "一", "二", "三", "四", "五", "六"];
 
+/** 出席月曆表格的 DOM id：供「下載 PNG」截圖時抓取整張表。 */
+export const ATTENDANCE_GRID_TABLE_ID = "attendance-grid-table";
+
 export function AttendanceGrid({
   members,
   days,
@@ -75,7 +78,11 @@ export function AttendanceGrid({
 
   return (
     <div className="overflow-x-auto rounded-xl border">
-      <table className="border-separate border-spacing-0 text-sm">
+      {/* 截圖（下載 PNG）以此 id 抓「整張表」——抓外層捲動容器會被裁掉右半個月。 */}
+      <table
+        id={ATTENDANCE_GRID_TABLE_ID}
+        className="border-separate border-spacing-0 text-sm"
+      >
         <thead>
           <tr>
             <th className="bg-card sticky left-0 z-20 min-w-40 border-b border-r px-3 py-2 text-left font-medium">

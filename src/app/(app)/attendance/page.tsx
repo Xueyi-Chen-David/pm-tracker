@@ -19,6 +19,7 @@ import {
 import { AttendanceMonthNav } from "@/components/attendance-month-nav";
 import { AttendanceTrackManager } from "@/components/attendance-track-manager";
 import { AttendanceExportButton } from "@/components/attendance-export-button";
+import { AttendanceExportPngButton } from "@/components/attendance-export-png-button";
 import { CheckInSettings } from "@/components/check-in-settings";
 import {
   AttendanceTimecard,
@@ -220,11 +221,14 @@ export default async function AttendancePage({
           thisMonth={ym(thisMonth.year, thisMonth.month)}
         />
         {members.length > 0 && (
-          <AttendanceExportButton
-            members={members}
-            days={days}
-            month={ym(year, month)}
-          />
+          <>
+            <AttendanceExportButton
+              members={members}
+              days={days}
+              month={ym(year, month)}
+            />
+            <AttendanceExportPngButton month={ym(year, month)} />
+          </>
         )}
         {canManageAtt && orgConfig && (
           <CheckInSettings
