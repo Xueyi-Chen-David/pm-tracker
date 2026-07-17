@@ -36,15 +36,22 @@ export function AttendanceExportPngButton({ month }: { month: string }) {
       return;
     }
     setBusy(true);
-    let sheet: HTMLDivElement | null = null;
+    let holder: HTMLDivElement | null = null;
     try {
       const { toPng } = await import("html-to-image");
       const [y, m] = month.split("-");
 
-      sheet = document.createElement("div");
-      // 拍完就移除；放在畫面外避免閃一下。白底固定用 #ffffff（與週報輸出 JPG 一致）。
+      // 重要：定位樣式只能放在「外層容器」，不能放在要被截圖的節點上。
+      // html-to-image 會把被截節點的樣式一起複製進 SVG，若它帶著
+      // position:fixed;left:-99999px，內容就會被推出畫布 → 拍出來整張全白。
+      holder = document.createElement("div");
+      holder.style.cssText =
+        "position:fixed;left:-99999px;top:0;z-index:-1;pointer-events:none;";
+
+      const sheet = document.createElement("div");
+      // 被截的節點：只有外觀，沒有任何定位。白底與週報輸出 JPG 一致。
       sheet.style.cssText =
-        "position:fixed;left:-99999px;top:0;z-index:-1;display:inline-block;background:#ffffff;padding:20px;";
+        "display:inline-block;background:#ffffff;padding:20px;";
 
       const title = document.createElement("div");
       title.textContent = `出席狀況 · ${Number(y)} 年 ${Number(m)} 月`;
@@ -62,7 +69,8 @@ export function AttendanceExportPngButton({ month }: { month: string }) {
         sheet.appendChild(legendClone);
       }
 
-      document.body.appendChild(sheet);
+      holder.appendChild(sheet);
+      document.body.appendChild(holder);
 
       const dataUrl = await toPng(sheet, {
         pixelRatio: 2, // 2 倍解析度，貼到文件 / 簡報不會糊
@@ -79,7 +87,7 @@ export function AttendanceExportPngButton({ month }: { month: string }) {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "截圖失敗");
     } finally {
-      sheet?.remove();
+      holder?.remove();
       setBusy(false);
     }
   }

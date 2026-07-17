@@ -62,10 +62,13 @@ function twoChars(s: string): string {
   return s.length > 2 ? s.slice(0, 2) : s;
 }
 
-/** 請假格顯示的假別（事假 / 病假 / 特休…）；未指定假別則顯示「假」。 */
+/**
+ * 請假格顯示的假別（事假 / 病假 / 特休…）。
+ * 舊資料或由事件帶入的請假可能沒指定假別，此時顯示「請假」——一律兩個字，不用單字「假」。
+ */
 function leaveLabel(mark: Mark | null | undefined): string {
   const name = mark?.leaveTypeName?.trim();
-  return name ? twoChars(name) : "假";
+  return name ? twoChars(name) : "請假";
 }
 
 /** 在外工作格顯示的類型（出差 / 在家工作…）；沒帶事由則預設「出差」。 */
@@ -241,7 +244,7 @@ function StaticCell({
       )}
     >
       {isHoliday ? (
-        <span className="text-[10px] font-medium">休</span>
+        <span className="text-[9px] leading-none font-medium tracking-tighter">休假</span>
       ) : isLeave ? (
         <span className="text-[9px] leading-none font-medium tracking-tighter">
           {leaveLabel(mark)}
@@ -373,7 +376,7 @@ function AttendanceCell({
         )}
       >
         {isHoliday ? (
-          <span className="text-[10px] font-medium">休</span>
+          <span className="text-[9px] leading-none font-medium tracking-tighter">休假</span>
         ) : isLeave ? (
           <span className="text-[9px] leading-none font-medium tracking-tighter">
             {leaveLabel(state)}

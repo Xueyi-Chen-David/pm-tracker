@@ -1,3 +1,4 @@
+import { Check, X } from "lucide-react";
 import { requireManageContext } from "@/server/org";
 import { db } from "@/server/db";
 import {
@@ -248,39 +249,35 @@ export default async function AttendancePage({
         {/* 符號說明：下載 PNG 時會整段複製進圖片，讓收到圖的人看得懂每個格子的意思。 */}
         <div
           id={ATTENDANCE_LEGEND_ID}
-          className="text-muted-foreground flex flex-wrap items-center gap-4 text-xs"
+          className="text-muted-foreground flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs"
         >
           <span className="inline-flex items-center gap-1.5">
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-emerald-300 bg-emerald-100" />
+            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-emerald-300 bg-emerald-100 text-emerald-700">
+              <Check className="h-3 w-3" />
+            </span>
             出席
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-rose-300 bg-rose-100" />
+            <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded border border-rose-300 bg-rose-100 text-rose-700">
+              <X className="h-3 w-3" />
+            </span>
             缺席
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-sky-400 bg-sky-100 text-[8px] text-sky-700">
-              出差
-            </span>
-            在外工作（格內顯示出差 / 在家）
+            <span className="inline-flex h-4 w-4 shrink-0 rounded-full border border-sky-400 bg-sky-100" />
+            出差 / 在家工作
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded border">
-              ·
-            </span>
-            未記錄
+            <span className="inline-flex h-4 w-4 shrink-0 rounded border border-pink-300 bg-pink-100" />
+            請假（格內顯示假別，如特休 / 事假 / 病假）
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-slate-200 bg-slate-100 text-[9px] text-slate-500">
-              休
-            </span>
+            <span className="inline-flex h-4 w-4 shrink-0 rounded border border-slate-200 bg-slate-100" />
             放假 / 休假
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-pink-300 bg-pink-100 text-[8px] text-pink-700">
-              事假
-            </span>
-            請假（格內顯示假別，如特休 / 事假 / 病假）
+            <span className="inline-flex h-4 w-4 shrink-0 rounded border" />
+            未記錄
           </span>
         </div>
         <span>
