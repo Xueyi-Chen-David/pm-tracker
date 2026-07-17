@@ -173,8 +173,9 @@ const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 const DEFAULT_PAGE_SIZE = 20;
 
 /**
- * 成員一多，表格就用分頁 + 可調每頁人數；表格容器高度固定（h-[60vh]），超過內部捲動
- * （表頭 sticky），所以表格框框的下緣位置固定。分頁列就是一般表格下方的普通內容列（非固定定位）。
+ * 成員一多，表格就用分頁 + 可調每頁人數；表格容器用 flex-1 撐滿剩餘視窗高度，超過內部捲動
+ * （表頭 sticky），所以表格框框的下緣永遠貼齊視窗底部（不隨螢幕高度浮動）。
+ * 分頁列就是一般表格下方的普通內容列（非固定定位）。
  */
 function MemberPagination({
   page,
@@ -302,7 +303,8 @@ export function PayrollWorkspace({
   }
 
   return (
-    <div className="space-y-4">
+    // flex-1：吃掉 page 那層 min-h-[calc(100dvh-3rem)] 的剩餘高度，讓表格框能一路撐到底部。
+    <div className="flex min-h-0 flex-1 flex-col space-y-4">
       {/* 分頁 */}
       <div className="flex items-center gap-1 overflow-x-auto border-b">
         <TabButton active={tab === "payslips"} onClick={() => setTab("payslips")}>
@@ -329,7 +331,7 @@ export function PayrollWorkspace({
       </div>
 
       {tab === "payslips" && (
-        <div className="space-y-3">
+        <div className="flex min-h-0 flex-1 flex-col space-y-3">
           {canManage && !setting && (
             <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-sm">
               <span className="text-amber-800">
@@ -356,7 +358,7 @@ export function PayrollWorkspace({
               </Button>
             </div>
           )}
-          <div className="h-[60vh] overflow-y-auto overflow-x-auto rounded-xl border">
+          <div className="min-h-[16rem] flex-1 overflow-x-auto overflow-y-auto rounded-xl border">
             <table className="w-full text-sm">
               <thead className="bg-muted text-muted-foreground sticky top-0 z-10 text-xs">
                 <tr>
@@ -403,8 +405,8 @@ export function PayrollWorkspace({
       )}
 
       {tab === "salary" && canManage && (
-        <div className="space-y-3">
-          <div className="h-[60vh] overflow-y-auto overflow-x-auto rounded-xl border">
+        <div className="flex min-h-0 flex-1 flex-col space-y-3">
+          <div className="min-h-[16rem] flex-1 overflow-x-auto overflow-y-auto rounded-xl border">
             <table className="w-full text-sm">
               <thead className="bg-muted text-muted-foreground sticky top-0 z-10 text-xs">
                 <tr>

@@ -27,6 +27,16 @@ import { displayInitial, displayName } from "@/lib/display";
 import { MemberName } from "@/components/member-name";
 import { HealthDot } from "@/components/badges";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   Popover,
   PopoverContent,
@@ -107,6 +117,9 @@ export function TaskRow({
   // 到期提醒天數（前 N 天）。本機維護，改動即存。
   const [reminders, setReminders] = useState<number[]>(task.reminderDays);
   const [customDay, setCustomDay] = useState("");
+  // 任務說明的置中 Dialog：草稿在本機編輯，按「儲存」才寫回。
+  const [descOpen, setDescOpen] = useState(false);
+  const [descDraft, setDescDraft] = useState("");
 
   function run(fn: () => Promise<void>) {
     start(async () => {
@@ -121,6 +134,12 @@ export function TaskRow({
 
   function patch(data: Parameters<typeof updateTask>[1]) {
     run(() => updateTask(task.id, data));
+  }
+
+  /** 存任務說明並關窗；沒改就只關窗（不打伺服器）。 */
+  function saveDescription() {
+    if (descDraft !== (task.description ?? "")) patch({ description: descDraft });
+    setDescOpen(false);
   }
 
   function toggleOwner(id: string, on: boolean) {
@@ -220,10 +239,20 @@ export function TaskRow({
         {/* 說明 / 日期：併成任務名稱下的同一列 meta。有值＝顯示內容，沒值＝只留一個
             淡淡的圖示鈕（不再每列都印一次「新增說明」「設定日期」的灰字）。 */}
         <div className="mt-0.5 flex flex-wrap items-center gap-x-1 gap-y-0.5">
-          <Popover>
-            <PopoverTrigger
+          {/* 說明改用置中 Dialog（而非貼著小圖示的 popover）：說明常是整段文字，
+              窄窄的浮層打起來很擠，而且列在表格深處時 popover 會擠在邊緣。
+              Dialog 空間夠、焦點明確，因此改成明確的「儲存 / 取消」而非失焦自動存。 */}
+          <Dialog
+            open={descOpen}
+            onOpenChange={(o: boolean) => {
+              setDescOpen(o);
+              // 每次打開都以目前值重新起草，避免沿用上次取消掉的草稿。
+              if (o) setDescDraft(task.description ?? "");
+            }}
+          >
+            <DialogTrigger
               className={cn(metaCls, !task.description && emptyMetaCls)}
-              // 說明被截斷時，滑過原生 tooltip 就能看全文，不必特地打開 popover。
+              // 說明被截斷時，滑過原生 tooltip 就能看全文，不必特地打開。
               title={task.description || "新增說明"}
               aria-label={task.description ? "編輯任務說明" : "新增說明"}
             >
@@ -231,25 +260,37 @@ export function TaskRow({
               {task.description && (
                 <span className="truncate">{task.description}</span>
               )}
-            </PopoverTrigger>
-            <PopoverContent align="start" className={popoverCls}>
-              <div className="mb-1.5 text-xs font-medium">任務說明</div>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-lg">
+              <DialogHeader>
+                <DialogTitle>任務說明</DialogTitle>
+                <DialogDescription className="truncate">
+                  {task.title}
+                </DialogDescription>
+              </DialogHeader>
               <textarea
-                defaultValue={task.description ?? ""}
+                value={descDraft}
+                onChange={(e) => setDescDraft(e.currentTarget.value)}
                 placeholder="這個任務要做什麼…"
-                rows={4}
+                rows={8}
                 disabled={pending}
-                onBlur={(e) => {
-                  const v = e.currentTarget.value;
-                  if (v !== (task.description ?? "")) patch({ description: v });
-                }}
+                autoFocus
                 className="border-input focus:border-ring block w-full resize-y rounded-md border bg-transparent px-2 py-1.5 text-sm leading-snug outline-none"
               />
-              <p className="text-muted-foreground/70 mt-1 text-[11px]">
-                點擊外面即自動儲存
-              </p>
-            </PopoverContent>
-          </Popover>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => setDescOpen(false)}
+                  disabled={pending}
+                >
+                  取消
+                </Button>
+                <Button onClick={saveDescription} disabled={pending}>
+                  儲存
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
 
           {/* 開始 / 結束日：點一下就能設定（不用進 ⋯ 選單）。 */}
           <Popover>

@@ -55,7 +55,10 @@ export default async function PayrollPage({
   const withSalary = members.filter((m) => m.salary).length;
 
   return (
-    <div className="space-y-4">
+    // 填滿視窗高度（扣掉 AppContainer 的 py-6 ＝ 3rem）：表格框自動吃掉剩餘空間，
+    // 分頁列才會貼近底部而不是被固定的 60vh 卡在半空中。用 min-h 而非 h，
+    // 內容真的更高時（例：勞健保設定的長表單）版面照常往下長、頁面正常捲動。
+    <div className="flex min-h-[calc(100dvh-3rem)] flex-col space-y-4">
       <PageHeader
         title="薪資"
         description={`${year} 年 ${month} 月 · ${members.length} 位在職成員，${withSalary} 位已設定薪資`}
