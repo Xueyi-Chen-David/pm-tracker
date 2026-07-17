@@ -15,6 +15,23 @@ const TRANSPARENT_PX =
   "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
 
 /**
+ * html-to-image 在「內嵌資源載入失敗」時是用 img.onerror 的 Event 來 reject，
+ * 不是 Error 物件——直接 e.message 會拿到 undefined，只能落到籠統的「截圖失敗」。
+ * 這裡把各種形狀的錯誤都翻成看得懂的訊息，之後真的壞掉才查得出原因。
+ */
+function describeError(e: unknown): string {
+  if (e instanceof Error && e.message) return e.message;
+  if (typeof e === "string" && e) return e;
+  if (e && typeof e === "object" && "type" in e) {
+    const ev = e as Event;
+    const target = ev.target as (HTMLImageElement & { src?: string }) | null;
+    const src = target?.src ? `：${target.src.slice(0, 60)}…` : "";
+    return `內嵌資源載入失敗（${ev.type}）${src}`;
+  }
+  return "未知錯誤";
+}
+
+/**
  * 把出席月曆截成 PNG 下載：標題（年月）＋ 月曆表 ＋ 符號說明。
  * 不含頁首 / 我的打卡紀錄。
  *
@@ -72,12 +89,27 @@ export function AttendanceExportPngButton({ month }: { month: string }) {
       holder.appendChild(sheet);
       document.body.appendChild(holder);
 
-      const dataUrl = await toPng(sheet, {
+      // skipFonts：不去抓 / 內嵌網頁字型。這是 html-to-image 最常見的失敗來源
+      // （要逐一 fetch @font-face 的字型檔並轉 base64，任何一個失敗就整張拋錯）。
+      // 關掉後改用系統字型堆疊繪製，中文照常顯示，可靠度高很多。
+      const opts = {
         pixelRatio: 2, // 2 倍解析度，貼到文件 / 簡報不會糊
         backgroundColor: "#ffffff",
         cacheBust: true,
+        skipFonts: true,
         imagePlaceholder: TRANSPARENT_PX,
-      });
+      };
+      let dataUrl: string;
+      try {
+        dataUrl = await toPng(sheet, opts);
+      } catch (first) {
+        // 還是失敗 → 最後一搏：連圖片（頭貼）都不放，只求把表格內容截出來。
+        console.warn("[出席截圖] 第一次失敗，改用不含圖片重試：", first);
+        dataUrl = await toPng(sheet, {
+          ...opts,
+          filter: (node) => (node as HTMLElement).tagName !== "IMG",
+        });
+      }
 
       const a = document.createElement("a");
       a.href = dataUrl;
@@ -85,7 +117,8 @@ export function AttendanceExportPngButton({ month }: { month: string }) {
       a.click();
       toast.success("已下載 PNG");
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "截圖失敗");
+      console.error("[出席截圖] 失敗：", e);
+      toast.error(`截圖失敗：${describeError(e)}`);
     } finally {
       holder?.remove();
       setBusy(false);
