@@ -19,7 +19,10 @@ import {
 import { AttendanceMonthNav } from "@/components/attendance-month-nav";
 import { AttendanceTrackManager } from "@/components/attendance-track-manager";
 import { AttendanceExportButton } from "@/components/attendance-export-button";
-import { AttendanceExportPngButton } from "@/components/attendance-export-png-button";
+import {
+  AttendanceExportPngButton,
+  ATTENDANCE_LEGEND_ID,
+} from "@/components/attendance-export-png-button";
 import { CheckInSettings } from "@/components/check-in-settings";
 import {
   AttendanceTimecard,
@@ -242,36 +245,44 @@ export default async function AttendancePage({
       </PageHeader>
 
       <div className="text-muted-foreground flex flex-wrap items-center gap-4 text-xs">
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-emerald-300 bg-emerald-100" />
-          出席
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-rose-300 bg-rose-100" />
-          缺席
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-sky-400 bg-sky-100" />
-          出差 / 在家工作
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-flex h-4 w-4 items-center justify-center rounded border">
-            ·
+        {/* 符號說明：下載 PNG 時會整段複製進圖片，讓收到圖的人看得懂每個格子的意思。 */}
+        <div
+          id={ATTENDANCE_LEGEND_ID}
+          className="text-muted-foreground flex flex-wrap items-center gap-4 text-xs"
+        >
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-emerald-300 bg-emerald-100" />
+            出席
           </span>
-          未記錄
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-slate-200 bg-slate-100 text-[9px] text-slate-500">
-            休
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-rose-300 bg-rose-100" />
+            缺席
           </span>
-          放假 / 休假
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-pink-300 bg-pink-100 text-[9px] text-pink-700">
-            假
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-sky-400 bg-sky-100 text-[8px] text-sky-700">
+              出差
+            </span>
+            在外工作（格內顯示出差 / 在家）
           </span>
-          請假
-        </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded border">
+              ·
+            </span>
+            未記錄
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-slate-200 bg-slate-100 text-[9px] text-slate-500">
+              休
+            </span>
+            放假 / 休假
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="inline-flex h-4 w-4 items-center justify-center rounded border border-pink-300 bg-pink-100 text-[8px] text-pink-700">
+              事假
+            </span>
+            請假（格內顯示假別，如特休 / 事假 / 病假）
+          </span>
+        </div>
         <span>
           {canManageAtt
             ? "· 具出勤管理權限者可點格子登記；請假 / 出差 / 在家工作 由請假簽核頁的事件自動帶入；週末預設放假，皆不列入缺席統計"

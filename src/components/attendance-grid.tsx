@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Check, X, Circle } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { setAttendance } from "@/server/actions/attendance";
 import { MEMBER_EVENT_TYPES } from "@/lib/constants";
 import { cn } from "@/lib/utils";
@@ -54,6 +54,25 @@ const WEEKDAY_LABEL = ["日", "一", "二", "三", "四", "五", "六"];
 
 /** 出席月曆表格的 DOM id：供「下載 PNG」截圖時抓取整張表。 */
 export const ATTENDANCE_GRID_TABLE_ID = "attendance-grid-table";
+
+/**
+ * 格子只有 28px 寬，最多放得下兩個字，故長名稱取前兩字（完整名稱在 tooltip）。
+ */
+function twoChars(s: string): string {
+  return s.length > 2 ? s.slice(0, 2) : s;
+}
+
+/** 請假格顯示的假別（事假 / 病假 / 特休…）；未指定假別則顯示「假」。 */
+function leaveLabel(mark: Mark | null | undefined): string {
+  const name = mark?.leaveTypeName?.trim();
+  return name ? twoChars(name) : "假";
+}
+
+/** 在外工作格顯示的類型（出差 / 在家工作…）；沒帶事由則預設「出差」。 */
+function offsiteLabel(mark: Mark | null | undefined): string {
+  const reason = mark?.reason?.trim();
+  return reason ? twoChars(reason) : "出差";
+}
 
 export function AttendanceGrid({
   members,
@@ -224,9 +243,13 @@ function StaticCell({
       {isHoliday ? (
         <span className="text-[10px] font-medium">休</span>
       ) : isLeave ? (
-        <span className="text-[10px] font-medium">假</span>
+        <span className="text-[9px] leading-none font-medium tracking-tighter">
+          {leaveLabel(mark)}
+        </span>
       ) : isOffsite ? (
-        <Circle className="h-3.5 w-3.5" />
+        <span className="text-[9px] leading-none font-medium tracking-tighter">
+          {offsiteLabel(mark)}
+        </span>
       ) : isPresent ? (
         <Check className="h-4 w-4" />
       ) : isAbsent ? (
@@ -352,9 +375,13 @@ function AttendanceCell({
         {isHoliday ? (
           <span className="text-[10px] font-medium">休</span>
         ) : isLeave ? (
-          <span className="text-[10px] font-medium">假</span>
+          <span className="text-[9px] leading-none font-medium tracking-tighter">
+            {leaveLabel(state)}
+          </span>
         ) : isOffsite ? (
-          <Circle className="h-3.5 w-3.5" />
+          <span className="text-[9px] leading-none font-medium tracking-tighter">
+            {offsiteLabel(state)}
+          </span>
         ) : isPresent ? (
           <Check className="h-4 w-4" />
         ) : isAbsent ? (

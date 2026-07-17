@@ -13,15 +13,16 @@ const WEEKEND_BG = "#F1F5F9";
 type Mark = GridMember["marks"][string];
 
 /**
- * 格子文字：一律用看得懂的詞（出席 / 在外 / 缺席 / 休假 / 特休…），未記錄為空白。
- * 請假優先顯示「假別名稱」（特休 / 事假 / 病假…），未指定假別才退回「請假」。
+ * 格子文字：一律用看得懂的詞，未記錄為空白。
+ * 請假顯示「假別名稱」（特休 / 事假 / 病假…），未指定假別才退回「請假」；
+ * 在外工作顯示實際類型（出差 / 在家工作），沒帶事由才退回「在外」。
  * 判定優先序與月曆一致：休假 → 請假 → 在外 → 出席 / 缺席。
  */
 function cellLabel(mark: Mark | undefined): string | undefined {
   if (!mark) return undefined;
   if (mark.holiday) return "休假";
   if (mark.leave) return mark.leaveTypeName ?? "請假";
-  if (mark.offsite) return "在外";
+  if (mark.offsite) return mark.reason ?? "在外";
   if (mark.present) return "出席";
   return "缺席";
 }
