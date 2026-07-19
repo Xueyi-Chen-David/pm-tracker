@@ -55,7 +55,9 @@ export function ProjectGantt({
     .map((g) => ({ ...g, at: toDate(g.actualDate) ?? toDate(g.plannedDate) }))
     .filter((g) => g.at);
 
+  // 只有設了日期的任務能排上時程；沒日期的任務不畫（避免定位到 null 而報錯）。
   const dated = rows.filter((r) => r.start || r.due);
+  const undatedCount = rows.length - dated.length;
   if (dated.length === 0) {
     return (
       <div className="text-muted-foreground flex flex-col items-center gap-2 py-10 text-sm">
@@ -68,7 +70,7 @@ export function ProjectGantt({
 
   // 決定時間範圍
   const dates: Date[] = [];
-  for (const r of rows) {
+  for (const r of dated) {
     if (r.start) dates.push(r.start);
     if (r.due) dates.push(r.due);
   }
@@ -91,9 +93,9 @@ export function ProjectGantt({
       <div className="overflow-x-auto">
         <div className="flex min-w-[640px]">
           {/* 左：任務名稱欄 */}
-          <div className="w-40 shrink-0 sm:w-48">
+          <div className="w-32 shrink-0 sm:w-48">
             <div style={{ height: HEADER_H }} />
-            {rows.map(({ task }) => (
+            {dated.map(({ task }) => (
               <div
                 key={task.id}
                 className="flex items-center gap-1.5 border-t pr-2 text-sm"
@@ -163,7 +165,8 @@ export function ProjectGantt({
             </div>
 
             {/* 每列任務 */}
-            {rows.map(({ task, start, due }) => {
+            {dated.map(({ task, start, due }) => {
+              const point = due ?? start; // 兩者至少一個存在（dated 已過濾）
               const hasBar = start && due;
               const cancelled = task.status === "CANCELLED";
               const barColor = cancelled ? "#94a3b8" : accent;
@@ -196,8 +199,8 @@ export function ProjectGantt({
                     // 只有單一日期：以菱形標出
                     <div
                       className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2"
-                      style={{ left: `${pct((due ?? start)!)}%` }}
-                      title={`${task.title} · ${due ? "到期" : "開始"} ${format((due ?? start)!, "yyyy/M/d")}`}
+                      style={{ left: `${pct(point!)}%` }}
+                      title={`${task.title} · ${due ? "到期" : "開始"} ${format(point!, "yyyy/M/d")}`}
                     >
                       <span
                         className="block h-3 w-3 rotate-45 rounded-[2px] border-2"
@@ -245,6 +248,11 @@ export function ProjectGantt({
           <span className="h-3 w-0.5 bg-red-400" /> 今天
         </span>
       </div>
+      {undatedCount > 0 && (
+        <p className="text-muted-foreground mt-1.5 text-[11px]">
+          另有 {undatedCount} 項未設定日期的任務未顯示。
+        </p>
+      )}
     </div>
   );
 }

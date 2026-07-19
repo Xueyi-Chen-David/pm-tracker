@@ -131,6 +131,25 @@
   html {
     @apply font-sans;
   }
+  /* 原生日期/時間輸入在手機（尤其 iOS Safari）有固定最小寬度，w-full 也壓不下去，
+     會撐破彈出視窗 / 欄位。強制可縮到容器內，並吃滿寬度。桌機保留原生日曆按鈕。 */
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"],
+  input[type="month"] {
+    min-width: 0;
+    max-width: 100%;
+  }
+  @media (max-width: 640px) {
+    input[type="date"],
+    input[type="time"],
+    input[type="datetime-local"],
+    input[type="month"] {
+      width: 100%;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+  }
 }
 
 /* ── 可捲動區的明顯捲軸（限高的清單用，方便用滑鼠拖曳）────── */

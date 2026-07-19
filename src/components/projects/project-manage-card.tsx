@@ -7,13 +7,11 @@ import {
   CalendarClock,
   CheckCircle2,
   ChevronDown,
-  ChevronRight,
   ChevronUp,
   Flag,
   Loader2,
   PauseCircle,
   Plus,
-  Settings2,
   Archive,
   ArchiveRestore,
   Trash2,
@@ -309,7 +307,7 @@ export function ProjectManageCard({
         >
           {index + 1}
         </button>
-        <div className="min-w-40 flex-1">
+        <div className="min-w-0 flex-1 basis-40">
           <button
             type="button"
             onClick={toggleManage}
@@ -431,29 +429,28 @@ export function ProjectManageCard({
           <span className="text-muted-foreground hidden w-14 text-xs sm:block">
             {hasTasks ? `${roll.doneCount}/${roll.total} 完成` : "—"}
           </span>
-          <Button
-            variant={expanded ? "secondary" : "outline"}
-            size="sm"
+          {/* 單一展開鈕：點卡片標題或這個箭頭都會展開下方的分頁面板（甘特圖 / 已完成 /
+              里程碑 / 軌跡 / 設定）。不再有獨立「管理」按鈕，版面更乾淨（手機尤其）。 */}
+          <button
+            type="button"
             onClick={toggleManage}
             disabled={navPending}
+            aria-expanded={expanded}
+            className={cn(
+              "text-muted-foreground hover:text-foreground hover:bg-muted flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors",
+              expanded && "bg-muted text-foreground",
+            )}
+            title={expanded ? "收合" : "展開管理"}
           >
             {navPending ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <Settings2 className="h-4 w-4" />
-            )}
-            {expanded ? "收合" : "管理"}
-          </Button>
-          <button
-            type="button"
-            onClick={() => setTasksOpen((v) => !v)}
-            className="text-muted-foreground"
-            title={tasksOpen ? "收合任務" : "展開任務"}
-          >
-            {tasksOpen ? (
-              <ChevronDown className="h-4 w-4" />
-            ) : (
-              <ChevronRight className="h-4 w-4" />
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 transition-transform",
+                  !expanded && "-rotate-90",
+                )}
+              />
             )}
           </button>
         </div>
