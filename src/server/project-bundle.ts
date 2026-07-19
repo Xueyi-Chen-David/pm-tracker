@@ -1,4 +1,5 @@
 import { getProject, getKrLinksForProject } from "@/server/queries";
+import { db } from "@/server/db";
 import { thisWeekStart, toDateInput } from "@/lib/date";
 import { displayName } from "@/lib/display";
 
@@ -9,11 +10,35 @@ import { displayName } from "@/lib/display";
  * 面板的 router.refresh() 會重跑 page → 重新載入本 bundle，保持資料最新。
  */
 export async function getProjectDetailBundle(orgId: string, projectId: string) {
-  const [project, okrLinks] = await Promise.all([
+  const [project, okrLinks, activityRows] = await Promise.all([
     getProject(orgId, projectId),
     getKrLinksForProject(orgId, projectId),
+    // 軌跡（操作紀錄）：狀態 / 健康度 / 進度 / 里程碑… 的變更歷程，含時間戳與操作者。
+    // status 變更即「何時切換成某狀態」的完整歷史，供時間軸呈現。取近 100 筆。
+    db.activity.findMany({
+      where: { projectId },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+      select: {
+        id: true,
+        kind: true,
+        message: true,
+        createdAt: true,
+        user: {
+          select: { name: true, nickname: true, useNickname: true, email: true },
+        },
+      },
+    }),
   ]);
   if (!project) return null;
+
+  const activity = activityRows.map((a) => ({
+    id: a.id,
+    kind: a.kind,
+    message: a.message,
+    createdAt: a.createdAt.toISOString(),
+    userName: a.user ? displayName(a.user) : null,
+  }));
 
   // 團隊＝在該專案有負責任務的人（Task.owners 聯集），去重。
   const teamMap = new Map<
@@ -63,6 +88,7 @@ export async function getProjectDetailBundle(orgId: string, projectId: string) {
 
   return {
     milestones: project.milestones,
+    activity,
     releases: project.releases.map((r) => ({
       id: r.id,
       version: r.version,

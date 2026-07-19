@@ -4,6 +4,7 @@ import type {
   Health,
   Priority,
   MilestoneStatus,
+  ActivityKind,
 } from "@prisma/client";
 
 type Meta = {
@@ -71,6 +72,24 @@ export const MILESTONE_STATUS: Record<MilestoneStatus, Meta> = {
   IN_PROGRESS: { label: "進行中", badge: "bg-blue-100 text-blue-700 border-blue-200", dot: "bg-blue-500" },
   DONE: { label: "已完成", badge: "bg-emerald-100 text-emerald-700 border-emerald-200", dot: "bg-emerald-500" },
   MISSED: { label: "已逾期", badge: "bg-red-100 text-red-700 border-red-200", dot: "bg-red-500" },
+};
+
+// 操作紀錄（軌跡）種類的顯示樣式：label + 時間軸圓點顏色 + 文字強調色。
+export const ACTIVITY_KIND: Record<
+  ActivityKind,
+  { label: string; dot: string; text: string }
+> = {
+  CREATE: { label: "建立", dot: "bg-violet-500", text: "text-violet-600" },
+  STATUS: { label: "狀態", dot: "bg-blue-500", text: "text-blue-600" },
+  HEALTH: { label: "健康度", dot: "bg-amber-500", text: "text-amber-600" },
+  PROGRESS: { label: "進度", dot: "bg-emerald-500", text: "text-emerald-600" },
+  FIELD: { label: "資訊", dot: "bg-slate-400", text: "text-slate-500" },
+  MILESTONE: { label: "里程碑", dot: "bg-sky-500", text: "text-sky-600" },
+  MEMBER: { label: "成員", dot: "bg-indigo-500", text: "text-indigo-600" },
+  WEEKLY: { label: "週報", dot: "bg-teal-500", text: "text-teal-600" },
+  RELEASE: { label: "版本", dot: "bg-fuchsia-500", text: "text-fuchsia-600" },
+  ARCHIVE: { label: "封存", dot: "bg-zinc-400", text: "text-zinc-500" },
+  NOTE: { label: "備註", dot: "bg-slate-300", text: "text-slate-500" },
 };
 
 // 下拉選單用的有序選項

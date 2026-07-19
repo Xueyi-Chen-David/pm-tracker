@@ -67,6 +67,37 @@ export function fmtDateShort(d: Date | string | null | undefined): string {
   return isValid(date) ? format(date, "yyyy/MM/dd") : "—";
 }
 
+/** 含時分的日期時間，例：「2026/07/19 14:30」（操作紀錄 / 狀態歷程用）。 */
+export function fmtDateTime(d: Date | string | null | undefined): string {
+  if (!d) return "—";
+  const date = typeof d === "string" ? parseISO(d) : d;
+  return isValid(date) ? format(date, "yyyy/MM/dd HH:mm") : "—";
+}
+
+/**
+ * 相對時間標籤（中文），例：「剛剛 / 5 分鐘前 / 3 小時前 / 昨天 / 4 天前 / 2 週前 / 3 個月前」。
+ * 純函式，供 <RelativeTime> 在瀏覽器端計算（避免伺服器/前端「現在」不一致的 hydration 問題）。
+ */
+export function relativeLabel(from: Date | string, now: number = Date.now()): string {
+  const t = (typeof from === "string" ? parseISO(from) : from).getTime();
+  if (!isValid(new Date(t))) return "";
+  const diff = now - t;
+  const future = diff < 0;
+  const s = Math.round(Math.abs(diff) / 1000);
+  const suffix = future ? "後" : "前";
+  if (s < 45) return future ? "即將" : "剛剛";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} 分鐘${suffix}`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h} 小時${suffix}`;
+  const days = Math.round(h / 24);
+  if (!future && days === 1) return "昨天";
+  if (days < 7) return `${days} 天${suffix}`;
+  if (days < 30) return `${Math.round(days / 7)} 週${suffix}`;
+  if (days < 365) return `${Math.round(days / 30)} 個月${suffix}`;
+  return `${Math.round(days / 365)} 年${suffix}`;
+}
+
 /** <input type="date"> 用的 yyyy-MM-dd */
 export function toDateInput(d: Date | string | null | undefined): string {
   if (!d) return "";

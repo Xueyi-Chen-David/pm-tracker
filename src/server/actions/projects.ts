@@ -59,6 +59,7 @@ export async function createProjectAction(
   const d = parsed.data;
   const ownerId = d.ownerId || user.id;
 
+  const now = new Date();
   const project = await db.project.create({
     data: {
       organizationId: org.id,
@@ -74,6 +75,9 @@ export async function createProjectAction(
       color: d.color || null,
       ownerId,
       createdById: user.id,
+      // 建立當下即記錄狀態時間戳；若一建立就是「已完成」，同步標記完成日。
+      statusChangedAt: now,
+      actualEndDate: d.status === "COMPLETED" ? now : null,
     },
   });
 
@@ -121,6 +125,10 @@ export async function updateProjectAction(
     },
   });
 
+  // 只在狀態「真的改變」時才動 statusChangedAt / actualEndDate——否則單純編輯其他欄位
+  // 會把完成時間洗成「現在」。狀態沒變時完全不寫這兩欄，保留原值。
+  const statusChanged = !before || before.status !== d.status;
+  const now = new Date();
   await db.project.update({
     where: { id },
     data: {
@@ -135,8 +143,10 @@ export async function updateProjectAction(
       targetDate: toDate(d.targetDate),
       color: d.color || null,
       ownerId: d.ownerId || undefined,
-      actualEndDate:
-        d.status === "COMPLETED" ? new Date() : null,
+      ...(statusChanged && {
+        statusChangedAt: now,
+        actualEndDate: d.status === "COMPLETED" ? now : null,
+      }),
     },
   });
 
@@ -215,10 +225,13 @@ export async function setProjectStatusHealth(
     status?: typeof d.status;
     health?: typeof d.health;
     actualEndDate?: Date | null;
+    statusChangedAt?: Date;
   } = {};
   if (d.status && d.status !== before.status) {
+    const now = new Date();
     data.status = d.status;
-    data.actualEndDate = d.status === "COMPLETED" ? new Date() : null;
+    data.statusChangedAt = now;
+    data.actualEndDate = d.status === "COMPLETED" ? now : null;
   }
   if (d.health && d.health !== before.health) data.health = d.health;
   if (data.status === undefined && data.health === undefined) return;

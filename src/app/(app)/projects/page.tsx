@@ -128,6 +128,8 @@ export default async function ProjectsPage({
     description: p.description,
     startDate: ymd(p.startDate),
     targetDate: ymd(p.targetDate),
+    actualEndDate: p.actualEndDate?.toISOString() ?? null,
+    statusChangedAt: p.statusChangedAt?.toISOString() ?? null,
     color: p.color,
     archived: p.archived,
     countInProgress: p.countInProgress,

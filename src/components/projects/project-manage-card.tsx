@@ -5,17 +5,20 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   CalendarClock,
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   ChevronUp,
   Flag,
   Loader2,
+  PauseCircle,
   Plus,
   Settings2,
   Archive,
   ArchiveRestore,
   Trash2,
   Check,
+  XCircle,
 } from "lucide-react";
 import type {
   Health,
@@ -34,7 +37,7 @@ import {
   reorderProjects,
 } from "@/server/actions/projects";
 import { rollupTasks } from "@/lib/tasks";
-import { fmtDateShort, toDateInput } from "@/lib/date";
+import { fmtDateShort, fmtDateTime, toDateInput } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import {
   HEALTH_OPTIONS,
@@ -44,6 +47,7 @@ import {
   PROJECT_TYPE_OPTIONS,
 } from "@/lib/constants";
 import { HealthDot, StatusBadge, TypeBadge } from "@/components/badges";
+import { RelativeTime } from "@/components/relative-time";
 import { MemberName } from "@/components/member-name";
 import { displayInitial, displayName } from "@/lib/display";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -67,6 +71,10 @@ export type ProjectManageView = {
   description: string | null;
   startDate: string | null;
   targetDate: string | null;
+  /** 實際完成日（ISO，僅「已完成」有值）。 */
+  actualEndDate: string | null;
+  /** 目前狀態的切換時間（ISO）。 */
+  statusChangedAt: string | null;
   color: string | null;
   archived: boolean;
   countInProgress: boolean;
@@ -88,6 +96,31 @@ export type MilestoneChip = {
 
 const selectSm =
   "border-input bg-card dark:bg-input/30 h-8 rounded-lg border px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] disabled:opacity-50";
+
+// 「已定案」狀態（完成 / 暫停 / 取消）在卡片標題列額外顯示一枚時間戳晶片，一眼看出
+// 「何時切換成此狀態」。進行中 / 未開始不顯示（那是常態，時間戳意義不大，改看軌跡分頁）。
+const STATUS_STAMP: Partial<
+  Record<
+    ProjectStatus,
+    { verb: string; icon: typeof CheckCircle2; className: string }
+  >
+> = {
+  COMPLETED: {
+    verb: "完成於",
+    icon: CheckCircle2,
+    className: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  },
+  ON_HOLD: {
+    verb: "暫停於",
+    icon: PauseCircle,
+    className: "bg-zinc-100 text-zinc-600 border-zinc-200",
+  },
+  CANCELLED: {
+    verb: "取消於",
+    icon: XCircle,
+    className: "bg-red-50 text-red-500 border-red-100",
+  },
+};
 
 export function ProjectManageCard({
   project,
@@ -287,6 +320,11 @@ export function ProjectManageCard({
           </button>
           <div className="mt-0.5 flex flex-wrap items-center gap-2">
             <StatusBadge status={project.status} />
+            <StatusStamp
+              status={project.status}
+              actualEndDate={project.actualEndDate}
+              statusChangedAt={project.statusChangedAt}
+            />
             <TypeBadge type={project.type} />
             {project.targetDate && (
               <span className="inline-flex items-center gap-1 rounded-full bg-orange-50 px-2 py-0.5 text-[11px] font-medium text-orange-700">
@@ -560,6 +598,9 @@ export function ProjectManageCard({
               projectId={project.id}
               canEdit={canEdit}
               milestones={bundle.milestones}
+              activity={bundle.activity}
+              tasks={project.tasks}
+              color={project.color}
               settings={
                 canEdit ? (
                   <ProjectSettingsForm
@@ -600,6 +641,37 @@ export function ProjectManageCard({
         </div>
       )}
     </section>
+  );
+}
+
+/** 「已定案」狀態旁的時間戳晶片：完成/暫停/取消於某時，含相對時間。 */
+function StatusStamp({
+  status,
+  actualEndDate,
+  statusChangedAt,
+}: {
+  status: ProjectStatus;
+  actualEndDate: string | null;
+  statusChangedAt: string | null;
+}) {
+  const meta = STATUS_STAMP[status];
+  // 完成優先用實際完成日；其餘用狀態切換時間。
+  const iso =
+    status === "COMPLETED" ? (actualEndDate ?? statusChangedAt) : statusChangedAt;
+  if (!meta || !iso) return null;
+  const Icon = meta.icon;
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium whitespace-nowrap",
+        meta.className,
+      )}
+      title={`${meta.verb} ${fmtDateTime(iso)}`}
+    >
+      <Icon className="h-3 w-3" />
+      {meta.verb} {fmtDateShort(iso)}
+      <RelativeTime iso={iso} className="opacity-80" prefix="（" suffix="）" />
+    </span>
   );
 }
 

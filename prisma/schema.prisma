@@ -283,7 +283,11 @@ model Project {
 
   startDate     DateTime? // 開始日
   targetDate    DateTime? // 理想完成日（planned）
-  actualEndDate DateTime? // 實際完成日
+  actualEndDate DateTime? // 實際完成日（切換成「已完成」的當下；離開已完成時清空）
+
+  // 目前 status 是「何時切換成現值」的時間戳。用於卡片一眼看出「何時完成 / 暫停 / 取消」，
+  // 以及「已在此狀態 N 天」。每次狀態實際變動時由 server action 更新（含建立當下）。
+  statusChangedAt DateTime?
 
   progress  Int     @default(0) // 目前整體進度 0-100
   color     String? // timeline / 標籤顏色（hex）
