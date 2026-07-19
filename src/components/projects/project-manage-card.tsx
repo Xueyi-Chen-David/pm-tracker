@@ -145,7 +145,6 @@ export function ProjectManageCard({
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const [tasksOpen, setTasksOpen] = useState(true);
   const [adding, setAdding] = useState(false);
   const [navPending, startNav] = useTransition();
   const [pending, startAction] = useTransition();
@@ -270,6 +269,106 @@ export function ProjectManageCard({
     });
   }
 
+  // 「任務」分頁的內容（任務表 + 新增任務）；由此建立後傳進管理面板的分頁。
+  const taskListNode = (
+    <>
+      {tasks.length > 0 && (
+        /* 手機：8 個欄位擠在 375px 誰都讀不了 → 比照 OKR 的 KR 表，橫向捲動 +
+           保底寬度，讓每欄至少有能用的寬度（欄寬百分比才有意義）。 */
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] table-fixed">
+            <colgroup>
+              {canEdit && <col className="w-7" />}
+              <col className="w-[26%]" />
+              <col className="w-[19%]" />
+              <col className="w-[12%]" />
+              <col className="w-[13%]" />
+              <col className="w-10" />
+              <col className="w-[28%]" />
+              <col className="w-8" />
+            </colgroup>
+            <thead>
+              <tr className="bg-muted/40 text-muted-foreground text-[11px]">
+                {canEdit && <th className="w-7" />}
+                <th className="py-1.5 pr-2 pl-3 text-left font-medium">任務</th>
+                <th className="px-2 py-1.5 text-left font-medium">負責人</th>
+                <th className="px-2 py-1.5 text-left font-medium">狀態</th>
+                <th className="px-2 py-1.5 text-left font-medium">進度</th>
+                <th className="px-2 py-1.5 text-center font-medium">健康</th>
+                <th className="px-2 py-1.5 text-left font-medium">進度追蹤</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {tasks.map((t) => (
+                <TaskRow
+                  key={t.id}
+                  task={t}
+                  members={members}
+                  drag={
+                    canEdit
+                      ? {
+                          dragging: dragging === t.id,
+                          onDragStart: () => {
+                            dragId.current = t.id;
+                            setDragging(t.id);
+                          },
+                          onDragEnter: () => {
+                            if (dragId.current) moveTask(dragId.current, t.id);
+                          },
+                          onDrop: persistOrder,
+                          onDragEnd: persistOrder,
+                        }
+                      : undefined
+                  }
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className={cn("px-3 py-2", tasks.length > 0 && "border-t")}>
+        {adding ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const fd = new FormData(e.currentTarget);
+              addTask(String(fd.get("title") ?? ""));
+            }}
+            className="flex items-center gap-2"
+          >
+            <input
+              name="title"
+              autoFocus
+              placeholder="任務名稱…"
+              className="border-input h-8 flex-1 rounded-md border bg-transparent px-2 text-sm outline-none"
+            />
+            <Button type="submit" size="sm" disabled={pending}>
+              新增
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setAdding(false)}
+            >
+              取消
+            </Button>
+          </form>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm"
+          >
+            <Plus className="h-4 w-4" /> 新增任務
+          </button>
+        )}
+      </div>
+    </>
+  );
+
   return (
     <section
       id={`proj-${project.id}`}
@@ -301,9 +400,10 @@ export function ProjectManageCard({
         )}
         <button
           type="button"
-          onClick={() => setTasksOpen((v) => !v)}
-          className="text-primary bg-primary/10 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold"
-          title={tasksOpen ? "收合任務" : "展開任務"}
+          onClick={toggleManage}
+          disabled={navPending}
+          className="text-primary bg-primary/10 hover:bg-primary/20 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm font-bold transition-colors"
+          title={expanded ? "收合" : "展開（任務 / 甘特圖 / 設定…）"}
         >
           {index + 1}
         </button>
@@ -486,108 +586,7 @@ export function ProjectManageCard({
         </div>
       )}
 
-      {/* 任務表 */}
-      {tasksOpen && (
-        <div className="border-t">
-          {tasks.length > 0 && (
-            /* 手機：8 個欄位擠在 375px 誰都讀不了 → 比照 OKR 的 KR 表，橫向捲動 +
-               保底寬度，讓每欄至少有能用的寬度（欄寬百分比才有意義）。 */
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] table-fixed">
-                <colgroup>
-                  {canEdit && <col className="w-7" />}
-                  <col className="w-[26%]" />
-                  <col className="w-[19%]" />
-                  <col className="w-[12%]" />
-                  <col className="w-[13%]" />
-                  <col className="w-10" />
-                  <col className="w-[28%]" />
-                  <col className="w-8" />
-                </colgroup>
-                <thead>
-                  <tr className="bg-muted/40 text-muted-foreground text-[11px]">
-                    {canEdit && <th className="w-7" />}
-                    <th className="py-1.5 pr-2 pl-3 text-left font-medium">任務</th>
-                    <th className="px-2 py-1.5 text-left font-medium">負責人</th>
-                    <th className="px-2 py-1.5 text-left font-medium">狀態</th>
-                    <th className="px-2 py-1.5 text-left font-medium">進度</th>
-                    <th className="px-2 py-1.5 text-center font-medium">健康</th>
-                    <th className="px-2 py-1.5 text-left font-medium">進度追蹤</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {tasks.map((t) => (
-                    <TaskRow
-                      key={t.id}
-                      task={t}
-                      members={members}
-                      drag={
-                        canEdit
-                          ? {
-                              dragging: dragging === t.id,
-                              onDragStart: () => {
-                                dragId.current = t.id;
-                                setDragging(t.id);
-                              },
-                              onDragEnter: () => {
-                                if (dragId.current)
-                                  moveTask(dragId.current, t.id);
-                              },
-                              onDrop: persistOrder,
-                              onDragEnd: persistOrder,
-                            }
-                          : undefined
-                      }
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          <div className="px-3 py-2">
-            {adding ? (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  const fd = new FormData(e.currentTarget);
-                  addTask(String(fd.get("title") ?? ""));
-                }}
-                className="flex items-center gap-2"
-              >
-                <input
-                  name="title"
-                  autoFocus
-                  placeholder="任務名稱…"
-                  className="border-input h-8 flex-1 rounded-md border bg-transparent px-2 text-sm outline-none"
-                />
-                <Button type="submit" size="sm" disabled={pending}>
-                  新增
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setAdding(false)}
-                >
-                  取消
-                </Button>
-              </form>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setAdding(true)}
-                className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm"
-              >
-                <Plus className="h-4 w-4" /> 新增任務
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* 管理面板（就地展開，不跳頁） */}
+      {/* 管理面板（就地展開，不跳頁）。任務表已收進面板的「任務」分頁。 */}
       {expanded && (
         <div className="bg-muted/20 border-t p-3 sm:p-4">
           {bundle ? (
@@ -596,8 +595,9 @@ export function ProjectManageCard({
               canEdit={canEdit}
               milestones={bundle.milestones}
               activity={bundle.activity}
-              tasks={project.tasks}
+              tasks={tasks}
               color={project.color}
+              tasksPanel={taskListNode}
               settings={
                 canEdit ? (
                   <ProjectSettingsForm

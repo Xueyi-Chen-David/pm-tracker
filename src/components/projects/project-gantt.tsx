@@ -3,6 +3,7 @@ import {
   endOfMonth,
   eachMonthOfInterval,
   addMonths,
+  differenceInCalendarDays,
   format,
   parseISO,
   isValid,
@@ -20,8 +21,8 @@ type GoalMark = {
   isGoal: boolean;
 };
 
-const ROW_H = 40; // px
-const HEADER_H = 28;
+const ROW_H = 46; // px
+const HEADER_H = 30;
 
 function toDate(v: Date | string | null | undefined): Date | null {
   if (!v) return null;
@@ -29,10 +30,18 @@ function toDate(v: Date | string | null | undefined): Date | null {
   return isValid(d) ? d : null;
 }
 
+/** 左欄日期摘要：起訖 / 只有到期 / 只有開始。 */
+function rangeText(start: Date | null, due: Date | null): string {
+  if (start && due) return `${format(start, "M/d")} – ${format(due, "M/d")}`;
+  if (due) return `到期 ${format(due, "M/d")}`;
+  if (start) return `開始 ${format(start, "M/d")}`;
+  return "";
+}
+
 /**
- * 專案內「任務」的甘特圖：每條任務一列，橫條＝開始→到期，內填完成進度；只有到期日
- * 的任務以菱形標記呈現。紅線＝今天；★＝專案目標里程碑（垂直參考線）。沿用時程藍圖的
- * 視覺語言（淺色規劃區間 + 深色進度填充），但聚焦在單一專案的任務層級。
+ * 專案內「任務」的甘特圖：每條任務一列，左欄顯示名稱與起訖日期，右側時間軸以橫條表示
+ * 規劃區間並填入完成進度；只有單一日期的任務以菱形標出。上方為月份刻度，紅線＝今天，
+ * ★＝專案目標里程碑（垂直參考線）。
  */
 export function ProjectGantt({
   tasks,
@@ -63,7 +72,7 @@ export function ProjectGantt({
       <div className="text-muted-foreground flex flex-col items-center gap-2 py-10 text-sm">
         <CalendarRange className="h-5 w-5 opacity-60" />
         任務尚未設定開始 / 到期日，無法排上時程。
-        <span className="text-xs">在上方任務列的日期欄設定起訖日後即會顯示。</span>
+        <span className="text-xs">在「任務」分頁的日期欄設定起訖日後即會顯示。</span>
       </div>
     );
   }
@@ -87,157 +96,187 @@ export function ProjectGantt({
   const pct = (d: Date) =>
     Math.max(0, Math.min(100, ((d.getTime() - rangeStart.getTime()) / span) * 100));
   const months = eachMonthOfInterval({ start: rangeStart, end: rangeEnd });
+  const todayInRange =
+    today.getTime() >= rangeStart.getTime() && today.getTime() <= rangeEnd.getTime();
 
   return (
     <div>
-      <div className="overflow-x-auto">
-        <div className="flex min-w-[640px]">
-          {/* 左：任務名稱欄 */}
-          <div className="w-32 shrink-0 sm:w-48">
-            <div style={{ height: HEADER_H }} />
-            {dated.map(({ task }) => (
-              <div
-                key={task.id}
-                className="flex items-center gap-1.5 border-t pr-2 text-sm"
-                style={{ height: ROW_H }}
-                title={task.title}
-              >
-                <HealthDot health={task.health} />
-                <span
-                  className={cn(
-                    "truncate",
-                    task.status === "CANCELLED" &&
-                      "text-muted-foreground line-through",
-                    task.status === "DONE" && "text-muted-foreground",
-                  )}
-                >
-                  {task.title}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          {/* 右：時間軸 */}
-          <div className="relative flex-1">
-            {/* 月份格線 */}
-            {months.map((m) => (
-              <div
-                key={m.toISOString()}
-                className="absolute top-0 bottom-0 border-l border-dashed border-slate-200 dark:border-slate-700"
-                style={{ left: `${pct(m)}%` }}
-              />
-            ))}
-            {/* 目標里程碑（★）垂直參考線 */}
-            {goalMarks.map((g) => (
-              <div
-                key={g.id}
-                className="absolute top-0 bottom-0 z-10 border-l border-dashed border-amber-400"
-                style={{ left: `${pct(g.at!)}%` }}
-                title={`🎯 ${g.title} · ${format(g.at!, "yyyy/M/d")}`}
-              >
-                <span className="absolute -top-0.5 -left-1.5 text-[11px] leading-none text-amber-500">
-                  ★
-                </span>
-              </div>
-            ))}
-            {/* 今日線 */}
-            <div
-              className="absolute top-0 bottom-0 z-10 border-l-2 border-red-400"
-              style={{ left: `${pct(today)}%` }}
-              title={`今天 ${format(today, "yyyy/M/d")}`}
-            >
-              <span className="absolute -top-0.5 -left-4 rounded bg-red-400 px-1 text-[9px] text-white">
-                今天
-              </span>
+      <div className="overflow-x-auto rounded-lg border">
+        <div className="min-w-[680px]">
+          {/* ── 表頭：左欄留白 + 月份刻度 ── */}
+          <div className="bg-muted/40 flex border-b">
+            <div className="w-36 shrink-0 border-r px-3 py-1.5 text-[11px] font-medium text-muted-foreground sm:w-56">
+              任務 / 期間
             </div>
-
-            {/* 月份標籤 */}
-            <div className="relative" style={{ height: HEADER_H }}>
+            <div className="relative flex-1" style={{ height: HEADER_H }}>
               {months.map((m) => (
                 <div
                   key={m.toISOString()}
-                  className="text-muted-foreground absolute top-1.5 text-[11px]"
+                  className="text-muted-foreground absolute top-1/2 -translate-y-1/2 text-[11px] font-medium tabular-nums"
                   style={{ left: `calc(${pct(m)}% + 4px)` }}
                 >
                   {format(m, "yyyy/M")}
                 </div>
               ))}
             </div>
+          </div>
 
-            {/* 每列任務 */}
-            {dated.map(({ task, start, due }) => {
-              const point = due ?? start; // 兩者至少一個存在（dated 已過濾）
-              const hasBar = start && due;
-              const cancelled = task.status === "CANCELLED";
-              const barColor = cancelled ? "#94a3b8" : accent;
-              return (
+          {/* ── 資料列 ── */}
+          <div className="flex">
+            {/* 左：任務名稱 + 日期 */}
+            <div className="w-36 shrink-0 border-r sm:w-56">
+              {dated.map(({ task, start, due }) => (
                 <div
                   key={task.id}
-                  className="relative border-t"
+                  className="flex flex-col justify-center gap-0.5 border-t px-3 first:border-t-0"
                   style={{ height: ROW_H }}
+                  title={task.title}
                 >
-                  {hasBar ? (
-                    <div
-                      className="absolute top-1/2 h-4 -translate-y-1/2 rounded-full"
-                      style={{
-                        left: `${pct(start)}%`,
-                        width: `${Math.max(pct(due) - pct(start), 0)}%`,
-                        backgroundColor: barColor + "33",
-                        border: `1px solid ${barColor}66`,
-                      }}
-                      title={`${task.title} · ${format(start, "M/d")} – ${format(due, "M/d")} · ${task.progress}%`}
+                  <div className="flex items-center gap-1.5">
+                    <HealthDot health={task.health} className="shrink-0" />
+                    <span
+                      className={cn(
+                        "truncate text-sm",
+                        task.status === "CANCELLED" &&
+                          "text-muted-foreground line-through",
+                        task.status === "DONE" && "text-muted-foreground",
+                      )}
                     >
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${task.progress}%`,
-                          backgroundColor: barColor,
-                        }}
-                      />
-                    </div>
-                  ) : (
-                    // 只有單一日期：以菱形標出
-                    <div
-                      className="absolute top-1/2 z-10 -translate-x-1/2 -translate-y-1/2"
-                      style={{ left: `${pct(point!)}%` }}
-                      title={`${task.title} · ${due ? "到期" : "開始"} ${format(point!, "yyyy/M/d")}`}
-                    >
-                      <span
-                        className="block h-3 w-3 rotate-45 rounded-[2px] border-2"
-                        style={{
-                          borderColor: barColor,
-                          backgroundColor:
-                            task.status === "DONE" ? barColor : "#fff",
-                        }}
-                      />
-                    </div>
-                  )}
+                      {task.title}
+                    </span>
+                  </div>
+                  <span className="text-muted-foreground pl-[14px] text-[11px] tabular-nums">
+                    {rangeText(start, due)}
+                  </span>
                 </div>
-              );
-            })}
+              ))}
+            </div>
+
+            {/* 右：時間軸 */}
+            <div className="relative flex-1">
+              {/* 月份格線 */}
+              {months.map((m, i) =>
+                i === 0 ? null : (
+                  <div
+                    key={m.toISOString()}
+                    className="absolute top-0 bottom-0 border-l border-dashed border-border"
+                    style={{ left: `${pct(m)}%` }}
+                  />
+                ),
+              )}
+              {/* 目標里程碑（★）垂直參考線 */}
+              {goalMarks.map((g) => (
+                <div
+                  key={g.id}
+                  className="absolute top-0 bottom-0 z-10 border-l border-dashed border-amber-400"
+                  style={{ left: `${pct(g.at!)}%` }}
+                  title={`🎯 ${g.title} · ${format(g.at!, "yyyy/M/d")}`}
+                >
+                  <span className="absolute -top-2 -left-1.5 text-[11px] leading-none text-amber-500">
+                    ★
+                  </span>
+                </div>
+              ))}
+              {/* 今日線 */}
+              {todayInRange && (
+                <div
+                  className="absolute top-0 bottom-0 z-20 border-l-2 border-red-400"
+                  style={{ left: `${pct(today)}%` }}
+                  title={`今天 ${format(today, "yyyy/M/d")}`}
+                >
+                  <span className="absolute -top-2 -left-4 rounded bg-red-400 px-1 text-[9px] leading-tight text-white">
+                    今天
+                  </span>
+                </div>
+              )}
+
+              {/* 每列任務 */}
+              {dated.map(({ task, start, due }) => {
+                const point = due ?? start; // 兩者至少一個存在（dated 已過濾）
+                const hasBar = start && due;
+                const cancelled = task.status === "CANCELLED";
+                const barColor = cancelled ? "#94a3b8" : accent;
+                const barW = hasBar ? Math.max(pct(due) - pct(start), 1.5) : 0;
+                const days =
+                  hasBar && start && due
+                    ? differenceInCalendarDays(due, start) + 1
+                    : 0;
+                return (
+                  <div
+                    key={task.id}
+                    className="relative border-t first:border-t-0"
+                    style={{ height: ROW_H }}
+                  >
+                    {hasBar ? (
+                      <div
+                        className="group absolute top-1/2 flex h-5 -translate-y-1/2 items-center rounded-md shadow-sm"
+                        style={{
+                          left: `${pct(start)}%`,
+                          width: `${barW}%`,
+                          backgroundColor: barColor + "2e",
+                          border: `1px solid ${barColor}66`,
+                        }}
+                        title={`${task.title} · ${format(start, "yyyy/M/d")} – ${format(due, "yyyy/M/d")}（${days} 天）· ${task.progress}%`}
+                      >
+                        {/* 進度填充 */}
+                        <div
+                          className="absolute inset-y-0 left-0 rounded-md"
+                          style={{
+                            width: `${task.progress}%`,
+                            backgroundColor: barColor,
+                          }}
+                        />
+                        {/* 進度數字（橫條夠寬才顯示） */}
+                        {barW > 10 && (
+                          <span
+                            className="relative z-10 px-1.5 text-[10px] font-semibold tabular-nums"
+                            style={{ color: task.progress >= 55 ? "#fff" : barColor }}
+                          >
+                            {task.progress}%
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      // 只有單一日期：以菱形標出
+                      <div
+                        className="absolute top-1/2 z-10 flex -translate-y-1/2 items-center gap-1"
+                        style={{ left: `${pct(point!)}%` }}
+                        title={`${task.title} · ${due ? "到期" : "開始"} ${format(point!, "yyyy/M/d")}`}
+                      >
+                        <span
+                          className="block h-3 w-3 shrink-0 -translate-x-1/2 rotate-45 rounded-[2px] border-2"
+                          style={{
+                            borderColor: barColor,
+                            backgroundColor:
+                              task.status === "DONE" ? barColor : "var(--card)",
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         </div>
       </div>
 
       {/* 圖例 */}
-      <div className="text-muted-foreground mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]">
+      <div className="text-muted-foreground mt-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px]">
         <span className="inline-flex items-center gap-1.5">
           <span
-            className="h-2.5 w-6 rounded-full"
-            style={{ backgroundColor: accent + "33", border: `1px solid ${accent}66` }}
+            className="h-3 w-6 rounded-md"
+            style={{ backgroundColor: accent + "2e", border: `1px solid ${accent}66` }}
           />
           規劃區間
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span
-            className="h-2.5 w-6 rounded-full"
-            style={{ backgroundColor: accent }}
-          />
+          <span className="h-3 w-6 rounded-md" style={{ backgroundColor: accent }} />
           完成進度
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span className="h-3 w-3 rotate-45 rounded-[2px] border-2 border-slate-400" />
-          單一日期任務
+          單一日期
         </span>
         {goalMarks.length > 0 && (
           <span className="inline-flex items-center gap-1 text-amber-500">

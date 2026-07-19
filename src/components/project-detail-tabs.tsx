@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Flag,
   History,
+  ListChecks,
   SlidersHorizontal,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -28,6 +29,7 @@ export function ProjectDetailTabs({
   activity,
   tasks,
   color,
+  tasksPanel,
   settings,
 }: {
   projectId: string;
@@ -39,17 +41,19 @@ export function ProjectDetailTabs({
   tasks: TaskView[];
   /** 專案顏色（甘特圖橫條色）。 */
   color: string | null;
+  /** 「任務」分頁內容（任務表 + 新增任務，由卡片建立後傳入）。 */
+  tasksPanel: React.ReactNode;
   /** 選填「設定」分頁內容（就地展開管理時傳入專案設定表單）。 */
   settings?: React.ReactNode;
 }) {
-  const [tab, setTab] = useState(settings ? "settings" : "milestones");
+  // 預設落在「任務」分頁——任務是專案的主體，展開就先看到它。
+  const [tab, setTab] = useState("tasks");
 
   const doneCount = tasks.filter((t) => t.status === "DONE").length;
 
+  // 分頁順序：任務 → 甘特圖 →（已完成）→ 里程碑 → 軌跡 →（設定，最後）。
   const TAB_META: { value: string; label: string; icon: typeof Flag }[] = [
-    ...(settings
-      ? [{ value: "settings", label: "設定", icon: SlidersHorizontal }]
-      : []),
+    { value: "tasks", label: "任務", icon: ListChecks },
     { value: "gantt", label: "甘特圖", icon: BarChart3 },
     // 有已完成任務時才顯示「已完成」分頁。
     ...(doneCount > 0
@@ -57,6 +61,9 @@ export function ProjectDetailTabs({
       : []),
     { value: "milestones", label: "里程碑", icon: Flag },
     { value: "activity", label: "軌跡", icon: History },
+    ...(settings
+      ? [{ value: "settings", label: "設定", icon: SlidersHorizontal }]
+      : []),
   ];
 
   return (
@@ -66,13 +73,15 @@ export function ProjectDetailTabs({
           {TAB_META.map((t) => {
             const Icon = t.icon;
             const count =
-              t.value === "milestones"
-                ? milestones.length
-                : t.value === "activity"
-                  ? activity.length
-                  : t.value === "done"
-                    ? doneCount
-                    : undefined;
+              t.value === "tasks"
+                ? tasks.length
+                : t.value === "milestones"
+                  ? milestones.length
+                  : t.value === "activity"
+                    ? activity.length
+                    : t.value === "done"
+                      ? doneCount
+                      : undefined;
             return (
               <TabsTrigger key={t.value} value={t.value}>
                 <Icon className="h-4 w-4" />
@@ -88,14 +97,14 @@ export function ProjectDetailTabs({
         </TabsList>
       </div>
 
-      {settings && (
-        <TabsContent value="settings" className="mt-4">
-          <div className="bg-card rounded-xl border p-4 sm:p-5">{settings}</div>
-        </TabsContent>
-      )}
+      <TabsContent value="tasks" className="mt-4">
+        <div className="bg-card overflow-hidden rounded-xl border">
+          {tasksPanel}
+        </div>
+      </TabsContent>
 
       <TabsContent value="gantt" className="mt-4">
-        <Section title="甘特圖 · 任務時程">
+        <Section title="甘特圖">
           <ProjectGantt tasks={tasks} color={color} goals={milestones} />
         </Section>
       </TabsContent>
@@ -123,6 +132,12 @@ export function ProjectDetailTabs({
           <ActivityTimeline items={activity} />
         </Section>
       </TabsContent>
+
+      {settings && (
+        <TabsContent value="settings" className="mt-4">
+          <div className="bg-card rounded-xl border p-4 sm:p-5">{settings}</div>
+        </TabsContent>
+      )}
     </Tabs>
   );
 }
