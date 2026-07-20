@@ -1,23 +1,53 @@
-import { CheckCircle2, CalendarCheck } from "lucide-react";
+import { CheckCircle2, CalendarCheck, XCircle } from "lucide-react";
+import type { KrStatus } from "@prisma/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { displayInitial, displayName } from "@/lib/display";
 import { fmtDateShort } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import type { TaskView } from "@/components/tasks/task-row";
 
-/**
- * 專案內「已完成」的任務清單（status = DONE）。只在有已完成任務時才會出現這個分頁，
- * 讓「這個專案完成了哪些事」一目了然；每筆顯示負責人與到期日。
- */
-export function CompletedTasksPanel({ tasks }: { tasks: TaskView[] }) {
-  const done = tasks.filter((t) => t.status === "DONE");
-  const total = tasks.filter((t) => t.status !== "CANCELLED").length;
+const VARIANTS = {
+  done: {
+    status: "DONE" as KrStatus,
+    label: "已完成",
+    countCls: "text-emerald-600",
+    icon: CheckCircle2,
+    iconCls: "text-emerald-500",
+    empty: "目前還沒有已完成的任務。",
+    strike: false,
+  },
+  cancelled: {
+    status: "CANCELLED" as KrStatus,
+    label: "已取消",
+    countCls: "text-slate-500",
+    icon: XCircle,
+    iconCls: "text-slate-400",
+    empty: "目前沒有已取消的任務。",
+    strike: true,
+  },
+} as const;
 
-  if (done.length === 0) {
+/**
+ * 專案內依狀態分組的任務清單：`done`＝已完成、`cancelled`＝已取消。
+ * 只在該狀態有任務時，才在管理面板出現對應分頁；每筆顯示負責人與到期日。
+ */
+export function TaskListPanel({
+  tasks,
+  variant,
+}: {
+  tasks: TaskView[];
+  variant: keyof typeof VARIANTS;
+}) {
+  const v = VARIANTS[variant];
+  const list = tasks.filter((t) => t.status === v.status);
+  const total = tasks.length;
+  const Icon = v.icon;
+
+  if (list.length === 0) {
     return (
       <div className="text-muted-foreground flex flex-col items-center gap-2 py-10 text-sm">
-        <CheckCircle2 className="h-5 w-5 opacity-60" />
-        目前還沒有已完成的任務。
+        <Icon className="h-5 w-5 opacity-60" />
+        {v.empty}
       </div>
     );
   }
@@ -25,11 +55,11 @@ export function CompletedTasksPanel({ tasks }: { tasks: TaskView[] }) {
   return (
     <div>
       <p className="text-muted-foreground mb-3 text-xs">
-        已完成 <span className="text-emerald-600 font-medium">{done.length}</span>
+        {v.label} <span className={cn("font-medium", v.countCls)}>{list.length}</span>
         {total > 0 && ` / ${total}`} 項任務。
       </p>
       <ul className="divide-y">
-        {done.map((t) => {
+        {list.map((t) => {
           const owners = t.owners;
           const ownerText =
             owners.length > 0
@@ -37,9 +67,16 @@ export function CompletedTasksPanel({ tasks }: { tasks: TaskView[] }) {
               : t.ownerLabel;
           return (
             <li key={t.id} className="flex items-center gap-3 py-2.5">
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-500" />
+              <Icon className={cn("h-4 w-4 shrink-0", v.iconCls)} />
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium">{t.title}</p>
+                <p
+                  className={cn(
+                    "text-sm font-medium break-words",
+                    v.strike && "text-muted-foreground line-through",
+                  )}
+                >
+                  {t.title}
+                </p>
                 {(ownerText || t.dueDate) && (
                   <p className="text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 text-[11px]">
                     {ownerText && <span className="truncate">{ownerText}</span>}

@@ -222,16 +222,19 @@ export function ProjectManageCard({
     runAction(() => reorderProjects({ orderedIds: ids }));
   }
 
-  // 展開 / 收合管理面板：切換網址的 expand 參數（多個以逗號分隔），保留其他參數。
+  // 展開 / 收合管理面板：**預設全部展開**，故用 `collapsed` 參數記錄「被收合者」。
+  // 收合＝把自己加入 collapsed；展開＝移除。若網址帶著舊的 `expand`（相容轉址）則先清掉，
+  // 改用 collapsed 語意，避免兩套邏輯打架。
   function toggleManage() {
-    const ids = new Set(
-      (searchParams.get("expand")?.split(",").filter(Boolean)) ?? [],
-    );
-    if (ids.has(project.id)) ids.delete(project.id);
-    else ids.add(project.id);
     const params = new URLSearchParams(searchParams.toString());
-    if (ids.size) params.set("expand", [...ids].join(","));
-    else params.delete("expand");
+    params.delete("expand");
+    const collapsed = new Set(
+      (searchParams.get("collapsed")?.split(",").filter(Boolean)) ?? [],
+    );
+    if (expanded) collapsed.add(project.id);
+    else collapsed.delete(project.id);
+    if (collapsed.size) params.set("collapsed", [...collapsed].join(","));
+    else params.delete("collapsed");
     const qs = params.toString();
     startNav(() => router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false }));
   }
@@ -411,7 +414,7 @@ export function ProjectManageCard({
           <button
             type="button"
             onClick={toggleManage}
-            className="hover:text-primary block max-w-full truncate text-left text-[15px] font-semibold hover:underline"
+            className="hover:text-primary max-w-full text-left text-[15px] font-semibold break-words hover:underline line-clamp-2 sm:line-clamp-1"
             title="展開 / 收合專案管理"
           >
             {project.name}

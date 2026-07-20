@@ -163,13 +163,17 @@ export default async function ProjectsPage({
 
   const totalTasks = projects.reduce((s, p) => s + p.tasks.length, 0);
 
-  // 就地展開管理：只對「展開中」(URL `expand`) 且仍在目前清單的專案載入明細。
-  const expandedIds = new Set(
-    (sp.expand?.split(",").filter(Boolean)) ?? [],
+  // 就地展開管理：**預設全部展開**，使用者可個別收合（URL `collapsed` 記錄被收合者）。
+  // 沿用舊的 `expand` 參數（來自舊詳情頁轉址）僅作為「只展開這幾個」的相容行為。
+  const collapsedIds = new Set(
+    (sp.collapsed?.split(",").filter(Boolean)) ?? [],
   );
+  const forceExpand = sp.expand?.split(",").filter(Boolean);
+  const isExpanded = (id: string) =>
+    forceExpand ? forceExpand.includes(id) : !collapsedIds.has(id);
   const bundleEntries = await Promise.all(
     projects
-      .filter((p) => expandedIds.has(p.id))
+      .filter((p) => isExpanded(p.id))
       .map(
         async (p) =>
           [p.id, await getProjectDetailBundle(org.id, p.id)] as const,
@@ -232,7 +236,7 @@ export default async function ProjectsPage({
                   canEdit={true}
                   canReorder={canReorder}
                   siblingIds={projects.map((x) => x.id)}
-                  expanded={expandedIds.has(p.id)}
+                  expanded={isExpanded(p.id)}
                   bundle={bundles.get(p.id) ?? null}
                 />
               ))}

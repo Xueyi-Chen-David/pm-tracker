@@ -8,6 +8,7 @@ import {
   History,
   ListChecks,
   SlidersHorizontal,
+  XCircle,
 } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { MilestonesPanel } from "@/components/milestones-panel";
@@ -16,7 +17,7 @@ import {
   type ActivityItem,
 } from "@/components/projects/activity-timeline";
 import { ProjectGantt } from "@/components/projects/project-gantt";
-import { CompletedTasksPanel } from "@/components/projects/completed-tasks-panel";
+import { TaskListPanel } from "@/components/projects/completed-tasks-panel";
 import type { TaskView } from "@/components/tasks/task-row";
 
 // 由子面板反推 prop 型別，避免重複定義又保證一致。
@@ -50,14 +51,18 @@ export function ProjectDetailTabs({
   const [tab, setTab] = useState("tasks");
 
   const doneCount = tasks.filter((t) => t.status === "DONE").length;
+  const cancelledCount = tasks.filter((t) => t.status === "CANCELLED").length;
 
-  // 分頁順序：任務 → 甘特圖 →（已完成）→ 里程碑 → 軌跡 →（設定，最後）。
+  // 分頁順序：任務 → 甘特圖 →（已完成）→（已取消）→ 里程碑 → 軌跡 →（設定，最後）。
   const TAB_META: { value: string; label: string; icon: typeof Flag }[] = [
     { value: "tasks", label: "任務", icon: ListChecks },
     { value: "gantt", label: "甘特圖", icon: BarChart3 },
-    // 有已完成任務時才顯示「已完成」分頁。
+    // 有已完成 / 已取消任務時才顯示對應分頁。
     ...(doneCount > 0
       ? [{ value: "done", label: "已完成", icon: CheckCircle2 }]
+      : []),
+    ...(cancelledCount > 0
+      ? [{ value: "cancelled", label: "已取消", icon: XCircle }]
       : []),
     { value: "milestones", label: "里程碑", icon: Flag },
     { value: "activity", label: "軌跡", icon: History },
@@ -81,7 +86,9 @@ export function ProjectDetailTabs({
                     ? activity.length
                     : t.value === "done"
                       ? doneCount
-                      : undefined;
+                      : t.value === "cancelled"
+                        ? cancelledCount
+                        : undefined;
             return (
               <TabsTrigger key={t.value} value={t.value}>
                 <Icon className="h-4 w-4" />
@@ -112,7 +119,15 @@ export function ProjectDetailTabs({
       {doneCount > 0 && (
         <TabsContent value="done" className="mt-4">
           <Section title="已完成任務">
-            <CompletedTasksPanel tasks={tasks} />
+            <TaskListPanel tasks={tasks} variant="done" />
+          </Section>
+        </TabsContent>
+      )}
+
+      {cancelledCount > 0 && (
+        <TabsContent value="cancelled" className="mt-4">
+          <Section title="已取消任務">
+            <TaskListPanel tasks={tasks} variant="cancelled" />
           </Section>
         </TabsContent>
       )}
