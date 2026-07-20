@@ -332,9 +332,21 @@ export function Markdown({
   while (i < lines.length) {
     const line = lines[i];
 
-    // 空行 → 跳過
+    // 空行：一個空行＝段落分隔（交給段落間距）；連續多個空行 → 保留額外的空白列，
+    // 讓「多按幾次 Enter」在預覽也看得到（所見即所得）。開頭與結尾的空行不算。
     if (line.trim() === "") {
-      i++;
+      let blanks = 0;
+      while (i < lines.length && lines[i].trim() === "") {
+        blanks++;
+        i++;
+      }
+      if (blocks.length > 0 && i < lines.length) {
+        for (let b = 1; b < blanks; b++) {
+          blocks.push(
+            <div key={nextKey()} aria-hidden className="h-[1.1em]" />,
+          );
+        }
+      }
       continue;
     }
 
