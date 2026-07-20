@@ -168,9 +168,10 @@ export default async function ProjectsPage({
   const collapsedIds = new Set(
     (sp.collapsed?.split(",").filter(Boolean)) ?? [],
   );
-  const forceExpand = sp.expand?.split(",").filter(Boolean);
+  const forceExpand = sp.expand?.split(",").filter(Boolean) ?? [];
+  const useForceExpand = forceExpand.length > 0; // 空的 ?expand= 不該把全部收合
   const isExpanded = (id: string) =>
-    forceExpand ? forceExpand.includes(id) : !collapsedIds.has(id);
+    useForceExpand ? forceExpand.includes(id) : !collapsedIds.has(id);
   const bundleEntries = await Promise.all(
     projects
       .filter((p) => isExpanded(p.id))
