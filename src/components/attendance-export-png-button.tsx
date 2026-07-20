@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ImageDown } from "lucide-react";
+import { ImageDown, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { ATTENDANCE_GRID_TABLE_ID } from "@/components/attendance-grid";
 import { Button } from "@/components/ui/button";
@@ -132,9 +132,14 @@ export function AttendanceExportPngButton({ month }: { month: string }) {
       onClick={download}
       disabled={busy}
       className="gap-1.5"
+      title="下載 PNG"
     >
-      <ImageDown className="h-4 w-4" />
-      {busy ? "產生中…" : "下載 PNG"}
+      {busy ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : (
+        <ImageDown className="h-4 w-4" />
+      )}
+      <span className="hidden sm:inline">{busy ? "產生中…" : "下載 PNG"}</span>
     </Button>
   );
 }

@@ -137,8 +137,15 @@ export function CheckInSettings({
 
   return (
     <>
-      <Button variant="outline" className="gap-1.5" onClick={() => setOpen(true)}>
-        <Settings2 className="h-4 w-4" /> 打卡設定
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-1.5"
+        onClick={() => setOpen(true)}
+        title="打卡設定"
+      >
+        <Settings2 className="h-4 w-4" />
+        <span className="hidden sm:inline">打卡設定</span>
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">

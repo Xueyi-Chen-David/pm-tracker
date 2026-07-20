@@ -50,9 +50,12 @@ export function AttendanceTrackManager({ members }: { members: Member[] }) {
   return (
     <Popover>
       <PopoverTrigger
-        className={cn(buttonVariants({ variant: "outline" }), "gap-1.5")}
+        className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-1.5")}
+        title="追蹤成員"
       >
-        <Users className="h-4 w-4" /> 追蹤成員（{count}）
+        <Users className="h-4 w-4" />
+        <span className="hidden sm:inline">追蹤成員</span>
+        <span className="tabular-nums">（{count}）</span>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-72">
         <div className="text-sm font-medium">選擇要追蹤出席的成員</div>

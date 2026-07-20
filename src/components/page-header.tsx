@@ -15,7 +15,10 @@ export function PageHeader({
           <p className="text-muted-foreground mt-1 text-sm">{description}</p>
         )}
       </div>
-      {children && <div className="flex items-center gap-2">{children}</div>}
+      {/* 動作按鈕在窄螢幕會換行，不再擠成一列衝出畫面。 */}
+      {children && (
+        <div className="flex flex-wrap items-center gap-2">{children}</div>
+      )}
     </div>
   );
 }

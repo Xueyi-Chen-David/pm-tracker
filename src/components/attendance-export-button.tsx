@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Download } from "lucide-react";
+import { Download, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import type { GridDay, GridMember } from "@/components/attendance-grid";
 import { displayName } from "@/lib/display";
@@ -145,9 +145,15 @@ export function AttendanceExportButton({
       onClick={download}
       disabled={busy}
       className="gap-1.5"
+      title="下載 Excel"
     >
-      <Download className="h-4 w-4" />
-      {busy ? "匯出中…" : "下載 Excel"}
+      {busy ? (
+        <Loader2 className="h-4 w-4 animate-spin" />
+      ) : (
+        <Download className="h-4 w-4" />
+      )}
+      {/* 窄螢幕只留圖示（節省空間），寬螢幕才顯示文字。 */}
+      <span className="hidden sm:inline">{busy ? "匯出中…" : "下載 Excel"}</span>
     </Button>
   );
 }
