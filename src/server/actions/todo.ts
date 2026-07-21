@@ -63,6 +63,40 @@ export async function createTodo(input: z.input<typeof TodoCreate>) {
   return { ok: true as const, id: todo.id };
 }
 
+const ReorderTodos = z.object({
+  orderedIds: z.array(z.string().min(1)).min(1),
+});
+
+/**
+ * 調整待辦上下順序。orderedIds＝畫面上「可見清單」的新順序（某個分頁）；為避免打亂另一個
+ * 分頁（未完成 / 已完成）的相對位置，採「保留未出現者原位」合併後整體重寫 sortOrder。
+ * 只動本人的待辦。
+ */
+export async function reorderTodos(input: z.input<typeof ReorderTodos>) {
+  const { org, user } = await requireActiveOrg();
+  const { orderedIds } = ReorderTodos.parse(input);
+  const all = await db.todoItem.findMany({
+    where: { userId: user.id, organizationId: org.id },
+    orderBy: [{ done: "asc" }, { sortOrder: "asc" }, { createdAt: "asc" }],
+    select: { id: true },
+  });
+  const fullIds = all.map((t) => t.id);
+  const fullSet = new Set(fullIds);
+  // 只收確實屬於本人的可見 id（去重、擋越權）。
+  const visibleOrder = [...new Set(orderedIds.filter((id) => fullSet.has(id)))];
+  const visibleSet = new Set(visibleOrder);
+  let qi = 0;
+  const merged = fullIds.map((id) =>
+    visibleSet.has(id) ? visibleOrder[qi++]! : id,
+  );
+  await db.$transaction(
+    merged.map((id, idx) =>
+      db.todoItem.update({ where: { id }, data: { sortOrder: idx } }),
+    ),
+  );
+  revalidatePath("/todo");
+}
+
 const TodoPatch = z.object({
   id: z.string().min(1),
   title: z.string().trim().min(1).max(300).optional(),

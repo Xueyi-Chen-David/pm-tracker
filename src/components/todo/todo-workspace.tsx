@@ -17,11 +17,14 @@ import {
   ClipboardCheck,
   Save,
   Pencil,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 import {
   createTodo,
   updateTodo,
   deleteTodo,
+  reorderTodos,
   updatePomodoro,
   deletePomodoro,
 } from "@/server/actions/todo";
@@ -173,6 +176,15 @@ function TodoList({
   const done = todos.filter((t) => t.done);
   const list = tab === "open" ? open : done;
 
+  // 上下調整順序：在目前分頁的清單內和相鄰者交換，送出新的可見順序。
+  function move(index: number, dir: "up" | "down") {
+    const ids = list.map((t) => t.id);
+    const j = dir === "up" ? index - 1 : index + 1;
+    if (j < 0 || j >= ids.length) return;
+    [ids[index], ids[j]] = [ids[j]!, ids[index]!];
+    run(() => reorderTodos({ orderedIds: ids }));
+  }
+
   return (
     <section className="bg-card flex flex-col overflow-hidden rounded-xl border shadow-sm lg:h-full lg:min-h-0">
       <div className="border-b px-4 py-3">
@@ -261,7 +273,7 @@ function TodoList({
               : "還沒有已完成的待辦。"}
           </p>
         ) : (
-          list.map((t) => (
+          list.map((t, i) => (
             <TodoRow
               key={t.id}
               todo={t}
@@ -269,6 +281,9 @@ function TodoList({
               inReport={reportedSet.has(t.title.trim())}
               pending={pending}
               run={run}
+              index={i}
+              count={list.length}
+              onMove={(dir) => move(i, dir)}
             />
           ))
         )}
@@ -308,6 +323,9 @@ function TodoRow({
   inReport,
   pending,
   run,
+  index,
+  count,
+  onMove,
 }: {
   todo: TodoView;
   taskOptions: TaskOption[];
@@ -315,6 +333,10 @@ function TodoRow({
   inReport: boolean;
   pending: boolean;
   run: (fn: () => Promise<unknown>, ok?: string) => void;
+  /** 在目前分頁清單中的位置 / 總數 / 上下移動。 */
+  index: number;
+  count: number;
+  onMove: (dir: "up" | "down") => void;
 }) {
   const [open, setOpen] = useState(false);
   // 編輯表單的本機草稿；每次開啟時由目前值重置。
@@ -357,6 +379,28 @@ function TodoRow({
 
   return (
     <div className={cn("flex items-start gap-2 px-3 py-2", todo.done && "opacity-60")}>
+      {count > 1 && (
+        <div className="text-muted-foreground -my-0.5 flex shrink-0 flex-col">
+          <button
+            type="button"
+            disabled={pending || index === 0}
+            onClick={() => onMove("up")}
+            className="hover:text-foreground disabled:pointer-events-none disabled:opacity-25"
+            title="上移"
+          >
+            <ChevronUp className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            disabled={pending || index === count - 1}
+            onClick={() => onMove("down")}
+            className="hover:text-foreground disabled:pointer-events-none disabled:opacity-25"
+            title="下移"
+          >
+            <ChevronDown className="h-4 w-4" />
+          </button>
+        </div>
+      )}
       <input
         type="checkbox"
         checked={todo.done}
