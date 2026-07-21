@@ -10,9 +10,11 @@ import { cn } from "@/lib/utils";
 export function ConfirmEmailChange({
   token,
   newEmail,
+  orgName,
 }: {
   token: string;
   newEmail: string;
+  orgName: string;
 }) {
   const [pending, start] = useTransition();
   const [done, setDone] = useState<string | null>(null);
@@ -33,15 +35,15 @@ export function ConfirmEmailChange({
         <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-500" />
         <h1 className="text-lg font-semibold">Email 已變更</h1>
         <p className="text-muted-foreground text-sm">
-          你的登入 Email 已改為
+          你在 <b className="text-foreground">{orgName}</b> 使用的 Email 已改為
           <br />
           <b className="text-foreground">{done}</b>
         </p>
         <p className="text-muted-foreground text-xs">
-          下次請用新的 Email 登入。
+          登入方式不變，其他組織也不受影響。
         </p>
-        <Link href="/login" className={cn(buttonVariants(), "w-full")}>
-          前往登入
+        <Link href="/" className={cn(buttonVariants(), "w-full")}>
+          回首頁
         </Link>
       </div>
     );
@@ -49,9 +51,9 @@ export function ConfirmEmailChange({
 
   return (
     <div className="space-y-4 text-center">
-      <h1 className="text-lg font-semibold">確認變更登入 Email</h1>
+      <h1 className="text-lg font-semibold">確認變更 Email</h1>
       <p className="text-muted-foreground text-sm">
-        確認後，這個帳號的登入 Email 會變更為
+        確認後，你在 <b className="text-foreground">{orgName}</b> 使用的 Email 會變更為
         <br />
         <b className="text-foreground">{newEmail}</b>
       </p>

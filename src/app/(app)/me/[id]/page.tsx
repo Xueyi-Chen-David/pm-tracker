@@ -40,7 +40,11 @@ export default async function MemberProfilePage({
   // 本人才需要：目前是否有「待驗證」的變更 Email 請求（顯示在變更 Email 卡片）。
   const pendingEmailChange = isSelf
     ? await db.emailChangeRequest.findFirst({
-        where: { userId: user.id, expiresAt: { gt: new Date() } },
+        where: {
+          userId: user.id,
+          organizationId: org.id,
+          expiresAt: { gt: new Date() },
+        },
         orderBy: { createdAt: "desc" },
         select: { newEmail: true },
       })

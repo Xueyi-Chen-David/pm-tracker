@@ -157,6 +157,7 @@ export async function getOrgMembers(orgId: string) {
     where: { organizationId: orgId },
     orderBy: [{ isBoss: "desc" }, { active: "desc" }, { user: { name: "asc" } }],
     select: {
+      email: true, // 此組織使用的 email（顯示用；非全域登入身分）
       isBoss: true,
       active: true,
       role: true,
@@ -209,6 +210,7 @@ export async function getOrgMembers(orgId: string) {
     const { _count: userCounts, ...identity } = m.user;
     return {
       ...identity,
+      email: m.email, // 此組織使用的 email（覆蓋全域 user.email）
       isBoss: m.isBoss,
       active: m.active,
       role: m.role,
@@ -386,6 +388,7 @@ export async function getMemberProfile(orgId: string, userId: string) {
     where: { organizationId_userId: { organizationId: orgId, userId } },
     select: {
       id: true,
+      email: true, // 此組織使用的 email（覆蓋 user.email 全域登入身分，供顯示）
       jobTitle: true,
       department: true,
       hireDate: true,
@@ -795,6 +798,7 @@ export async function getOrgMemberDirectory(orgId: string) {
     orderBy: [{ isBoss: "desc" }, { active: "desc" }, { user: { name: "asc" } }],
     select: {
       id: true,
+      email: true, // 此組織使用的 email（顯示用；非全域登入身分）
       managerId: true,
       secondaryManagerIds: true,
       role: true,
@@ -808,6 +812,7 @@ export async function getOrgMemberDirectory(orgId: string) {
   // 註：展開後 id＝userId（給連結用），membershipId＝成員關係 id（主管欄位的值）。
   return members.map((m) => ({
     ...m.user,
+    email: m.email, // 此組織使用的 email（覆蓋全域 user.email）
     membershipId: m.id,
     managerId: m.managerId,
     secondaryManagerIds: m.secondaryManagerIds,

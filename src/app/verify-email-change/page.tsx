@@ -15,7 +15,7 @@ export default async function VerifyEmailChangePage({
   const req = token
     ? await db.emailChangeRequest.findFirst({
         where: { token, expiresAt: { gt: new Date() } },
-        select: { newEmail: true },
+        select: { newEmail: true, organization: { select: { name: true } } },
       })
     : null;
 
@@ -23,7 +23,11 @@ export default async function VerifyEmailChangePage({
     <main className="flex min-h-[100dvh] items-center justify-center p-6">
       <div className="bg-card w-full max-w-sm rounded-2xl border p-6 shadow-sm sm:p-8">
         {req ? (
-          <ConfirmEmailChange token={token!} newEmail={req.newEmail} />
+          <ConfirmEmailChange
+            token={token!}
+            newEmail={req.newEmail}
+            orgName={req.organization.name}
+          />
         ) : (
           <div className="space-y-3 text-center">
             <AlertTriangle className="mx-auto h-10 w-10 text-amber-500" />

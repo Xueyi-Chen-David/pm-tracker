@@ -44,9 +44,12 @@ export function ChangeEmailCard({
     <div className="space-y-3">
       <div className="flex items-center gap-2 text-sm">
         <Mail className="text-muted-foreground h-4 w-4 shrink-0" />
-        <span className="text-muted-foreground">目前登入 Email：</span>
+        <span className="text-muted-foreground">此組織使用的 Email：</span>
         <span className="font-medium break-all">{currentEmail ?? "—"}</span>
       </div>
+      <p className="text-muted-foreground text-xs">
+        只影響你在這個組織的 Email，不會改變登入方式，也不影響你的其他組織。
+      </p>
 
       {pending && (
         <div className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
@@ -60,7 +63,7 @@ export function ChangeEmailCard({
 
       <form onSubmit={submit} className="space-y-2">
         <Label htmlFor="new-email" className="text-xs">
-          變更為新的 Email（會寄驗證信到新信箱，點了才真的換）
+          變更此組織的 Email（會寄驗證信到新信箱）
         </Label>
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input
