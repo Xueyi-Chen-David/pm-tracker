@@ -25,7 +25,12 @@ export default async function TodoPage() {
         startDate: true,
         dueDate: true,
         task: {
-          select: { id: true, title: true, project: { select: { name: true } } },
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            project: { select: { name: true } },
+          },
         },
         _count: { select: { pomodoros: true } },
       },
@@ -42,11 +47,12 @@ export default async function TodoPage() {
         todo: { select: { title: true } },
       },
     }),
-    // 可關聯的任務：指派給本人的任務（跨專案），依專案順序。
+    // 可關聯的任務：指派給本人、且進行中的任務（已完成 / 已取消不列入）。
     db.task.findMany({
       where: {
         project: { organizationId: org.id, archived: false },
         owners: { some: { id: user.id } },
+        status: { notIn: ["DONE", "CANCELLED"] },
       },
       orderBy: [{ project: { sortOrder: "asc" } }, { sortOrder: "asc" }],
       select: { id: true, title: true, project: { select: { name: true } } },
@@ -63,17 +69,24 @@ export default async function TodoPage() {
     project: { name: string } | null;
   }) => (t.project?.name ? `${t.project.name} · ${t.title}` : t.title);
 
-  const todoView = todos.map((t) => ({
-    id: t.id,
-    title: t.title,
-    note: t.note,
-    done: t.done,
-    startDate: ymd(t.startDate),
-    dueDate: ymd(t.dueDate),
-    taskId: t.task?.id ?? null,
-    taskLabel: t.task ? taskLabel(t.task) : null,
-    pomodoroCount: t._count.pomodoros,
-  }));
+  const todoView = todos.map((t) => {
+    // 關聯的任務若已完成 / 已取消，就不再顯示關聯（視同未關聯）。
+    const linked =
+      t.task && t.task.status !== "DONE" && t.task.status !== "CANCELLED"
+        ? t.task
+        : null;
+    return {
+      id: t.id,
+      title: t.title,
+      note: t.note,
+      done: t.done,
+      startDate: ymd(t.startDate),
+      dueDate: ymd(t.dueDate),
+      taskId: linked?.id ?? null,
+      taskLabel: linked ? taskLabel(linked) : null,
+      pomodoroCount: t._count.pomodoros,
+    };
+  });
 
   const pomodoroView = pomodoros.map((p) => ({
     id: p.id,

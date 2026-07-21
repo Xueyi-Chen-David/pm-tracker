@@ -273,9 +273,13 @@ export function ProjectManageCard({
   }
 
   // 「任務」分頁的內容（任務表 + 新增任務）；由此建立後傳進管理面板的分頁。
+  // 已完成 / 已取消的任務歸檔到各自分頁，不再出現在「任務」表。
+  const activeTasks = tasks.filter(
+    (t) => t.status !== "DONE" && t.status !== "CANCELLED",
+  );
   const taskListNode = (
     <>
-      {tasks.length > 0 && (
+      {activeTasks.length > 0 && (
         /* 手機：8 個欄位擠在 375px 誰都讀不了 → 比照 OKR 的 KR 表，橫向捲動 +
            保底寬度，讓每欄至少有能用的寬度（欄寬百分比才有意義）。 */
         <div className="overflow-x-auto">
@@ -303,7 +307,7 @@ export function ProjectManageCard({
               </tr>
             </thead>
             <tbody className="divide-y">
-              {tasks.map((t) => (
+              {activeTasks.map((t) => (
                 <TaskRow
                   key={t.id}
                   task={t}
@@ -331,7 +335,7 @@ export function ProjectManageCard({
         </div>
       )}
 
-      <div className={cn("px-3 py-2", tasks.length > 0 && "border-t")}>
+      <div className={cn("px-3 py-2", activeTasks.length > 0 && "border-t")}>
         {adding ? (
           <form
             onSubmit={(e) => {

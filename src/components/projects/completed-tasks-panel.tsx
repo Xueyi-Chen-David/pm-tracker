@@ -1,5 +1,16 @@
-import { CheckCircle2, CalendarCheck, XCircle } from "lucide-react";
+"use client";
+
+import { useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import {
+  CheckCircle2,
+  CalendarCheck,
+  RotateCcw,
+  XCircle,
+} from "lucide-react";
 import type { KrStatus } from "@prisma/client";
+import { updateTask } from "@/server/actions/tasks";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { displayInitial, displayName } from "@/lib/display";
 import { fmtDateShort } from "@/lib/date";
@@ -34,14 +45,31 @@ const VARIANTS = {
 export function TaskListPanel({
   tasks,
   variant,
+  canEdit = false,
 }: {
   tasks: TaskView[];
   variant: keyof typeof VARIANTS;
+  /** 具編輯權限時，提供「還原」把任務改回進行中。 */
+  canEdit?: boolean;
 }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
   const v = VARIANTS[variant];
   const list = tasks.filter((t) => t.status === v.status);
   const total = tasks.length;
   const Icon = v.icon;
+
+  function restore(id: string) {
+    start(async () => {
+      try {
+        await updateTask(id, { status: "IN_PROGRESS" });
+        toast.success("已還原為進行中");
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "還原失敗");
+      }
+    });
+  }
 
   if (list.length === 0) {
     return (
@@ -106,6 +134,18 @@ export function TaskListPanel({
                     </Avatar>
                   ))}
                 </span>
+              )}
+              {canEdit && (
+                <button
+                  type="button"
+                  onClick={() => restore(t.id)}
+                  disabled={pending}
+                  title="還原為進行中"
+                  className="text-muted-foreground hover:text-foreground hover:bg-muted inline-flex h-7 shrink-0 items-center gap-1 rounded-md px-2 text-xs disabled:opacity-50"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  <span className="hidden sm:inline">還原</span>
+                </button>
               )}
             </li>
           );

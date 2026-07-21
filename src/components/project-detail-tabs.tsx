@@ -52,6 +52,8 @@ export function ProjectDetailTabs({
 
   const doneCount = tasks.filter((t) => t.status === "DONE").length;
   const cancelledCount = tasks.filter((t) => t.status === "CANCELLED").length;
+  // 「任務」分頁只算進行中的（已完成 / 已取消已歸檔到各自分頁）。
+  const activeCount = tasks.length - doneCount - cancelledCount;
 
   // 分頁順序：任務 → 甘特圖 →（已完成）→（已取消）→ 里程碑 → 軌跡 →（設定，最後）。
   const TAB_META: { value: string; label: string; icon: typeof Flag }[] = [
@@ -79,7 +81,7 @@ export function ProjectDetailTabs({
             const Icon = t.icon;
             const count =
               t.value === "tasks"
-                ? tasks.length
+                ? activeCount
                 : t.value === "milestones"
                   ? milestones.length
                   : t.value === "activity"
@@ -119,7 +121,7 @@ export function ProjectDetailTabs({
       {doneCount > 0 && (
         <TabsContent value="done" className="mt-4">
           <Section title="已完成任務">
-            <TaskListPanel tasks={tasks} variant="done" />
+            <TaskListPanel tasks={tasks} variant="done" canEdit={canEdit} />
           </Section>
         </TabsContent>
       )}
@@ -127,7 +129,7 @@ export function ProjectDetailTabs({
       {cancelledCount > 0 && (
         <TabsContent value="cancelled" className="mt-4">
           <Section title="已取消任務">
-            <TaskListPanel tasks={tasks} variant="cancelled" />
+            <TaskListPanel tasks={tasks} variant="cancelled" canEdit={canEdit} />
           </Section>
         </TabsContent>
       )}
