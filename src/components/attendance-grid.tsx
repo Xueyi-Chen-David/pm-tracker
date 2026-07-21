@@ -402,6 +402,7 @@ function AttendanceCell({
           {label}
           {weekend && " · 放假"}
         </div>
+        {/* 上排：出席 / 缺席 / 休假 / 清除 / 出差 / 在家工作 */}
         <div className="grid grid-cols-2 gap-1.5">
           <button
             type="button"
@@ -430,16 +431,6 @@ function AttendanceCell({
               休假
             </button>
           )}
-          {/* 沒有定義假別時：單一「請假」按鈕（事由填在下方）。有假別時改用下方假別清單。 */}
-          {!weekend && leaveTypes.length === 0 && (
-            <button
-              type="button"
-              onClick={() => apply("leave")}
-              className="rounded-md border border-pink-300 bg-pink-50 py-1 text-xs font-medium text-pink-700 hover:bg-pink-100"
-            >
-              請假
-            </button>
-          )}
           <button
             type="button"
             onClick={() => apply("clear")}
@@ -447,8 +438,32 @@ function AttendanceCell({
           >
             清除
           </button>
+          <button
+            type="button"
+            onClick={() => apply("offsite", { offsiteReason: "出差" })}
+            className="rounded-md border border-sky-300 bg-sky-50 py-1 text-xs font-medium text-sky-700 hover:bg-sky-100"
+          >
+            出差
+          </button>
+          <button
+            type="button"
+            onClick={() => apply("offsite", { offsiteReason: "在家工作" })}
+            className="rounded-md border border-sky-300 bg-sky-50 py-1 text-xs font-medium text-sky-700 hover:bg-sky-100"
+          >
+            在家工作
+          </button>
         </div>
-        {/* 請假（挑假別）：假別的給付比例決定薪資扣薪。週末已放假，不提供。 */}
+
+        {/* 下方：請假。沒有定義假別 → 單一「請假」按鈕；有假別 → 挑假別（給付比例決定扣薪）。 */}
+        {!weekend && leaveTypes.length === 0 && (
+          <button
+            type="button"
+            onClick={() => apply("leave")}
+            className="w-full rounded-md border border-pink-300 bg-pink-50 py-1 text-xs font-medium text-pink-700 hover:bg-pink-100"
+          >
+            請假
+          </button>
+        )}
         {!weekend && leaveTypes.length > 0 && (
           <div>
             <div className="text-muted-foreground mb-1 text-[11px]">請假（挑假別）</div>
@@ -470,22 +485,6 @@ function AttendanceCell({
             </div>
           </div>
         )}
-        <div className="grid grid-cols-2 gap-1.5">
-          <button
-            type="button"
-            onClick={() => apply("offsite", { offsiteReason: "出差" })}
-            className="rounded-md border border-sky-300 bg-sky-50 py-1 text-xs font-medium text-sky-700 hover:bg-sky-100"
-          >
-            出差
-          </button>
-          <button
-            type="button"
-            onClick={() => apply("offsite", { offsiteReason: "在家工作" })}
-            className="rounded-md border border-sky-300 bg-sky-50 py-1 text-xs font-medium text-sky-700 hover:bg-sky-100"
-          >
-            在家工作
-          </button>
-        </div>
         {/* 缺席 / 請假事由：僅平日適用（缺席原因、或請假假別特休/事假/病假…）；週末放假不顯示。 */}
         {!weekend && (
           <input
