@@ -162,7 +162,7 @@ export function ProjectGantt({
 
   return (
     <div>
-      <div className="overflow-x-auto rounded-lg border">
+      <div className="touch-pan-x overflow-x-auto overflow-y-hidden rounded-lg border">
         <div className="flex w-max">
           {/* ── 左欄：任務 + 日期 + 倒數（水平捲動時固定） ── */}
           <div className="bg-card sticky left-0 z-30 w-40 shrink-0 border-r sm:w-60">

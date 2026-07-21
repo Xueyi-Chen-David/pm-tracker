@@ -75,7 +75,9 @@ export function ProjectDetailTabs({
 
   return (
     <Tabs value={tab} onValueChange={(v) => setTab(v as string)}>
-      <div className="overflow-x-auto">
+      {/* 分頁列：只左右捲動（overflow-x-auto 會讓 overflow-y 隱含變 auto → 手機可斜向拖動，
+          加 overflow-y-hidden + touch-pan-x 鎖成純水平）。 */}
+      <div className="touch-pan-x overflow-x-auto overflow-y-hidden">
         <TabsList variant="line" className="w-max">
           {TAB_META.map((t) => {
             const Icon = t.icon;
