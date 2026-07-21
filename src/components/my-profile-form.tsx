@@ -66,19 +66,7 @@ export function MyProfileForm({ values }: { values: MyProfileValues }) {
         全站顯示時用<strong className="font-semibold">綽號</strong>取代真實姓名
       </label>
 
-      <div className="space-y-1.5">
-        <Label htmlFor="m-email">Email（登入身分）</Label>
-        <Input
-          id="m-email"
-          name="email"
-          type="email"
-          defaultValue={values.email ?? ""}
-          placeholder="name@example.com"
-        />
-        <p className="text-muted-foreground text-xs">
-          這是你用來登入的 Email；修改後需用新 Email 登入。
-        </p>
-      </div>
+      {/* Email（登入身分）改到獨立的「變更 Email」卡片，需驗證新信箱後才更換。 */}
 
       <div className="space-y-1.5">
         <Label htmlFor="m-bio">簡介 / 備註</Label>

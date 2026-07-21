@@ -21,6 +21,7 @@ import { displayName, displayInitial } from "@/lib/display";
 import { MemberName } from "@/components/member-name";
 import { AvatarUploader } from "@/components/avatar-uploader";
 import { MyProfileForm } from "@/components/my-profile-form";
+import { ChangeEmailCard } from "@/components/change-email-card";
 import { HealthDot, TypeBadge } from "@/components/badges";
 import { ProgressBar } from "@/components/progress-bar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -36,6 +37,14 @@ export default async function MemberProfilePage({
   const m = await getMemberProfile(org.id, id);
   if (!m) notFound();
   const isSelf = m.id === user.id; // m.id ＝ userId
+  // 本人才需要：目前是否有「待驗證」的變更 Email 請求（顯示在變更 Email 卡片）。
+  const pendingEmailChange = isSelf
+    ? await db.emailChangeRequest.findFirst({
+        where: { userId: user.id, expiresAt: { gt: new Date() } },
+        orderBy: { createdAt: "desc" },
+        select: { newEmail: true },
+      })
+    : null;
   // 具任一人事管理權限者，可從此頁深連到「人事」頁編輯此成員的職務 / 任職狀態 / 角色。
   const canEditHr =
     can("hr.manage_position") ||
@@ -281,16 +290,28 @@ export default async function MemberProfilePage({
             </CardHeader>
             <CardContent>
               {isSelf ? (
-                // 本人：可自行編輯姓名 / 綽號 / Email / 簡介（職務 / 任職狀態 / 角色由人事頁管理）。
-                <MyProfileForm
-                  values={{
-                    name: m.name,
-                    nickname: m.nickname,
-                    useNickname: m.useNickname,
-                    email: m.email,
-                    bio: m.bio,
-                  }}
-                />
+                // 本人：可自行編輯姓名 / 綽號 / 簡介；Email（登入身分）需驗證新信箱才能變更。
+                <div className="space-y-5">
+                  <MyProfileForm
+                    values={{
+                      name: m.name,
+                      nickname: m.nickname,
+                      useNickname: m.useNickname,
+                      email: m.email,
+                      bio: m.bio,
+                    }}
+                  />
+                  <div className="border-t pt-4">
+                    <ChangeEmailCard
+                      currentEmail={m.email}
+                      pending={
+                        pendingEmailChange
+                          ? { newEmail: pendingEmailChange.newEmail }
+                          : null
+                      }
+                    />
+                  </div>
+                </div>
               ) : (
                 <dl className="space-y-2.5 text-sm">
                   <ReadOnlyRow label="職稱" value={m.jobTitle} />

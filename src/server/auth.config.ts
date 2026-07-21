@@ -17,7 +17,9 @@ export const authConfig = {
       const isLoggedIn = !!auth?.user;
       const path = nextUrl.pathname;
       const isPublic =
-        path === "/login" || path.startsWith("/api/auth");
+        path === "/login" ||
+        path === "/verify-email-change" || // 點新信箱驗證連結時不必先登入
+        path.startsWith("/api/auth");
       if (isPublic) return true;
       return isLoggedIn;
     },

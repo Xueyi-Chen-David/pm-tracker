@@ -165,13 +165,13 @@ const MyProfileInput = z.object({
   name: z.string().trim().max(120).optional(),
   nickname: z.string().trim().max(120).optional(),
   useNickname: z.boolean().optional(),
-  email: z.string().trim().email("Email 格式不正確").optional(),
   bio: z.string().trim().max(4000).optional(),
 });
 
 /**
  * 本人編輯自己的個人資料（任何在職成員皆可）。只能改身分顯示欄位與簡介；
  * 角色 / 權限 / 職稱 / 老闆 / 上級主管等仍只有管理者能改（於團隊頁 profile）。
+ * Email（登入身分）不在這裡改——改 Email 需驗證新信箱，見 requestEmailChange。
  */
 export async function updateMyProfileAction(
   _prev: TeamActionState,
@@ -182,83 +182,39 @@ export async function updateMyProfileAction(
     name: formData.get("name") || undefined,
     nickname: formData.get("nickname") || undefined,
     useNickname: formData.get("useNickname") === "on",
-    email: formData.get("email") || undefined,
     bio: formData.get("bio") || undefined,
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "資料格式錯誤" };
   }
   const d = parsed.data;
-  const lowerEmail = d.email ? d.email.toLowerCase() : undefined;
 
   const membership = await db.organizationMember.findUnique({
     where: { organizationId_userId: { organizationId: org.id, userId: user.id } },
     select: { id: true },
   });
 
-  // 只有 email 真的變更時才寫入（不分大小寫比對目前值），避免修改其他資料時誤觸唯一性。
-  const emailUpdate = await resolveEmailUpdate(user.id, lowerEmail);
-  if (emailUpdate.error) return { error: emailUpdate.error };
-  const setEmail = emailUpdate.email !== undefined;
-
-  try {
-    await db.$transaction([
-      db.user.update({
-        where: { id: user.id },
-        data: {
-          name: d.name ?? null,
-          nickname: d.nickname || null,
-          useNickname: d.useNickname ?? false,
-          ...(setEmail ? { email: emailUpdate.email } : {}),
-        },
-      }),
-      ...(membership
-        ? [
-            db.organizationMember.update({
-              where: { id: membership.id },
-              data: {
-                ...(setEmail ? { email: emailUpdate.email } : {}),
-                bio: d.bio || null,
-              },
-            }),
-          ]
-        : []),
-    ]);
-  } catch (e) {
-    if ((e as { code?: string })?.code === "P2002") {
-      return { error: "此 Email 已被其他帳號使用，請改用其他 Email。" };
-    }
-    throw e;
-  }
+  await db.$transaction([
+    db.user.update({
+      where: { id: user.id },
+      data: {
+        name: d.name ?? null,
+        nickname: d.nickname || null,
+        useNickname: d.useNickname ?? false,
+      },
+    }),
+    ...(membership
+      ? [
+          db.organizationMember.update({
+            where: { id: membership.id },
+            data: { bio: d.bio || null },
+          }),
+        ]
+      : []),
+  ]);
   revalidatePath("/me");
   revalidatePath("/team");
   return { ok: true };
-}
-
-/**
- * 解析「要不要更新 email」。
- * - 表單沒帶 email（undefined）→ 不動。
- * - 與目前 email 相同（不分大小寫）→ 不動（避免修改其他資料時誤觸唯一性檢查）。
- * - 真的要改 → 先確認沒被「別的帳號」使用（不分大小寫）；被用則回錯誤訊息。
- */
-async function resolveEmailUpdate(
-  userId: string,
-  lowerEmail: string | undefined,
-): Promise<{ email?: string; error?: string }> {
-  if (lowerEmail === undefined) return {};
-  const current = await db.user.findUnique({
-    where: { id: userId },
-    select: { email: true },
-  });
-  if ((current?.email ?? "").toLowerCase() === lowerEmail) return {}; // 沒變
-  const clash = await db.user.findFirst({
-    where: { email: { equals: lowerEmail, mode: "insensitive" }, id: { not: userId } },
-    select: { id: true },
-  });
-  if (clash) {
-    return { error: "此 Email 已被其他帳號使用，請改用其他 Email。" };
-  }
-  return { email: lowerEmail };
 }
 
 // ── 人事頁：單一欄位 setter（依細分權限授權，管理者天生擁有全部權限故一律通過） ──

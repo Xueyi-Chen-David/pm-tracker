@@ -56,6 +56,21 @@ model User {
   pomodoroSessions     PomodoroSession[]
   leaveRequests        LeaveRequest[]
   pushSubscriptions    PushSubscription[]
+  emailChangeRequests  EmailChangeRequest[]
+}
+
+/// 變更登入 Email 的待驗證請求：寄驗證連結到「新信箱」，點了才真的換（避免打錯或被亂改而登不進來）。
+/// email 是全域登入身分，換成功時會同步更新此人在所有組織的 email 副本。
+model EmailChangeRequest {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  newEmail  String // 目標新信箱（小寫）
+  token     String   @unique // 驗證連結的密鑰
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 /// 瀏覽器推播訂閱（每個裝置 / 瀏覽器一筆）。用來在關閉網頁時也能發桌面通知。
