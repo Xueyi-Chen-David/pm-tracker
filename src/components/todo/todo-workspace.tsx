@@ -17,8 +17,7 @@ import {
   ClipboardCheck,
   Save,
   Pencil,
-  ChevronUp,
-  ChevronDown,
+  GripVertical,
 } from "lucide-react";
 import {
   createTodo,
@@ -172,17 +171,44 @@ function TodoList({
     }, "已新增待辦");
   }
 
-  const open = todos.filter((t) => !t.done);
-  const done = todos.filter((t) => t.done);
+  // 拖曳排序需要「本機順序」以便即時反映；伺服器資料變動（新增 / 勾選 / 刪除 / 持久化後
+  // refresh）時，用資料指紋於 render 階段重新同步（非 effect）。
+  const sig = todos.map((t) => `${t.id}:${t.done ? 1 : 0}`).join(",");
+  const [prevSig, setPrevSig] = useState(sig);
+  const [localTodos, setLocalTodos] = useState(todos);
+  if (sig !== prevSig) {
+    setPrevSig(sig);
+    setLocalTodos(todos);
+  }
+
+  const open = localTodos.filter((t) => !t.done);
+  const done = localTodos.filter((t) => t.done);
   const list = tab === "open" ? open : done;
 
-  // 上下調整順序：在目前分頁的清單內和相鄰者交換，送出新的可見順序。
-  function move(index: number, dir: "up" | "down") {
-    const ids = list.map((t) => t.id);
-    const j = dir === "up" ? index - 1 : index + 1;
-    if (j < 0 || j >= ids.length) return;
-    [ids[index], ids[j]] = [ids[j]!, ids[index]!];
-    run(() => reorderTodos({ orderedIds: ids }));
+  // ── 滑鼠拖曳排序（HTML5 dnd，與任務表一致）──
+  const dragId = useRef<string | null>(null);
+  const [dragging, setDragging] = useState<string | null>(null);
+
+  function moveTodo(fromId: string, toId: string) {
+    if (fromId === toId) return;
+    setLocalTodos((prev) => {
+      const from = prev.findIndex((t) => t.id === fromId);
+      const to = prev.findIndex((t) => t.id === toId);
+      if (from < 0 || to < 0) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved!);
+      return next;
+    });
+  }
+
+  function persistOrder() {
+    const id = dragId.current;
+    dragId.current = null;
+    setDragging(null);
+    if (!id) return;
+    const orderedIds = list.map((t) => t.id); // 目前分頁拖曳後的順序
+    run(() => reorderTodos({ orderedIds }));
   }
 
   return (
@@ -273,7 +299,7 @@ function TodoList({
               : "還沒有已完成的待辦。"}
           </p>
         ) : (
-          list.map((t, i) => (
+          list.map((t) => (
             <TodoRow
               key={t.id}
               todo={t}
@@ -281,9 +307,22 @@ function TodoList({
               inReport={reportedSet.has(t.title.trim())}
               pending={pending}
               run={run}
-              index={i}
-              count={list.length}
-              onMove={(dir) => move(i, dir)}
+              drag={
+                list.length > 1
+                  ? {
+                      dragging: dragging === t.id,
+                      onDragStart: () => {
+                        dragId.current = t.id;
+                        setDragging(t.id);
+                      },
+                      onDragEnter: () => {
+                        if (dragId.current) moveTodo(dragId.current, t.id);
+                      },
+                      onDrop: persistOrder,
+                      onDragEnd: persistOrder,
+                    }
+                  : undefined
+              }
             />
           ))
         )}
@@ -323,9 +362,7 @@ function TodoRow({
   inReport,
   pending,
   run,
-  index,
-  count,
-  onMove,
+  drag,
 }: {
   todo: TodoView;
   taskOptions: TaskOption[];
@@ -333,10 +370,14 @@ function TodoRow({
   inReport: boolean;
   pending: boolean;
   run: (fn: () => Promise<unknown>, ok?: string) => void;
-  /** 在目前分頁清單中的位置 / 總數 / 上下移動。 */
-  index: number;
-  count: number;
-  onMove: (dir: "up" | "down") => void;
+  /** 滑鼠拖曳排序（清單 >1 筆才傳入）。 */
+  drag?: {
+    dragging: boolean;
+    onDragStart: () => void;
+    onDragEnter: () => void;
+    onDrop: () => void;
+    onDragEnd: () => void;
+  };
 }) {
   const [open, setOpen] = useState(false);
   // 編輯表單的本機草稿；每次開啟時由目前值重置。
@@ -378,28 +419,45 @@ function TodoRow({
   }
 
   return (
-    <div className={cn("flex items-start gap-2 px-3 py-2", todo.done && "opacity-60")}>
-      {count > 1 && (
-        <div className="text-muted-foreground -my-0.5 flex shrink-0 flex-col">
-          <button
-            type="button"
-            disabled={pending || index === 0}
-            onClick={() => onMove("up")}
-            className="hover:text-foreground disabled:pointer-events-none disabled:opacity-25"
-            title="上移"
-          >
-            <ChevronUp className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            disabled={pending || index === count - 1}
-            onClick={() => onMove("down")}
-            className="hover:text-foreground disabled:pointer-events-none disabled:opacity-25"
-            title="下移"
-          >
-            <ChevronDown className="h-4 w-4" />
-          </button>
-        </div>
+    <div
+      className={cn(
+        "flex items-start gap-2 px-3 py-2",
+        todo.done && "opacity-60",
+        drag?.dragging && "bg-primary/5 opacity-60",
+      )}
+      onDragEnter={
+        drag
+          ? (e) => {
+              e.preventDefault();
+              drag.onDragEnter();
+            }
+          : undefined
+      }
+      onDragOver={drag ? (e) => e.preventDefault() : undefined}
+      onDrop={
+        drag
+          ? (e) => {
+              e.preventDefault();
+              drag.onDrop();
+            }
+          : undefined
+      }
+    >
+      {drag && (
+        <button
+          type="button"
+          draggable
+          onDragStart={(e) => {
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData("text/plain", todo.id);
+            drag.onDragStart();
+          }}
+          onDragEnd={drag.onDragEnd}
+          className="text-muted-foreground/50 hover:text-foreground mt-1 shrink-0 cursor-grab active:cursor-grabbing"
+          title="拖曳排序"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
       )}
       <input
         type="checkbox"
