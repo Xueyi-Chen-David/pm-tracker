@@ -6,13 +6,10 @@ import {
   FolderKanban,
   Users2,
   CalendarCheck,
-  CheckCircle2,
-  Circle,
   ListChecks,
   ClipboardList,
   UserCog,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { db } from "@/server/db";
 import { requireManageContext } from "@/server/org";
 import { getMemberProfile, getOrgMemberDirectory } from "@/server/queries";
@@ -22,6 +19,7 @@ import { MemberName } from "@/components/member-name";
 import { AvatarUploader } from "@/components/avatar-uploader";
 import { MyProfileForm } from "@/components/my-profile-form";
 import { ChangeEmailCard } from "@/components/change-email-card";
+import { AssignedTasksCard } from "@/components/assigned-tasks-card";
 import { HealthDot, TypeBadge } from "@/components/badges";
 import { ProgressBar } from "@/components/progress-bar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -335,62 +333,7 @@ export default async function MemberProfilePage({
 
         {/* 生產力 */}
         <div className="space-y-5">
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-1.5">
-                <ListChecks className="h-4 w-4" /> 被指派的任務
-                {openTaskCount > 0 && (
-                  <span className="bg-primary/10 text-primary rounded-full px-1.5 text-xs">
-                    {openTaskCount} 待辦
-                  </span>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {assignedTasks.length === 0 ? (
-                <p className="text-muted-foreground px-4 pb-4 text-sm">
-                  尚無被指派的任務
-                </p>
-              ) : (
-                <div className="scroll-y max-h-72 divide-y overflow-y-auto">
-                  {assignedTasks.map((t) => {
-                    const done = t.status === "DONE";
-                    return (
-                      <div
-                        key={t.id}
-                        className="flex items-center gap-2 px-4 py-2 text-sm"
-                      >
-                        {done ? (
-                          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
-                        ) : (
-                          <Circle className="text-muted-foreground h-4 w-4 shrink-0" />
-                        )}
-                        <span
-                          className={cn(
-                            "min-w-0 flex-1 truncate",
-                            done && "text-muted-foreground line-through",
-                          )}
-                        >
-                          {t.title}
-                        </span>
-                        <Link
-                          href={`/projects/${t.project.id}`}
-                          className="text-muted-foreground hidden max-w-[8rem] truncate text-xs hover:underline sm:inline"
-                        >
-                          {t.project.name}
-                        </Link>
-                        {t.dueDate && (
-                          <span className="text-muted-foreground shrink-0 text-xs tabular-nums">
-                            {fmtDateShort(t.dueDate)}
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <AssignedTasksCard tasks={assignedTasks} />
 
           <Card>
             <CardHeader>

@@ -42,9 +42,10 @@ const TodoCreate = z.object({
 export async function createTodo(input: z.input<typeof TodoCreate>) {
   const { org, user } = await requireActiveOrg();
   const d = TodoCreate.parse(input);
-  const max = await db.todoItem.aggregate({
+  // 新待辦排最前面（sortOrder 取目前最小值再減一），而非排在清單尾端。
+  const min = await db.todoItem.aggregate({
     where: { userId: user.id, organizationId: org.id },
-    _max: { sortOrder: true },
+    _min: { sortOrder: true },
   });
   const todo = await db.todoItem.create({
     data: {
@@ -55,7 +56,7 @@ export async function createTodo(input: z.input<typeof TodoCreate>) {
       taskId: await resolveTaskId(org.id, d.taskId),
       startDate: toUtcDate(d.startDate),
       dueDate: toUtcDate(d.dueDate),
-      sortOrder: (max._max.sortOrder ?? 0) + 1,
+      sortOrder: (min._min.sortOrder ?? 0) - 1,
     },
     select: { id: true },
   });
