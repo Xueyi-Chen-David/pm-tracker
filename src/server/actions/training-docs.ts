@@ -24,24 +24,36 @@ async function requireDocEditor() {
 
 /**
  * 可編輯「某一份文件」的權限：管理者(OWNER/ADMIN)一律可編輯，或本人在該文件的
- * editorUserIds 白名單內。皆非則丟錯。
+ * editorUserIds 白名單內。皆非則以回傳值（非 throw）帶回錯誤——「文件被刪除」
+ * 「沒有編輯權限」都是編輯時的正常情境，throw 在正式環境會被 Next.js 隱去訊息。
  */
-async function requirePageEditor(pageId: string) {
+async function requirePageEditor(
+  pageId: string,
+): Promise<
+  { ok: true; ctx: Awaited<ReturnType<typeof requireActiveOrg>> }
+  | { ok: false; error: string }
+> {
   const ctx = await requireActiveOrg();
-  if (canManageMembers(ctx.membership.role)) return ctx;
+  if (canManageMembers(ctx.membership.role)) return { ok: true, ctx };
   const page = await db.trainingDocPage.findFirst({
     where: { id: pageId, organizationId: ctx.org.id },
     select: { editorUserIds: true },
   });
-  if (!page) throw new Error("找不到文件");
+  if (!page) return { ok: false, error: "找不到文件" };
   if (!page.editorUserIds.includes(ctx.user.id)) {
-    throw new Error("你沒有編輯這份文件的權限。");
+    return { ok: false, error: "你沒有編輯這份文件的權限。" };
   }
-  return ctx;
+  return { ok: true, ctx };
 }
 
-/** 確認資料夾屬於本組織，並回傳其在樹中的深度（根層＝1）。找不到則丟錯。 */
-async function folderDepth(orgId: string, folderId: string): Promise<number> {
+/**
+ * 確認資料夾屬於本組織，並回傳其在樹中的深度（根層＝1）。找不到則以回傳值帶回錯誤
+ * ——資料夾在編輯途中被別人刪除是正常情境，非程式錯誤。
+ */
+async function folderDepth(
+  orgId: string,
+  folderId: string,
+): Promise<{ ok: true; depth: number } | { ok: false; error: string }> {
   let depth = 0;
   let current: string | null = folderId;
   // 逐層往上走到根，順便驗證每一層都屬於本組織。
@@ -51,12 +63,12 @@ async function folderDepth(orgId: string, folderId: string): Promise<number> {
         where: { id: current, organizationId: orgId },
         select: { parentId: true },
       });
-    if (!f) throw new Error("找不到資料夾。");
+    if (!f) return { ok: false, error: "找不到資料夾。" };
     depth += 1;
     if (depth > MAX_FOLDER_DEPTH + 1) break; // 防呆：資料異常時避免無限迴圈
     current = f.parentId;
   }
-  return depth;
+  return { ok: true, depth };
 }
 
 // ── 資料夾（Folder）─────────────────────────────────────────────
@@ -72,9 +84,13 @@ export async function createDocFolder(input: z.input<typeof FolderCreate>) {
 
   const parentId = d.parentId ?? null;
   if (parentId) {
-    const depth = await folderDepth(org.id, parentId);
-    if (depth >= MAX_FOLDER_DEPTH) {
-      throw new Error(`資料夾層數已達上限（${MAX_FOLDER_DEPTH} 層）。`);
+    const fd = await folderDepth(org.id, parentId);
+    if (!fd.ok) return fd;
+    if (fd.depth >= MAX_FOLDER_DEPTH) {
+      return {
+        ok: false as const,
+        error: `資料夾層數已達上限（${MAX_FOLDER_DEPTH} 層）。`,
+      };
     }
   }
 
@@ -137,7 +153,8 @@ export async function createDocPage(input: z.input<typeof PageCreate>) {
   const folderId = d.folderId ?? null;
   if (folderId) {
     // 驗證資料夾屬於本組織。
-    await folderDepth(org.id, folderId);
+    const fd = await folderDepth(org.id, folderId);
+    if (!fd.ok) return fd;
   }
 
   const max = await db.trainingDocPage.aggregate({
@@ -169,7 +186,9 @@ const PageUpdate = z.object({
 export async function updateDocPage(input: z.input<typeof PageUpdate>) {
   const d = PageUpdate.parse(input);
   // 管理者或該文件的編輯白名單成員皆可編輯內容 / 標題。
-  const { org, user } = await requirePageEditor(d.id);
+  const res = await requirePageEditor(d.id);
+  if (!res.ok) return res;
+  const { org, user } = res.ctx;
   await db.trainingDocPage.updateMany({
     where: { id: d.id, organizationId: org.id },
     data: {
@@ -202,22 +221,33 @@ export async function moveDocFolder(input: z.input<typeof FolderMove>) {
   const { org } = await requireDocEditor();
   const d = FolderMove.parse(input);
   const parentId = d.parentId ?? null;
-  if (parentId === d.id) throw new Error("不能把資料夾移到自己底下。");
+  if (parentId === d.id) {
+    return { ok: false as const, error: "不能把資料夾移到自己底下。" };
+  }
 
   const all = await db.trainingDocFolder.findMany({
     where: { organizationId: org.id },
     select: { id: true, parentId: true },
   });
-  if (!all.some((f) => f.id === d.id)) throw new Error("找不到資料夾。");
+  if (!all.some((f) => f.id === d.id)) {
+    return { ok: false as const, error: "找不到資料夾。" };
+  }
   const parentOf = new Map(all.map((f) => [f.id, f.parentId] as const));
 
   // 目標上層不可是自己或自己的子孫（避免循環）。
   if (parentId) {
-    if (!parentOf.has(parentId)) throw new Error("找不到目標資料夾。");
+    if (!parentOf.has(parentId)) {
+      return { ok: false as const, error: "找不到目標資料夾。" };
+    }
     let cur: string | null = parentId;
     const seen = new Set<string>();
     while (cur && !seen.has(cur)) {
-      if (cur === d.id) throw new Error("不能把資料夾移到它自己的子資料夾底下。");
+      if (cur === d.id) {
+        return {
+          ok: false as const,
+          error: "不能把資料夾移到它自己的子資料夾底下。",
+        };
+      }
       seen.add(cur);
       cur = parentOf.get(cur) ?? null;
     }
@@ -241,9 +271,17 @@ export async function moveDocFolder(input: z.input<typeof FolderMove>) {
     }
     return height;
   };
-  const newBaseDepth = parentId ? (await folderDepth(org.id, parentId)) + 1 : 1;
+  let newBaseDepth = 1;
+  if (parentId) {
+    const fd = await folderDepth(org.id, parentId);
+    if (!fd.ok) return fd;
+    newBaseDepth = fd.depth + 1;
+  }
   if (newBaseDepth + subtreeHeight(d.id) - 1 > MAX_FOLDER_DEPTH) {
-    throw new Error(`移動後資料夾層數會超過上限（${MAX_FOLDER_DEPTH} 層）。`);
+    return {
+      ok: false as const,
+      error: `移動後資料夾層數會超過上限（${MAX_FOLDER_DEPTH} 層）。`,
+    };
   }
 
   // 重寫同層資料夾的 sortOrder（含把被移動的設到新的上層）。
@@ -285,7 +323,10 @@ export async function moveDocPage(input: z.input<typeof PageMove>) {
   const d = PageMove.parse(input);
   const folderId = d.folderId ?? null;
   // 驗證目標資料夾屬於本組織（順便確保存在）。
-  if (folderId) await folderDepth(org.id, folderId);
+  if (folderId) {
+    const fd = await folderDepth(org.id, folderId);
+    if (!fd.ok) return fd;
+  }
 
   // 目標資料夾內現有文件（依序，排除被移動的那份）。
   const siblings = await db.trainingDocPage.findMany({
@@ -339,7 +380,7 @@ export async function setDocPagePermissions(
       editorUserIds: d.editorUserIds,
     },
   });
-  if (res.count === 0) throw new Error("找不到文件");
+  if (res.count === 0) return { ok: false as const, error: "找不到文件" };
   revalidatePath("/training");
   return { ok: true as const };
 }

@@ -125,7 +125,11 @@ export function CheckInSettings({
 
     start(async () => {
       try {
-        await setCheckInConfig({ enabled, allowedIps, geofences, matchMode });
+        const res = await setCheckInConfig({ enabled, allowedIps, geofences, matchMode });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success("已儲存打卡設定");
         setOpen(false);
         router.refresh();

@@ -83,7 +83,14 @@ export function ObjectiveCard({
         owners: [],
       });
       try {
-        await createKeyResult({ objectiveId: objective.id, title: t });
+        const res = await createKeyResult({
+          objectiveId: objective.id,
+          title: t,
+        });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "新增失敗");
       }

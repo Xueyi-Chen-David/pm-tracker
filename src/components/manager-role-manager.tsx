@@ -35,7 +35,12 @@ export function ManagerRoleManager({ members }: { members: Member[] }) {
     setLocal((p) => ({ ...p, [m.id]: on }));
     start(async () => {
       try {
-        await setMemberManagerRole(m.id, on);
+        const res = await setMemberManagerRole(m.id, on);
+        if (!res.ok) {
+          setLocal((p) => ({ ...p, [m.id]: !on }));
+          toast.error(res.error);
+          return;
+        }
         router.refresh();
       } catch (e) {
         setLocal((p) => ({ ...p, [m.id]: !on }));

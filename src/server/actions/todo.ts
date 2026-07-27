@@ -138,7 +138,9 @@ export async function updateTodo(input: z.input<typeof TodoPatch>) {
           : {}),
     },
   });
-  if (res.count === 0) throw new Error("找不到待辦");
+  // 「找不到待辦」是正常情境（例如另一分頁已刪除、或樂觀 UI 過期），以回傳值而非
+  // throw 帶回——正式環境 Server Action 丟出的 Error 訊息會被 Next.js 隱去。
+  if (res.count === 0) return { ok: false as const, error: "找不到待辦" };
   revalidatePath("/todo");
   return { ok: true as const };
 }
@@ -148,7 +150,7 @@ export async function deleteTodo(id: string) {
   const res = await db.todoItem.deleteMany({
     where: { id, userId: user.id, organizationId: org.id },
   });
-  if (res.count === 0) throw new Error("找不到待辦");
+  if (res.count === 0) return { ok: false as const, error: "找不到待辦" };
   revalidatePath("/todo");
   return { ok: true as const };
 }
@@ -226,7 +228,9 @@ export async function updatePomodoro(input: z.input<typeof PomodoroPatch>) {
       ...todoData,
     },
   });
-  if (res.count === 0) throw new Error("找不到番茄鐘紀錄");
+  // 「找不到番茄鐘紀錄」是正常情境（例如另一分頁已刪除），以回傳值而非 throw
+  // 帶回——正式環境 Server Action 丟出的 Error 訊息會被 Next.js 隱去。
+  if (res.count === 0) return { ok: false as const, error: "找不到番茄鐘紀錄" };
   revalidatePath("/todo");
   return { ok: true as const };
 }
@@ -236,7 +240,8 @@ export async function deletePomodoro(id: string) {
   const res = await db.pomodoroSession.deleteMany({
     where: { id, userId: user.id, organizationId: org.id },
   });
-  if (res.count === 0) throw new Error("找不到番茄鐘紀錄");
+  if (res.count === 0)
+    return { ok: false as const, error: "找不到番茄鐘紀錄" };
   revalidatePath("/todo");
   return { ok: true as const };
 }

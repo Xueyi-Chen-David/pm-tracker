@@ -77,9 +77,12 @@ export async function addTodoToDailyReport(todoId: string) {
     where: { id, userId: user.id, organizationId: org.id },
     select: { title: true },
   });
-  if (!todo) throw new Error("找不到待辦");
+  // 「找不到待辦」/「待辦沒有內容」是可能的正常情境（例如待辦已在別的分頁被刪除、或標題
+  // 只剩空白），以回傳值而非 throw 帶回——正式環境 Server Action 丟出的 Error 訊息
+  // 會被 Next.js 隱去。
+  if (!todo) return { ok: false as const, error: "找不到待辦" };
   const title = todo.title.trim();
-  if (!title) throw new Error("待辦沒有內容");
+  if (!title) return { ok: false as const, error: "待辦沒有內容" };
 
   const date = todayUtc();
   const report = await db.dailyReport.upsert({
@@ -133,11 +136,13 @@ export async function addDailyReportComment(input: z.input<typeof CommentInput>)
   const { user, org, membership } = await requireActiveOrg();
   const d = CommentInput.parse(input);
 
+  // 「找不到該日報」是正常情境（例如日報剛好在此時被刪除），以回傳值而非 throw
+  // 帶回——正式環境 Server Action 丟出的 Error 訊息會被 Next.js 隱去。
   const report = await db.dailyReport.findFirst({
     where: { id: d.reportId, organizationId: org.id },
     select: { id: true, userId: true },
   });
-  if (!report) throw new Error("找不到該日報。");
+  if (!report) return { ok: false as const, error: "找不到該日報。" };
 
   const [orgRow, graph, authorMember] = await Promise.all([
     db.organization.findUnique({
@@ -155,10 +160,14 @@ export async function addDailyReportComment(input: z.input<typeof CommentInput>)
       select: { id: true },
     }),
   ]);
+  // 內部完整性檢查（authorId 來自日報記錄本身，非使用者輸入）——正常操作下不會
+  // 觸發，維持 throw 即可。
   if (!authorMember) throw new Error("報告作者不在目前組織。");
   const chainVisible = orgRow?.dailyReportChainVisible ?? false;
+  // 「無權限留言」是真實可能發生的商業規則（例如可見範圍設定變動、或透過 view-as），
+  // 以回傳值帶回。
   if (!canViewReportOf(graph, membership.id, authorMember.id, chainVisible)) {
-    throw new Error("你沒有權限留言這份日報。");
+    return { ok: false as const, error: "你沒有權限留言這份日報。" };
   }
 
   await db.dailyReportComment.create({
@@ -187,6 +196,7 @@ export async function addDailyReportComment(input: z.input<typeof CommentInput>)
     });
   }
   revalidatePath("/daily");
+  return { ok: true as const };
 }
 
 const ReactionInput = z.object({
@@ -205,11 +215,13 @@ export async function toggleDailyReportReaction(
   const { user, org, membership } = await requireActiveOrg();
   const d = ReactionInput.parse(input);
 
+  // 「找不到該日報」是正常情境（例如日報剛好在此時被刪除），以回傳值而非 throw
+  // 帶回——正式環境 Server Action 丟出的 Error 訊息會被 Next.js 隱去。
   const report = await db.dailyReport.findFirst({
     where: { id: d.reportId, organizationId: org.id },
     select: { id: true, userId: true },
   });
-  if (!report) throw new Error("找不到該日報。");
+  if (!report) return { ok: false as const, error: "找不到該日報。" };
 
   const [orgRow, graph, authorMember] = await Promise.all([
     db.organization.findUnique({
@@ -227,10 +239,14 @@ export async function toggleDailyReportReaction(
       select: { id: true },
     }),
   ]);
+  // 內部完整性檢查（authorId 來自日報記錄本身，非使用者輸入）——正常操作下不會
+  // 觸發，維持 throw 即可。
   if (!authorMember) throw new Error("報告作者不在目前組織。");
   const chainVisible = orgRow?.dailyReportChainVisible ?? false;
+  // 「無權限回應」是真實可能發生的商業規則（例如可見範圍設定變動、或透過 view-as），
+  // 以回傳值帶回。
   if (!canViewReportOf(graph, membership.id, authorMember.id, chainVisible)) {
-    throw new Error("你沒有權限回應這份日報。");
+    return { ok: false as const, error: "你沒有權限回應這份日報。" };
   }
 
   const existing = await db.dailyReportReaction.findUnique({
@@ -247,7 +263,7 @@ export async function toggleDailyReportReaction(
   if (existing) {
     await db.dailyReportReaction.delete({ where: { id: existing.id } });
     revalidatePath("/daily");
-    return { reacted: false as const };
+    return { ok: true as const, reacted: false as const };
   }
 
   await db.dailyReportReaction.create({
@@ -275,5 +291,5 @@ export async function toggleDailyReportReaction(
     });
   }
   revalidatePath("/daily");
-  return { reacted: true as const };
+  return { ok: true as const, reacted: true as const };
 }

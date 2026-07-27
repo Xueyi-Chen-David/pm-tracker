@@ -54,12 +54,13 @@ export async function createLeaveType(input: z.input<typeof LeaveInput>) {
     });
   } catch (e) {
     if ((e as { code?: string })?.code === "P2002") {
-      throw new Error("已有同名假別。");
+      return { ok: false as const, error: "已有同名假別。" };
     }
     throw e;
   }
   revalidatePath("/payroll");
   revalidatePath("/attendance");
+  return { ok: true as const };
 }
 
 const UpdateLeaveInput = LeaveInput.extend({ id: z.string().min(1) });
@@ -71,7 +72,9 @@ export async function updateLeaveType(input: z.input<typeof UpdateLeaveInput>) {
     where: { id: d.id, organizationId: org.id },
     select: { id: true },
   });
-  if (!existing) throw new Error("找不到假別，或它不屬於目前組織。");
+  if (!existing) {
+    return { ok: false as const, error: "找不到假別，或它不屬於目前組織。" };
+  }
   try {
     await db.leaveType.update({
       where: { id: d.id },
@@ -85,12 +88,13 @@ export async function updateLeaveType(input: z.input<typeof UpdateLeaveInput>) {
     });
   } catch (e) {
     if ((e as { code?: string })?.code === "P2002") {
-      throw new Error("已有同名假別。");
+      return { ok: false as const, error: "已有同名假別。" };
     }
     throw e;
   }
   revalidatePath("/payroll");
   revalidatePath("/attendance");
+  return { ok: true as const };
 }
 
 export async function deleteLeaveType(id: string) {
@@ -147,13 +151,16 @@ export async function setLeaveApprovalFlow(input: z.input<typeof FlowInput>) {
       where: { id: { in: memberIds }, organizationId: org.id },
     });
     if (found !== new Set(memberIds).size) {
-      throw new Error("指定的簽核成員不屬於目前組織。");
+      return { ok: false as const, error: "指定的簽核成員不屬於目前組織。" };
     }
   }
   // MEMBER 關卡一定要指定成員。
   for (const s of steps) {
     if (s.approverType === "MEMBER" && !s.approverMemberId) {
-      throw new Error("「指定成員」的關卡請選擇一位簽核人。");
+      return {
+        ok: false as const,
+        error: "「指定成員」的關卡請選擇一位簽核人。",
+      };
     }
   }
 
@@ -170,4 +177,5 @@ export async function setLeaveApprovalFlow(input: z.input<typeof FlowInput>) {
     }),
   ]);
   revalidatePath("/leave");
+  return { ok: true as const };
 }

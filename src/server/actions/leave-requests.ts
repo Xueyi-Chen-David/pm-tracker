@@ -19,10 +19,14 @@ import { createNotification } from "@/server/notify";
  * 「哪一關輪到誰、誰就收到站內通知」；申請人也會在每次進度 / 定案時收到通知。
  */
 
-/** yyyy-mm-dd → UTC 午夜（對應 @db.Date，避免時區位移）。 */
-function toDate(v: string): Date {
+/**
+ * yyyy-mm-dd → UTC 午夜（對應 @db.Date，避免時區位移）。格式錯誤回傳 null（而非
+ * throw）——呼叫端（Server Action）以回傳值帶回錯誤，正式環境 throw 出的 Error
+ * 訊息會被 Next.js 隱去。
+ */
+function toDate(v: string): Date | null {
   const [y, m, day] = v.split("-").map(Number);
-  if (!y || !m || !day) throw new Error("日期格式錯誤");
+  if (!y || !m || !day) return null;
   return new Date(Date.UTC(y, m - 1, day));
 }
 
@@ -122,14 +126,17 @@ export async function submitLeaveRequest(input: z.input<typeof SubmitInput>) {
   const d = SubmitInput.parse(input);
   const start = toDate(d.startDate);
   const end = toDate(d.endDate);
+  if (!start || !end) {
+    return { ok: false as const, error: "日期格式錯誤" };
+  }
   if (end.getTime() < start.getTime()) {
-    throw new Error("結束日期不能早於開始日期。");
+    return { ok: false as const, error: "結束日期不能早於開始日期。" };
   }
   // 證明附件（選填）：驗證格式與大小。
   const attachment = d.attachment?.trim() || null;
   if (attachment) {
     const err = validateAttachment(attachment);
-    if (err) throw new Error(err);
+    if (err) return { ok: false as const, error: err };
   }
   const attachmentName = attachment ? d.attachmentName?.trim() || null : null;
 
@@ -139,7 +146,9 @@ export async function submitLeaveRequest(input: z.input<typeof SubmitInput>) {
       where: { id: d.leaveTypeId, organizationId: org.id },
       select: { name: true },
     });
-    if (!lt) throw new Error("選擇的假別不存在，或不屬於目前組織。");
+    if (!lt) {
+      return { ok: false as const, error: "選擇的假別不存在，或不屬於目前組織。" };
+    }
     leaveTypeName = lt.name;
   }
 
@@ -225,7 +234,7 @@ export async function submitLeaveRequest(input: z.input<typeof SubmitInput>) {
   }
 
   revalidatePath("/leave");
-  return { autoApproved: !chain.length, id: request.id };
+  return { ok: true as const, autoApproved: !chain.length, id: request.id };
 }
 
 const DecideInput = z.object({
@@ -246,19 +255,19 @@ export async function decideLeaveApproval(input: z.input<typeof DecideInput>) {
       user: { select: { name: true, nickname: true, useNickname: true } },
     },
   });
-  if (!request) throw new Error("找不到這筆請假申請。");
+  if (!request) return { ok: false as const, error: "找不到這筆請假申請。" };
   if (request.status !== "PENDING") {
-    throw new Error("這筆申請已定案，無法再簽核。");
+    return { ok: false as const, error: "這筆申請已定案，無法再簽核。" };
   }
 
   const current = request.approvals.find(
     (a) => a.sortOrder === request.currentStep,
   );
   if (!current || current.status !== "PENDING") {
-    throw new Error("找不到目前待簽核的關卡。");
+    return { ok: false as const, error: "找不到目前待簽核的關卡。" };
   }
   if (current.approverMemberId !== membership.id) {
-    throw new Error("現在不是輪到你簽核這筆申請。");
+    return { ok: false as const, error: "現在不是輪到你簽核這筆申請。" };
   }
 
   const now = new Date();
@@ -286,7 +295,7 @@ export async function decideLeaveApproval(input: z.input<typeof DecideInput>) {
     revalidatePath("/leave");
     revalidatePath("/attendance");
     revalidatePath("/team");
-    return;
+    return { ok: true as const };
   }
 
   // 核准當前關卡；若還有下一關 → 前進並通知下一關，否則定案並落地。
@@ -351,6 +360,7 @@ export async function decideLeaveApproval(input: z.input<typeof DecideInput>) {
   revalidatePath("/leave");
   revalidatePath("/attendance");
   revalidatePath("/team");
+  return { ok: true as const };
 }
 
 /**
@@ -367,12 +377,12 @@ export async function deleteLeaveRequest(id: string) {
     where: { id, organizationId: org.id },
     select: { id: true, status: true },
   });
-  if (!request) throw new Error("找不到這筆請假申請。");
+  if (!request) return { ok: false as const, error: "找不到這筆請假申請。" };
 
   await db.leaveRequest.delete({ where: { id: request.id } });
 
   revalidatePath("/leave");
-  return { status: request.status };
+  return { ok: true as const, status: request.status };
 }
 
 /** 申請人撤回自己尚未定案（待簽核）的請假申請。 */
@@ -382,12 +392,15 @@ export async function cancelLeaveRequest(id: string) {
     where: { id, organizationId: org.id },
     include: { approvals: { orderBy: { sortOrder: "asc" } } },
   });
-  if (!request) throw new Error("找不到這筆請假申請。");
-  if (request.userId !== user.id) throw new Error("只能撤回自己的請假申請。");
+  if (!request) return { ok: false as const, error: "找不到這筆請假申請。" };
+  if (request.userId !== user.id) {
+    return { ok: false as const, error: "只能撤回自己的請假申請。" };
+  }
   if (request.status !== "PENDING") {
-    throw new Error(
-      "只能撤回「待簽核」的申請；已核准的請假請洽出勤管理者調整出席月曆。",
-    );
+    return {
+      ok: false as const,
+      error: "只能撤回「待簽核」的申請；已核准的請假請洽出勤管理者調整出席月曆。",
+    };
   }
 
   await db.leaveRequest.update({
@@ -414,4 +427,5 @@ export async function cancelLeaveRequest(id: string) {
     }
   }
   revalidatePath("/leave");
+  return { ok: true as const };
 }

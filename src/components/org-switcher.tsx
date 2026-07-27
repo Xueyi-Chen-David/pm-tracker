@@ -2,6 +2,7 @@
 
 import { useTransition } from "react";
 import Link from "next/link";
+import { toast } from "sonner";
 import { Building2, Check, ChevronsUpDown, Plus } from "lucide-react";
 import { setActiveOrgAction } from "@/server/actions/organizations";
 import {
@@ -28,7 +29,9 @@ export function OrgSwitcher({
   function switchTo(id: string) {
     if (id === activeOrg.id || pending) return;
     start(async () => {
-      await setActiveOrgAction(id);
+      // 成功時 setActiveOrgAction 內部會 redirect（不會回傳）；只有失敗才會回傳到這裡。
+      const res = await setActiveOrgAction(id);
+      if (res?.error) toast.error(res.error);
     });
   }
 

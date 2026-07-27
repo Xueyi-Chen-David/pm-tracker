@@ -159,10 +159,11 @@ export async function createSalaryItemDef(input: z.input<typeof ItemInput>) {
     });
   } catch (e) {
     if ((e as { code?: string })?.code === "P2002")
-      throw new Error("已有同名薪資科目。");
+      return { ok: false as const, error: "已有同名薪資科目。" };
     throw e;
   }
   revalidatePath("/payroll");
+  return { ok: true as const };
 }
 
 const UpdateItemInput = ItemInput.extend({ id: z.string().min(1) });
@@ -176,7 +177,12 @@ export async function updateSalaryItemDef(
     where: { id: d.id, organizationId: org.id },
     select: { id: true },
   });
-  if (!existing) throw new Error("找不到薪資科目，或它不屬於目前組織。");
+  if (!existing) {
+    return {
+      ok: false as const,
+      error: "找不到薪資科目，或它不屬於目前組織。",
+    };
+  }
   try {
     await db.salaryItemDef.update({
       where: { id: d.id },
@@ -192,10 +198,11 @@ export async function updateSalaryItemDef(
     });
   } catch (e) {
     if ((e as { code?: string })?.code === "P2002")
-      throw new Error("已有同名薪資科目。");
+      return { ok: false as const, error: "已有同名薪資科目。" };
     throw e;
   }
   revalidatePath("/payroll");
+  return { ok: true as const };
 }
 
 export async function deleteSalaryItemDef(id: string) {

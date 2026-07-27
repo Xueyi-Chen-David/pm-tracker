@@ -103,7 +103,7 @@ export async function createKeyResult(input: z.input<typeof KrCreateInput>) {
     where: { id: d.objectiveId, organizationId: org.id },
     select: { id: true },
   });
-  if (!obj) throw new Error("找不到目標");
+  if (!obj) return { ok: false as const, error: "找不到目標" };
   const max = await db.keyResult.aggregate({
     where: { objectiveId: d.objectiveId },
     _max: { sortOrder: true },
@@ -117,6 +117,7 @@ export async function createKeyResult(input: z.input<typeof KrCreateInput>) {
     },
   });
   revalidate();
+  return { ok: true as const };
 }
 
 const KrPatch = z.object({
@@ -145,7 +146,7 @@ export async function updateKeyResult(
       where: { id: p.projectId, organizationId: org.id },
       select: { id: true },
     });
-    if (!proj) throw new Error("找不到專案");
+    if (!proj) return { ok: false as const, error: "找不到專案" };
   }
   await db.keyResult.updateMany({
     where: { id, objective: { organizationId: org.id } },
@@ -162,6 +163,7 @@ export async function updateKeyResult(
     },
   });
   revalidate();
+  return { ok: true as const };
 }
 
 export async function setKrOwners(id: string, userIds: string[]) {
@@ -170,7 +172,7 @@ export async function setKrOwners(id: string, userIds: string[]) {
     where: { id, objective: { organizationId: org.id } },
     select: { id: true },
   });
-  if (!kr) throw new Error("找不到 KR");
+  if (!kr) return { ok: false as const, error: "找不到 KR" };
   // 僅接受本組織成員
   const members = await db.organizationMember.findMany({
     where: { organizationId: org.id, userId: { in: userIds } },
@@ -182,6 +184,7 @@ export async function setKrOwners(id: string, userIds: string[]) {
     data: { owners: { set: validIds.map((uid) => ({ id: uid })) } },
   });
   revalidate();
+  return { ok: true as const };
 }
 
 export async function deleteKeyResult(id: string) {

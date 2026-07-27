@@ -44,13 +44,16 @@ export async function createRole(input: z.input<typeof RoleInput>) {
       },
     });
   } catch (e) {
+    // 「已有同名角色」是正常操作下會撞到的情境（唯一鍵衝突），以回傳值帶回而非
+    // throw——Server Action 丟出的 Error 在正式環境會被 Next.js 隱去訊息內容。
     if ((e as { code?: string })?.code === "P2002") {
-      throw new Error("已有同名角色。");
+      return { ok: false as const, error: "已有同名角色。" };
     }
     throw e;
   }
   revalidatePath("/team");
   revalidatePath("/", "layout");
+  return { ok: true as const };
 }
 
 const UpdateRoleInput = RoleInput.extend({ id: z.string().min(1) });
@@ -58,12 +61,15 @@ const UpdateRoleInput = RoleInput.extend({ id: z.string().min(1) });
 export async function updateRole(input: z.input<typeof UpdateRoleInput>) {
   const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
   const d = UpdateRoleInput.parse(input);
-  // 確認角色屬於本組織。
+  // 確認角色屬於本組織。「找不到」在正常操作下也可能發生（例如另一分頁已先刪除
+  // 該角色），以回傳值帶回而非 throw。
   const existing = await db.orgRoleDef.findFirst({
     where: { id: d.id, organizationId: org.id },
     select: { id: true },
   });
-  if (!existing) throw new Error("找不到角色，或它不屬於目前組織。");
+  if (!existing) {
+    return { ok: false as const, error: "找不到角色，或它不屬於目前組織。" };
+  }
   try {
     await db.orgRoleDef.update({
       where: { id: d.id },
@@ -77,12 +83,13 @@ export async function updateRole(input: z.input<typeof UpdateRoleInput>) {
     });
   } catch (e) {
     if ((e as { code?: string })?.code === "P2002") {
-      throw new Error("已有同名角色。");
+      return { ok: false as const, error: "已有同名角色。" };
     }
     throw e;
   }
   revalidatePath("/team");
   revalidatePath("/", "layout");
+  return { ok: true as const };
 }
 
 export async function deleteRole(id: string) {

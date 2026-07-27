@@ -171,7 +171,11 @@ export function CancelButton({ id }: { id: string }) {
         if (!confirm("確定撤回這筆請假申請？")) return;
         start(async () => {
           try {
-            await cancelLeaveRequest(id);
+            const res = await cancelLeaveRequest(id);
+            if (!res.ok) {
+              toast.error(res.error);
+              return;
+            }
             toast.success("已撤回申請");
             router.refresh();
           } catch (e) {

@@ -17,10 +17,14 @@ const MeetingInput = z.object({
 
 export type MeetingActionState = { error?: string; ok?: boolean } | null;
 
-/** yyyy-mm-dd → UTC 午夜（對應 @db.Date，避免時區位移）。 */
-function toDate(v: string): Date {
+/**
+ * yyyy-mm-dd → UTC 午夜（對應 @db.Date，避免時區位移）。回傳 null 表示格式錯誤——
+ * 由呼叫端以 MeetingActionState 的 error 帶回（而非 throw）：Server Action 丟出的
+ * Error 在正式環境會被 Next.js 隱去訊息內容，只留通用文字＋digest。
+ */
+function toDate(v: string): Date | null {
   const [y, m, day] = v.split("-").map(Number);
-  if (!y || !m || !day) throw new Error("日期格式錯誤");
+  if (!y || !m || !day) return null;
   return new Date(Date.UTC(y, m - 1, day));
 }
 
@@ -46,10 +50,12 @@ export async function createMeetingAction(
     return { error: parsed.error.issues[0]?.message ?? "資料格式錯誤" };
   }
   const d = parsed.data;
+  const date = toDate(d.date);
+  if (!date) return { error: "日期格式錯誤" };
   await db.meeting.create({
     data: {
       organizationId: org.id,
-      date: toDate(d.date),
+      date,
       category: d.category,
       title: d.title,
       attendeeIds: d.attendeeIds,
@@ -76,10 +82,12 @@ export async function updateMeetingAction(
     return { error: parsed.error.issues[0]?.message ?? "資料格式錯誤" };
   }
   const d = parsed.data;
+  const date = toDate(d.date);
+  if (!date) return { error: "日期格式錯誤" };
   await db.meeting.updateMany({
     where: { id, organizationId: org.id },
     data: {
-      date: toDate(d.date),
+      date,
       category: d.category,
       title: d.title,
       attendeeIds: d.attendeeIds,

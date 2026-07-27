@@ -49,12 +49,14 @@ export async function setCheckInConfig(input: z.input<typeof CheckInConfigInput>
   const d = CheckInConfigInput.parse(input);
   const allowedIps = d.allowedIps.map((s) => s.trim()).filter(Boolean);
 
-  // 「兩者皆須符合」需同時設有網段與地點，否則其實只判單一條件、易誤導。
+  // 「兩者皆須符合」需同時設有網段與地點，否則其實只判單一條件、易誤導。以回傳值
+  // 帶回（而非 throw）——正式環境 Server Action 丟出的 Error 訊息會被 Next.js 隱去。
   if (d.enabled && d.matchMode === "all") {
     if (allowedIps.length === 0 || d.geofences.length === 0) {
-      throw new Error(
-        "選擇「兩者皆須符合」時，需同時設定至少一個 IP／網段與一個地點。",
-      );
+      return {
+        ok: false as const,
+        error: "選擇「兩者皆須符合」時，需同時設定至少一個 IP／網段與一個地點。",
+      };
     }
   }
 

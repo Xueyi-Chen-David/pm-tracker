@@ -13,12 +13,17 @@ import {
   ACTIVE_ORG_COOKIE_OPTS,
 } from "@/server/org";
 
-/** 切換目前組織：驗證是我的組織 → 寫 cookie → 進 dashboard。 */
+/**
+ * 切換目前組織：驗證是我的組織 → 寫 cookie → 進 dashboard。
+ * 「不是該組織成員」在正常操作下也可能發生（例如清單顯示的組織在切換當下已被移除
+ * 成員），以回傳值帶回而非 throw——Server Action 丟出的 Error 在正式環境會被
+ * Next.js 隱去訊息內容。呼叫端（表單 action 綁定 / 客戶端直呼）自行決定如何呈現。
+ */
 export async function setActiveOrgAction(orgId: string) {
   const user = await requireUser();
   const memberships = await getMyMemberships(user.id);
   if (!memberships.some((m) => m.organizationId === orgId)) {
-    throw new Error("你不是該組織的成員。");
+    return { ok: false as const, error: "你不是該組織的成員。" };
   }
   const store = await cookies();
   store.set(ACTIVE_ORG_COOKIE, orgId, ACTIVE_ORG_COOKIE_OPTS);

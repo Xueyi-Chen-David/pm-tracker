@@ -269,8 +269,13 @@ function ItemDialog({
     };
     start(async () => {
       try {
-        if (it) await updateSalaryItemDef({ id: it.id, ...payload });
-        else await createSalaryItemDef(payload);
+        const res = it
+          ? await updateSalaryItemDef({ id: it.id, ...payload })
+          : await createSalaryItemDef(payload);
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success(it ? "已更新科目" : "已新增科目");
         router.refresh();
         onClose();

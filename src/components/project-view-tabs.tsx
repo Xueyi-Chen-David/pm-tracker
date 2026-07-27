@@ -93,7 +93,11 @@ export function ProjectViewTabs({
     if (!confirm(`刪除視窗「${v.name}」？（裡面的專案不會被刪除）`)) return;
     start(async () => {
       try {
-        await deleteProjectView(v.id);
+        const res = await deleteProjectView(v.id);
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success("已刪除視窗");
         router.push(`/projects?view=${viewMode}`);
         router.refresh();

@@ -120,8 +120,10 @@ export function DealDialog({
     if (!input.title) return setError("請輸入商機名稱");
     start(async () => {
       try {
-        if (editing) await updateDeal(deal.id, input);
-        else await createDeal(input);
+        const res = editing
+          ? await updateDeal(deal.id, input)
+          : await createDeal(input);
+        if (!res.ok) return setError(res.error);
         setOpen(false);
         toast.success(editing ? "已更新商機" : "已新增商機");
         router.refresh();
@@ -131,10 +133,17 @@ export function DealDialog({
     });
   }
 
-  function run(fn: () => Promise<void>, after?: () => void) {
+  function run(
+    fn: () => Promise<{ ok: boolean; error?: string } | void>,
+    after?: () => void,
+  ) {
     start(async () => {
       try {
-        await fn();
+        const res = await fn();
+        if (res && !res.ok) {
+          toast.error(res.error ?? "操作失敗");
+          return;
+        }
         after?.();
         router.refresh();
       } catch (err) {
@@ -441,7 +450,10 @@ function ActivitySection({
   pending: boolean;
   onOptimistic: (a: Activity) => void;
   onChanged: () => void;
-  run: (fn: () => Promise<void>, after?: () => void) => void;
+  run: (
+    fn: () => Promise<{ ok: boolean; error?: string } | void>,
+    after?: () => void,
+  ) => void;
 }) {
   const [type, setType] = useState("note");
 

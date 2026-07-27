@@ -61,8 +61,13 @@ export async function deleteProjectView(id: string) {
   const view = await db.projectView.findFirst({
     where: { id, organizationId: org.id },
   });
-  if (!view) return;
-  if (view.isSystem) throw new Error("「全體」視窗無法刪除。");
+  if (!view) return { ok: true as const };
+  // 「全體」是系統視窗，不能被刪除——這是真正的商業規則，以回傳值帶回而非 throw，
+  // 因為 Server Action 丟出的 Error 在正式環境會被 Next.js 隱去訊息內容。
+  if (view.isSystem) {
+    return { ok: false as const, error: "「全體」視窗無法刪除。" };
+  }
   await db.projectView.delete({ where: { id } });
   revalidatePath("/projects");
+  return { ok: true as const };
 }

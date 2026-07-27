@@ -542,7 +542,11 @@ function PayslipRow({
   function compute() {
     start(async () => {
       try {
-        await computePayslip({ memberId: m.membershipId, year, month });
+        const res = await computePayslip({ memberId: m.membershipId, year, month });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success("已產生薪資單");
         router.refresh();
       } catch (e) {
@@ -771,7 +775,7 @@ function AdjustmentPanel({
     const def = defId ? salaryItems.find((d) => d.id === defId) : undefined;
     start(async () => {
       try {
-        await addPayslipAdjustment({
+        const res = await addPayslipAdjustment({
           memberId: m.membershipId,
           year,
           month,
@@ -785,6 +789,10 @@ function AdjustmentPanel({
           taxFreeLimit: def?.taxFreeLimit ?? null,
           sourceDefId: def?.id ?? null,
         });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success("已加入當月獎金 / 調整並重算");
         setDefId("");
         setLabel("");

@@ -60,8 +60,12 @@ export function StageDialog({
     const input = { label: label.trim(), note: note.trim() || undefined, color };
     start(async () => {
       try {
-        if (editing) await updateDealStage(stage!.id, input);
-        else await createDealStage(input);
+        if (editing) {
+          const res = await updateDealStage(stage!.id, input);
+          if (!res.ok) return setError(res.error);
+        } else {
+          await createDealStage(input);
+        }
         setOpen(false);
         toast.success(editing ? "已更新階段" : "已新增階段");
         router.refresh();
@@ -75,7 +79,11 @@ export function StageDialog({
     if (!stage || !confirm(`刪除階段「${stage.label}」？`)) return;
     start(async () => {
       try {
-        await deleteDealStage(stage.id);
+        const res = await deleteDealStage(stage.id);
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         setOpen(false);
         toast.success("已刪除階段");
         router.refresh();

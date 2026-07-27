@@ -63,13 +63,17 @@ export function LeaveApprovalFlowManager({
     }
     start(async () => {
       try {
-        await setLeaveApprovalFlow({
+        const res = await setLeaveApprovalFlow({
           steps: steps.map((s) => ({
             approverType: s.approverType,
             approverMemberId:
               s.approverType === "MEMBER" ? s.approverMemberId : null,
           })),
         });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success("已更新簽核流程");
         router.refresh();
       } catch (e) {

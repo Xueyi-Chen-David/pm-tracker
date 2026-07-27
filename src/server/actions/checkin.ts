@@ -21,7 +21,10 @@ const PunchInput = z.object({
 
 /**
  * 員工打卡（上班 / 下班）。以來源 IP 或 GPS 座標驗證（任一符合即有效）；
- * 不符合則丟出錯誤說明。有效的「上班」打卡會標記當日出席。
+ * 不符合則以回傳值（非 throw）帶回錯誤說明——這類「未在允許範圍」是打卡時的
+ * 正常情境（非程式錯誤），Next.js 對 Server Action 丟出的 Error 在正式環境一律
+ * 隱去訊息內容（只留通用文字＋digest），throw 會讓使用者看到的說明失真。
+ * 有效的「上班」打卡會標記當日出席。
  */
 export async function punch(input: z.input<typeof PunchInput>) {
   const { user, org } = await requireActiveOrg();
@@ -37,7 +40,7 @@ export async function punch(input: z.input<typeof PunchInput>) {
     },
   });
   if (!orgRow?.checkInEnabled) {
-    throw new Error("打卡功能尚未開啟，請聯絡管理者。");
+    return { ok: false as const, error: "打卡功能尚未開啟，請聯絡管理者。" };
   }
 
   const hdrs = await headers();
@@ -58,7 +61,7 @@ export async function punch(input: z.input<typeof PunchInput>) {
   });
 
   if (!result.valid) {
-    throw new Error(result.reason ?? "打卡未通過驗證。");
+    return { ok: false as const, error: result.reason ?? "打卡未通過驗證。" };
   }
 
   const date = todayUtc();

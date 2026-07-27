@@ -33,13 +33,13 @@ export async function updateWorkDescription(
   const { user, org, membership } = await requireActiveOrg();
   const d = WorkDescriptionInput.parse(input);
   if (!canManageMembers(membership.role) && d.userId !== user.id) {
-    throw new Error("你只能編輯自己的工作描述。");
+    return { ok: false as const, error: "你只能編輯自己的工作描述。" };
   }
   const res = await db.organizationMember.updateMany({
     where: { organizationId: org.id, userId: d.userId },
     data: { workDescription: d.workDescription.trim() || null },
   });
-  if (res.count === 0) throw new Error("找不到成員");
+  if (res.count === 0) return { ok: false as const, error: "找不到成員" };
   revalidatePath("/team");
   return { ok: true as const };
 }
@@ -130,7 +130,7 @@ export async function updateAvatar(input: {
   const { user, org, membership } = await requireActiveOrg();
   const targetId = input.userId;
   if (targetId !== user.id && !canManageMembers(membership.role)) {
-    throw new Error("只能更改自己的頭貼；管理者才能更改他人的。");
+    return { ok: false as const, error: "只能更改自己的頭貼；管理者才能更改他人的。" };
   }
   // 管理者改他人：確認目標是本組織成員（縱深防禦，擋跨組織）。
   if (targetId !== user.id) {
@@ -144,11 +144,11 @@ export async function updateAvatar(input: {
   let image: string | null = null;
   if (input.dataUrl) {
     if (!AVATAR_DATA_URL_RE.test(input.dataUrl)) {
-      throw new Error("頭貼格式不正確。");
+      return { ok: false as const, error: "頭貼格式不正確。" };
     }
     // data URL 長度上限（約 500KB 圖片）；前端已壓縮成小圖，這是防呆。
     if (input.dataUrl.length > 700_000) {
-      throw new Error("圖片太大，請換小一點的圖片。");
+      return { ok: false as const, error: "圖片太大，請換小一點的圖片。" };
     }
     image = input.dataUrl;
   }
@@ -237,7 +237,9 @@ export async function setMemberJobTitle(userId: string, jobTitle: string) {
 export async function setMemberHireDate(userId: string, hireDate: string) {
   const { org } = await requireOrgPermission("hr.manage_employment");
   const v = hireDate.trim();
-  if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new Error("到職日格式錯誤。");
+  if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    return { ok: false as const, error: "到職日格式錯誤。" };
+  }
   const res = await db.organizationMember.updateMany({
     where: { organizationId: org.id, userId },
     data: { hireDate: v ? new Date(`${v}T00:00:00.000Z`) : null },
@@ -246,6 +248,7 @@ export async function setMemberHireDate(userId: string, hireDate: string) {
   revalidatePath("/hr");
   revalidatePath("/team");
   revalidatePath(`/me/${userId}`);
+  return { ok: true as const };
 }
 
 /** 覆蓋成員的自訂角色指派（人事頁）。只接受本組織的角色 id。需 hr.manage_roles。 */
@@ -285,21 +288,23 @@ export async function setMemberManagerRole(userId: string, makeManager: boolean)
   });
   if (!target) throw new Error("該成員不屬於目前組織。");
   if (target.role === "OWNER") {
-    throw new Error("擁有者一律是管理者，無法在此變更。");
+    return { ok: false as const, error: "擁有者一律是管理者，無法在此變更。" };
   }
 
   if (makeManager) {
-    if (target.role === "ADMIN") return;
+    if (target.role === "ADMIN") return { ok: true as const };
     await db.organizationMember.update({
       where: { id: target.id },
       data: { role: "ADMIN" },
     });
   } else {
-    if (target.role !== "ADMIN") return;
+    if (target.role !== "ADMIN") return { ok: true as const };
     const managerCount = await db.organizationMember.count({
       where: { organizationId: org.id, role: { in: ["OWNER", "ADMIN"] } },
     });
-    if (managerCount <= 1) throw new Error("組織至少要有一位管理者。");
+    if (managerCount <= 1) {
+      return { ok: false as const, error: "組織至少要有一位管理者。" };
+    }
     await db.organizationMember.update({
       where: { id: target.id },
       data: { role: "MEMBER" },
@@ -307,6 +312,7 @@ export async function setMemberManagerRole(userId: string, makeManager: boolean)
   }
   revalidatePath("/team");
   revalidatePath(`/me/${userId}`);
+  return { ok: true as const };
 }
 
 /**
@@ -327,14 +333,14 @@ export async function setMemberManager(
   let managerId: string | null = null;
   if (managerMembershipId) {
     if (managerMembershipId === membership.id) {
-      throw new Error("不能把自己設為自己的主管。");
+      return { ok: false as const, error: "不能把自己設為自己的主管。" };
     }
     const graph = await getMembershipGraph(org.id);
     if (!graph.find((m) => m.id === managerMembershipId)) {
       throw new Error("指定的主管不在目前組織。");
     }
     if (wouldCycle(graph, membership.id, managerMembershipId)) {
-      throw new Error("此指派會造成主管關係循環。");
+      return { ok: false as const, error: "此指派會造成主管關係循環。" };
     }
     managerId = managerMembershipId;
   }
@@ -347,6 +353,7 @@ export async function setMemberManager(
   revalidatePath("/team");
   revalidatePath(`/me/${userId}`);
   revalidatePath("/daily");
+  return { ok: true as const };
 }
 
 /**
@@ -512,7 +519,7 @@ export async function setMemberActive(id: string, active: boolean) {
 export async function deleteWorkspaceMember(id: string) {
   const { user: me, org } = await requireOrgPermission("hr.manage_employment");
   if (id === me.id) {
-    throw new Error("不能移除自己。");
+    return { ok: false as const, error: "不能移除自己。" };
   }
   // 該成員的 membership id：用來把它從其他成員的「額外回報對象」陣列中移除（無 FK，需手動）。
   const membership = await db.organizationMember.findUnique({
@@ -563,4 +570,5 @@ export async function deleteWorkspaceMember(id: string) {
   ]);
   revalidatePath("/hr");
   revalidatePath("/team");
+  return { ok: true as const };
 }

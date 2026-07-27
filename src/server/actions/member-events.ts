@@ -28,9 +28,13 @@ function toDate(v: string): Date {
 export async function createMemberEvent(input: z.input<typeof EventInput>) {
   const { user, org, membership } = await requireActiveOrg();
   const d = EventInput.parse(input);
-  // 只能替自己登記事件；替他人登記需出勤管理權限（人資 / 管理者）。
+  // 只能替自己登記事件；替他人登記需出勤管理權限（人資 / 管理者）。以回傳值（非 throw）
+  // 帶回——正式環境 Server Action 丟出的 Error 訊息會被 Next.js 隱去。
   if (d.userId !== user.id && !membershipHas(membership, "attendance.manage")) {
-    throw new Error("只能替自己登記請假 / 事件；需具備出勤管理權限才能替他人登記。");
+    return {
+      ok: false as const,
+      error: "只能替自己登記請假 / 事件；需具備出勤管理權限才能替他人登記。",
+    };
   }
   const member = await db.organizationMember.findUnique({
     where: { organizationId_userId: { organizationId: org.id, userId: d.userId } },
@@ -46,7 +50,7 @@ export async function createMemberEvent(input: z.input<typeof EventInput>) {
   const attachment = d.attachment?.trim() || null;
   if (attachment) {
     const err = validateAttachment(attachment);
-    if (err) throw new Error(err);
+    if (err) return { ok: false as const, error: err };
   }
 
   await db.memberEvent.create({
@@ -77,15 +81,20 @@ export async function createMemberEvent(input: z.input<typeof EventInput>) {
   revalidatePath("/leave");
   revalidatePath("/team");
   revalidatePath("/attendance");
+  return { ok: true as const };
 }
 
 /** 請假簽核頁用：切換檢視對象時，即時抓該成員的事件清單。 */
 export async function getMemberEventsAction(userId: string) {
   const { org, user, membership } = await requireActiveOrg();
+  // 以回傳值（非 throw）帶回——正式環境 Server Action 丟出的 Error 訊息會被 Next.js 隱去。
   if (userId !== user.id && !membershipHas(membership, "attendance.manage")) {
-    throw new Error("只能查看自己的事件；需具備出勤管理權限才能查看他人的。");
+    return {
+      ok: false as const,
+      error: "只能查看自己的事件；需具備出勤管理權限才能查看他人的。",
+    };
   }
-  return db.memberEvent.findMany({
+  const events = await db.memberEvent.findMany({
     where: { organizationId: org.id, userId },
     orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
     take: 50,
@@ -99,6 +108,7 @@ export async function getMemberEventsAction(userId: string) {
       attachmentName: true,
     },
   });
+  return { ok: true as const, events };
 }
 
 export async function deleteMemberEvent(input: { id: string; userId: string }) {
@@ -108,10 +118,14 @@ export async function deleteMemberEvent(input: { id: string; userId: string }) {
     where: { id: input.id, organizationId: org.id },
     select: { userId: true, type: true, startDate: true, endDate: true },
   });
-  if (!event) return;
-  // 只能刪自己的事件；刪他人需出勤管理權限。
+  if (!event) return { ok: true as const };
+  // 只能刪自己的事件；刪他人需出勤管理權限。以回傳值（非 throw）帶回——正式環境
+  // Server Action 丟出的 Error 訊息會被 Next.js 隱去。
   if (event.userId !== user.id && !membershipHas(membership, "attendance.manage")) {
-    throw new Error("只能刪除自己的事件；需具備出勤管理權限才能刪除他人的。");
+    return {
+      ok: false as const,
+      error: "只能刪除自己的事件；需具備出勤管理權限才能刪除他人的。",
+    };
   }
   await db.memberEvent.deleteMany({
     where: { id: input.id, organizationId: org.id },
@@ -130,4 +144,5 @@ export async function deleteMemberEvent(input: { id: string; userId: string }) {
   revalidatePath("/leave");
   revalidatePath("/team");
   revalidatePath("/attendance");
+  return { ok: true as const };
 }

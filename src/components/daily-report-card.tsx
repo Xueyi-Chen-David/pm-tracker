@@ -110,7 +110,11 @@ export function DailyReportCard({
     if (!text) return;
     start(async () => {
       try {
-        await addDailyReportComment({ reportId: report.id, body: text });
+        const res = await addDailyReportComment({ reportId: report.id, body: text });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         setBody("");
         toast.success("已送出回饋");
         router.refresh();
@@ -125,7 +129,11 @@ export function DailyReportCard({
     start(async () => {
       applyOptimistic(emoji);
       try {
-        await toggleDailyReportReaction({ reportId: report.id, emoji });
+        const res = await toggleDailyReportReaction({ reportId: report.id, emoji });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         router.refresh();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "回應失敗");

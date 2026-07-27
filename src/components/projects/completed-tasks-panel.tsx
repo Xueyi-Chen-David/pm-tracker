@@ -62,7 +62,11 @@ export function TaskListPanel({
   function restore(id: string) {
     start(async () => {
       try {
-        await updateTask(id, { status: "IN_PROGRESS" });
+        const res = await updateTask(id, { status: "IN_PROGRESS" });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success("已還原為進行中");
         router.refresh();
       } catch (e) {

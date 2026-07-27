@@ -540,10 +540,17 @@ function MemberEditor({
 
   const otherManagers = managerOptions.filter((o) => o.membershipId !== m.membershipId);
 
-  function run(fn: () => Promise<unknown>, msg: string) {
+  function run(
+    fn: () => Promise<{ ok: boolean; error?: string } | void>,
+    msg: string,
+  ) {
     start(async () => {
       try {
-        await fn();
+        const res = await fn();
+        if (res && !res.ok) {
+          toast.error(res.error ?? "儲存失敗");
+          return;
+        }
         toast.success(msg);
         router.refresh();
       } catch (e) {
@@ -555,7 +562,7 @@ function MemberEditor({
   function commitText(
     next: string,
     original: string | null,
-    fn: (v: string) => Promise<unknown>,
+    fn: (v: string) => Promise<{ ok: boolean; error?: string } | void>,
     msg: string,
   ) {
     if (next.trim() === (original ?? "").trim()) return;

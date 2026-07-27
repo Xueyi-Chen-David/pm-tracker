@@ -66,7 +66,11 @@ export function PipelineBoard({
     if (!mv) return;
     start(async () => {
       try {
-        await moveDealStage(mv.dealId, mv.to.key, reason);
+        const res = await moveDealStage(mv.dealId, mv.to.key, reason);
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         router.refresh();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "移動失敗");

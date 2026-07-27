@@ -168,7 +168,11 @@ function ReviewRow({ c }: { c: PendingCheckInCorrection }) {
     }
     start(async () => {
       try {
-        await reviewCheckInCorrection(c.id, approve, note);
+        const res = await reviewCheckInCorrection(c.id, approve, note);
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success(approve ? "已核准並補計工時" : "已駁回");
         router.refresh();
       } catch (e) {

@@ -154,11 +154,15 @@ function ApprovalActions({ requestId }: { requestId: string }) {
     if (!decision) return;
     start(async () => {
       try {
-        await decideLeaveApproval({
+        const res = await decideLeaveApproval({
           requestId,
           decision,
           comment: comment.trim() || undefined,
         });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success(decision === "APPROVE" ? "已核准" : "已駁回");
         setDecision(null);
         setComment("");
@@ -253,7 +257,11 @@ function DeleteRequestButton({ id, status }: { id: string; status: string }) {
         if (!confirm(warn)) return;
         start(async () => {
           try {
-            await deleteLeaveRequest(id);
+            const res = await deleteLeaveRequest(id);
+            if (!res.ok) {
+              toast.error(res.error);
+              return;
+            }
             toast.success("已刪除簽核紀錄");
             router.refresh();
           } catch (e) {

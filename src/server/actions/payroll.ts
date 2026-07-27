@@ -237,7 +237,10 @@ export async function computePayslip(input: z.input<typeof PeriodSchema>) {
   });
   if (!member) throw new Error("該成員不屬於目前組織。");
   if (!member.salaryProfile) {
-    throw new Error("請先設定該成員的薪資，才能產生薪資單。");
+    return {
+      ok: false as const,
+      error: "請先設定該成員的薪資，才能產生薪資單。",
+    };
   }
   const sp = member.salaryProfile;
 
@@ -506,6 +509,7 @@ export async function computePayslip(input: z.input<typeof PeriodSchema>) {
     },
   });
   revalidatePath("/payroll");
+  return { ok: true as const };
 }
 
 /** 產生（重算）當月所有「已設定薪資」成員的薪資單。 */
@@ -555,7 +559,10 @@ export async function addPayslipAdjustment(input: z.input<typeof AdjustmentInput
   });
   if (!member) throw new Error("該成員不屬於目前組織。");
   if (!member.salaryProfile) {
-    throw new Error("請先設定該成員的薪資，才能加當月獎金 / 調整。");
+    return {
+      ok: false as const,
+      error: "請先設定該成員的薪資，才能加當月獎金 / 調整。",
+    };
   }
 
   await db.payslipAdjustment.create({
@@ -581,6 +588,7 @@ export async function addPayslipAdjustment(input: z.input<typeof AdjustmentInput
   // 立即重算，讓薪資單即時反映。
   await computePayslip({ memberId: d.memberId, year: d.year, month: d.month });
   revalidatePath("/payroll");
+  return { ok: true as const };
 }
 
 /** 刪除一筆「當月獎金 / 調整」，並重算該月薪資單。需 payroll.manage。 */

@@ -207,7 +207,11 @@ const StatusHealthInput = z.object({
   health: z.enum(["GREEN", "YELLOW", "RED"]).optional(),
 });
 
-/** 詳情頁的「快速調整」：只改狀態 / 健康度並寫入操作紀錄。 */
+/**
+ * 詳情頁的「快速調整」：只改狀態 / 健康度並寫入操作紀錄。
+ * 「找不到專案」是可能在正常操作中發生的情況（例如專案已被他人刪除）——以回傳值
+ * 帶回而非 throw，因為正式環境 Server Action 丟出的 Error 訊息會被 Next.js 隱去。
+ */
 export async function setProjectStatusHealth(
   input: z.input<typeof StatusHealthInput>,
 ) {
@@ -219,7 +223,7 @@ export async function setProjectStatusHealth(
     where: { id: d.projectId },
     select: { status: true, health: true },
   });
-  if (!before) throw new Error("找不到專案");
+  if (!before) return { ok: false as const, error: "找不到專案" };
 
   const data: {
     status?: typeof d.status;
@@ -234,7 +238,9 @@ export async function setProjectStatusHealth(
     data.actualEndDate = d.status === "COMPLETED" ? now : null;
   }
   if (d.health && d.health !== before.health) data.health = d.health;
-  if (data.status === undefined && data.health === undefined) return;
+  if (data.status === undefined && data.health === undefined) {
+    return { ok: true as const };
+  }
 
   await db.project.update({ where: { id: d.projectId }, data });
 
@@ -258,6 +264,7 @@ export async function setProjectStatusHealth(
   revalidatePath(`/projects/${d.projectId}`);
   revalidatePath("/dashboard");
   revalidatePath("/projects");
+  return { ok: true as const };
 }
 
 export async function deleteProject(id: string) {
@@ -316,12 +323,13 @@ const ReorderInput = z.object({
  * orderedIds＝目前畫面上「可見專案」的新順序（上/下移後的結果）。
  * 為避免打亂被視窗 / 篩選隱藏的專案，採「保留隱藏者原位」合併：走訪本組織所有未封存
  * 專案，遇到可見者就依 orderedIds 依序填入、隱藏者留在原位，最後整體重寫 sortOrder。
- * 只有管理者 / 老闆能調整順序。
+ * 只有管理者 / 老闆能調整順序——一般成員若透過某種方式觸發，屬於可能發生的正常情境
+ * （非程式錯誤），以回傳值帶回，避免正式環境 Server Action 的 Error 訊息被 Next.js 隱去。
  */
 export async function reorderProjects(input: z.input<typeof ReorderInput>) {
   const { org, membership } = await requireActiveOrg();
   if (!isManagerOrBoss(membership)) {
-    throw new Error("只有管理者能調整專案順序。");
+    return { ok: false as const, error: "只有管理者能調整專案順序。" };
   }
   const { orderedIds } = ReorderInput.parse(input);
 
@@ -346,6 +354,7 @@ export async function reorderProjects(input: z.input<typeof ReorderInput>) {
   );
   revalidatePath("/projects");
   revalidatePath("/dashboard");
+  return { ok: true as const };
 }
 
 // 詳情頁「就地內嵌編輯」的核心欄位（不含 status/health/countInProgress，那些有各自的
@@ -363,6 +372,10 @@ const CoreInput = z.object({
   color: z.string().optional().nullable(),
 });
 
+/**
+ * 「找不到專案」是可能在正常操作中發生的情況（例如專案已被他人刪除）——以回傳值
+ * 帶回而非 throw，因為正式環境 Server Action 丟出的 Error 訊息會被 Next.js 隱去。
+ */
 export async function updateProjectCore(input: z.input<typeof CoreInput>) {
   const { user, org } = await requireActiveOrg();
   const d = CoreInput.parse(input);
@@ -382,7 +395,7 @@ export async function updateProjectCore(input: z.input<typeof CoreInput>) {
       color: true,
     },
   });
-  if (!before) throw new Error("找不到專案");
+  if (!before) return { ok: false as const, error: "找不到專案" };
 
   await db.project.update({
     where: { id: d.projectId },

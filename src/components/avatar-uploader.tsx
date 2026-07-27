@@ -69,7 +69,11 @@ export function AvatarUploader({
     start(async () => {
       try {
         const dataUrl = await fileToAvatarDataUrl(file);
-        await updateAvatar({ userId, dataUrl });
+        const res = await updateAvatar({ userId, dataUrl });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success("已更新頭貼");
         router.refresh();
       } catch (err) {
@@ -81,7 +85,11 @@ export function AvatarUploader({
   function remove() {
     start(async () => {
       try {
-        await updateAvatar({ userId, dataUrl: null });
+        const res = await updateAvatar({ userId, dataUrl: null });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success("已移除頭貼");
         router.refresh();
       } catch (err) {

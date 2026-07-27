@@ -62,8 +62,10 @@ export function CrmEventDialog({
     if (!input.title) return setError("請輸入主題");
     start(async () => {
       try {
-        if (editing) await updateCrmEvent(event.id, input);
-        else await createCrmEvent(input);
+        const res = editing
+          ? await updateCrmEvent(event.id, input)
+          : await createCrmEvent(input);
+        if (!res.ok) return setError(res.error);
         setOpen(false);
         toast.success(editing ? "已更新活動" : "已新增活動");
         router.refresh();

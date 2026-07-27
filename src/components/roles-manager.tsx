@@ -232,8 +232,13 @@ function RoleDialog({
     };
     start(async () => {
       try {
-        if (existing) await updateRole({ id: existing.id, ...payload });
-        else await createRole(payload);
+        const res = existing
+          ? await updateRole({ id: existing.id, ...payload })
+          : await createRole(payload);
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success(existing ? "已更新角色" : "已建立角色");
         router.refresh();
         onClose();

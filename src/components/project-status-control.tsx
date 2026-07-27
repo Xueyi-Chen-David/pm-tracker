@@ -32,7 +32,11 @@ export function ProjectStatusControl({
   function update(patch: { status?: ProjectStatus; health?: Health }) {
     start(async () => {
       try {
-        await setProjectStatusHealth({ projectId, ...patch });
+        const res = await setProjectStatusHealth({ projectId, ...patch });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success("已更新並記錄");
         router.refresh();
       } catch (e) {

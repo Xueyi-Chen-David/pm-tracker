@@ -213,7 +213,11 @@ export async function cancelCheckInCorrection(id: string) {
   revalidatePath("/attendance");
 }
 
-/** 審核補打卡申請（需 attendance.manage）。核准則補一筆有效打卡並更新出席，駁回則記原因。 */
+/**
+ * 審核補打卡申請（需 attendance.manage）。核准則補一筆有效打卡並更新出席，駁回則記原因。
+ * 「找不到待審核」是正常情境（例如另一位管理者已搶先審核、或本人已撤回），以回傳值而非
+ * throw 帶回——Server Action 丟出的 Error 在正式環境會被 Next.js 隱去訊息內容。
+ */
 export async function reviewCheckInCorrection(
   id: string,
   approve: boolean,
@@ -224,7 +228,9 @@ export async function reviewCheckInCorrection(
     where: { id, organizationId: org.id, status: "pending" },
     select: { id: true, userId: true, date: true, kind: true, at: true },
   });
-  if (!c) throw new Error("找不到待審核的補打卡申請。");
+  if (!c) {
+    return { ok: false as const, error: "找不到待審核的補打卡申請。" };
+  }
 
   if (approve) {
     // 補一筆有效打卡（method=manual，計入薪資工時聚合）。
@@ -302,6 +308,7 @@ export async function reviewCheckInCorrection(
 
   revalidatePath("/attendance");
   revalidatePath("/payroll");
+  return { ok: true as const };
 }
 
 /** 設定某成員是否納入出席追蹤（月曆是否顯示他；限本組織、需出勤管理權限）。 */

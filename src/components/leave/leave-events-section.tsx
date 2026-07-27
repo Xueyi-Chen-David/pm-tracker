@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { toast } from "sonner";
 import { getMemberEventsAction } from "@/server/actions/member-events";
 import { MemberEventsPanel } from "@/components/member-events-panel";
 import { NON_LEAVE_EVENT_TYPES } from "@/lib/constants";
@@ -43,8 +44,16 @@ export function LeaveEventsSection({
       return;
     }
     start(async () => {
-      const rows = await getMemberEventsAction(userId);
-      setEvents(rows);
+      try {
+        const res = await getMemberEventsAction(userId);
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
+        setEvents(res.events);
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "讀取失敗");
+      }
     });
   }
 

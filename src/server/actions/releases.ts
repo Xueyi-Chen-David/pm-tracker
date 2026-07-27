@@ -77,12 +77,16 @@ export async function updateRelease(input: z.input<typeof ReleaseUpdate>) {
   const d = ReleaseUpdate.parse(input);
   await assertCanEditProject(org.id, d.projectId);
 
-  // 確認這筆 release 屬於該專案（縱深防禦）。
+  // 確認這筆 release 屬於該專案（縱深防禦）。「找不到」在正常操作下也可能發生
+  // （例如另一個分頁已先刪除它），以回傳值帶回而非 throw——Server Action 丟出的
+  // Error 在正式環境會被 Next.js 隱去訊息內容。
   const existing = await db.projectRelease.findFirst({
     where: { id: d.id, projectId: d.projectId },
     select: { id: true, version: true, status: true },
   });
-  if (!existing) throw new Error("找不到版本紀錄。");
+  if (!existing) {
+    return { ok: false as const, error: "找不到版本紀錄。" };
+  }
 
   const data: {
     version?: string;

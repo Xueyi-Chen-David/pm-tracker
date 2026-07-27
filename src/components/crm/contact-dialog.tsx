@@ -68,8 +68,12 @@ export function ContactDialog({
     if (!input.name) return setError("請輸入名稱");
     start(async () => {
       try {
-        if (editing) await updateContact(contact.id, input);
-        else await createContact(input);
+        if (editing) {
+          const res = await updateContact(contact.id, input);
+          if (!res.ok) return setError(res.error);
+        } else {
+          await createContact(input);
+        }
         setOpen(false);
         toast.success(editing ? "已更新聯絡人" : "已新增聯絡人");
         router.refresh();

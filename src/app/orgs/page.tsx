@@ -46,7 +46,12 @@ export default async function OrgsPage() {
               {memberships.map((m) => (
                 <div key={m.id} className="flex items-center gap-2">
                   <form
-                    action={setActiveOrgAction.bind(null, m.organizationId)}
+                    action={async () => {
+                      "use server";
+                      // 失敗（極罕見的競態：切換當下已被移除成員）就留在這頁，
+                      // 這個表單沒有接錯誤 UI；成功時 action 內部會 redirect。
+                      await setActiveOrgAction(m.organizationId);
+                    }}
                     className="min-w-0 flex-1"
                   >
                     <button

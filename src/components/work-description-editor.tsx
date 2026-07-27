@@ -51,7 +51,11 @@ export function WorkDescriptionEditor({
   function save() {
     start(async () => {
       try {
-        await updateWorkDescription({ userId, workDescription: draft });
+        const res = await updateWorkDescription({ userId, workDescription: draft });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success("已更新工作描述");
         setOpen(false);
         router.refresh();

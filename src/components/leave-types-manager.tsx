@@ -242,8 +242,13 @@ function LeaveDialog({
     };
     start(async () => {
       try {
-        if (lt) await updateLeaveType({ id: lt.id, ...payload });
-        else await createLeaveType(payload);
+        const res = lt
+          ? await updateLeaveType({ id: lt.id, ...payload })
+          : await createLeaveType(payload);
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success(lt ? "已更新假別" : "已新增假別");
         router.refresh();
         onClose();

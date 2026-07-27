@@ -141,10 +141,14 @@ function MemberRow({
     run(() => setMemberSecondaryManagers(member.id, ids));
   }
 
-  function run(fn: () => Promise<void>) {
+  function run(fn: () => Promise<{ ok: boolean; error?: string } | void>) {
     start(async () => {
       try {
-        await fn();
+        const res = await fn();
+        if (res && !res.ok) {
+          toast.error(res.error ?? "更新失敗");
+          return;
+        }
         router.refresh();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "更新失敗");

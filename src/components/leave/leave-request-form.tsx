@@ -70,8 +70,12 @@ export function LeaveRequestForm({
           attachment: attachment?.dataUrl,
           attachmentName: attachment?.name,
         });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success(
-          res?.autoApproved
+          res.autoApproved
             ? "已送出並自動核准（尚未設定簽核流程）"
             : "已送出請假申請，等待簽核",
         );

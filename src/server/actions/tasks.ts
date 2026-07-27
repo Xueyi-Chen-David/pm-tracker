@@ -84,6 +84,10 @@ const TaskPatch = z.object({
   reminderDays: z.array(z.number().int().min(1).max(365)).max(10).optional(),
 });
 
+/**
+ * 「找不到任務」是可能在正常操作中發生的情況（例如任務已被他人刪除）——以回傳值
+ * 帶回而非 throw，因為正式環境 Server Action 丟出的 Error 訊息會被 Next.js 隱去。
+ */
 export async function updateTask(id: string, patch: z.input<typeof TaskPatch>) {
   const { org } = await requireActiveOrg();
   const p = TaskPatch.parse(patch);
@@ -92,7 +96,7 @@ export async function updateTask(id: string, patch: z.input<typeof TaskPatch>) {
     where: { id, project: { organizationId: org.id } },
     select: { projectId: true },
   });
-  if (!task) throw new Error("找不到任務");
+  if (!task) return { ok: false as const, error: "找不到任務" };
   await db.task.update({
     where: { id },
     data: {
@@ -124,6 +128,7 @@ export async function updateTask(id: string, patch: z.input<typeof TaskPatch>) {
     await recomputeProject(task.projectId);
   }
   revalidate();
+  return { ok: true as const };
 }
 
 // ── 重新排序（拖放）──────────────────────────────
@@ -152,13 +157,14 @@ export async function reorderTasks(input: z.input<typeof TaskReorderInput>) {
   revalidate();
 }
 
+/** 「找不到任務」以回傳值帶回，理由同 updateTask。 */
 export async function setTaskOwners(id: string, userIds: string[]) {
   const { org } = await requireActiveOrg();
   const task = await db.task.findFirst({
     where: { id, project: { organizationId: org.id } },
     select: { id: true, primaryOwnerId: true },
   });
-  if (!task) throw new Error("找不到任務");
+  if (!task) return { ok: false as const, error: "找不到任務" };
   // 僅接受本組織成員
   const members = await db.organizationMember.findMany({
     where: { organizationId: org.id, userId: { in: userIds } },
@@ -176,34 +182,46 @@ export async function setTaskOwners(id: string, userIds: string[]) {
     },
   });
   revalidate();
+  return { ok: true as const };
 }
 
-/** 設定 / 清除任務主負責人。userId 需為任務現有負責人之一；null＝清除。 */
+/**
+ * 設定 / 清除任務主負責人。userId 需為任務現有負責人之一；null＝清除。
+ * 「找不到任務」與「主負責人必須是任務的負責人之一」都是可能在正常操作中發生的情況
+ * （任務被刪除、或前端狀態與伺服器不同步）——以回傳值帶回而非 throw，因為正式環境
+ * Server Action 丟出的 Error 訊息會被 Next.js 隱去。
+ */
 export async function setTaskPrimaryOwner(id: string, userId: string | null) {
   const { org } = await requireActiveOrg();
   const task = await db.task.findFirst({
     where: { id, project: { organizationId: org.id } },
     select: { id: true, owners: { select: { id: true } } },
   });
-  if (!task) throw new Error("找不到任務");
+  if (!task) return { ok: false as const, error: "找不到任務" };
   if (userId !== null && !task.owners.some((o) => o.id === userId)) {
-    throw new Error("主負責人必須是任務的負責人之一。");
+    return {
+      ok: false as const,
+      error: "主負責人必須是任務的負責人之一。",
+    };
   }
   await db.task.update({
     where: { id },
     data: { primaryOwnerId: userId },
   });
   revalidate();
+  return { ok: true as const };
 }
 
+/** 「找不到任務」以回傳值帶回，理由同 updateTask。 */
 export async function deleteTask(id: string) {
   const { org } = await requireActiveOrg();
   const task = await db.task.findFirst({
     where: { id, project: { organizationId: org.id } },
     select: { projectId: true },
   });
-  if (!task) throw new Error("找不到任務");
+  if (!task) return { ok: false as const, error: "找不到任務" };
   await db.task.delete({ where: { id } });
   await recomputeProject(task.projectId);
   revalidate();
+  return { ok: true as const };
 }

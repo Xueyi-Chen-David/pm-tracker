@@ -52,10 +52,18 @@ export function ReleasesPanel({
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  function run(fn: () => Promise<unknown>, okMsg?: string, after?: () => void) {
+  function run(
+    fn: () => Promise<{ ok: boolean; error?: string }>,
+    okMsg?: string,
+    after?: () => void,
+  ) {
     start(async () => {
       try {
-        await fn();
+        const res = await fn();
+        if (!res.ok) {
+          toast.error(res.error ?? "操作失敗");
+          return;
+        }
         after?.();
         if (okMsg) toast.success(okMsg);
         router.refresh();

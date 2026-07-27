@@ -70,8 +70,9 @@ export async function updateContact(
       ownerId: d.ownerId || null,
     },
   });
-  if (res.count === 0) throw new Error("找不到聯絡人");
+  if (res.count === 0) return { ok: false as const, error: "找不到聯絡人" };
   revalidate();
+  return { ok: true as const };
 }
 
 export async function deleteContact(id: string) {
@@ -100,7 +101,7 @@ export async function createDeal(input: z.input<typeof DealInput>) {
       where: { id: d.contactId, organizationId: org.id },
       select: { id: true },
     });
-    if (!c) throw new Error("找不到聯絡人");
+    if (!c) return { ok: false as const, error: "找不到聯絡人" };
   }
   const max = await db.crmDeal.aggregate({
     where: { organizationId: org.id, stage: d.stage, status: "OPEN" },
@@ -132,7 +133,7 @@ export async function createDeal(input: z.input<typeof DealInput>) {
     },
   });
   revalidate();
-  return deal;
+  return { ok: true as const, ...deal };
 }
 
 const DealPatch = z.object({
@@ -152,13 +153,13 @@ export async function updateDeal(id: string, patch: z.input<typeof DealPatch>) {
     where: { id, organizationId: org.id },
     select: { id: true, stage: true },
   });
-  if (!deal) throw new Error("找不到商機");
+  if (!deal) return { ok: false as const, error: "找不到商機" };
   if (p.contactId) {
     const c = await db.crmContact.findFirst({
       where: { id: p.contactId, organizationId: org.id },
       select: { id: true },
     });
-    if (!c) throw new Error("找不到聯絡人");
+    if (!c) return { ok: false as const, error: "找不到聯絡人" };
   }
   const stageChanged = p.stage !== undefined && p.stage !== deal.stage;
   await db.crmDeal.update({
@@ -188,6 +189,7 @@ export async function updateDeal(id: string, patch: z.input<typeof DealPatch>) {
     });
   }
   revalidate();
+  return { ok: true as const };
 }
 
 /** 看板移動：換階段，並記入時間線（可帶原因）。 */
@@ -198,8 +200,8 @@ export async function moveDealStage(id: string, stage: string, reason?: string) 
     where: { id, organizationId: org.id },
     select: { id: true, stage: true },
   });
-  if (!deal) throw new Error("找不到商機");
-  if (deal.stage === s) return; // 沒換階段
+  if (!deal) return { ok: false as const, error: "找不到商機" };
+  if (deal.stage === s) return { ok: true as const }; // 沒換階段
   const max = await db.crmDeal.aggregate({
     where: { organizationId: org.id, stage: s, status: "OPEN" },
     _max: { sortOrder: true },
@@ -221,6 +223,7 @@ export async function moveDealStage(id: string, stage: string, reason?: string) 
     }),
   ]);
   revalidate();
+  return { ok: true as const };
 }
 
 /** 標記成交 / 流失 / 重開（回到管線）。 */
@@ -231,8 +234,9 @@ export async function setDealStatus(id: string, status: z.input<typeof STATUS>) 
     where: { id, organizationId: org.id },
     data: { status: s, closedAt: s === "OPEN" ? null : new Date() },
   });
-  if (res.count === 0) throw new Error("找不到商機");
+  if (res.count === 0) return { ok: false as const, error: "找不到商機" };
   revalidate();
+  return { ok: true as const };
 }
 
 export async function deleteDeal(id: string) {
@@ -279,8 +283,9 @@ export async function updateDealStage(
     where: { id, organizationId: org.id },
     data: { label: d.label, note: d.note || null, color: d.color || "slate" },
   });
-  if (res.count === 0) throw new Error("找不到階段");
+  if (res.count === 0) return { ok: false as const, error: "找不到階段" };
   revalidate();
+  return { ok: true as const };
 }
 
 export async function deleteDealStage(id: string) {
@@ -289,17 +294,21 @@ export async function deleteDealStage(id: string) {
     where: { id, organizationId: org.id },
     select: { key: true },
   });
-  if (!stage) throw new Error("找不到階段");
+  if (!stage) return { ok: false as const, error: "找不到階段" };
   const total = await db.dealStage.count({ where: { organizationId: org.id } });
-  if (total <= 1) throw new Error("至少保留一個階段");
+  if (total <= 1) return { ok: false as const, error: "至少保留一個階段" };
   const inUse = await db.crmDeal.count({
     where: { organizationId: org.id, stage: stage.key },
   });
   if (inUse > 0) {
-    throw new Error(`此階段還有 ${inUse} 個商機，請先移走再刪除`);
+    return {
+      ok: false as const,
+      error: `此階段還有 ${inUse} 個商機，請先移走再刪除`,
+    };
   }
   await db.dealStage.delete({ where: { id } });
   revalidate();
+  return { ok: true as const };
 }
 
 /** 讀某商機的階段異動時間線（含變更者名稱），供時間軸視覺化。 */
@@ -350,40 +359,49 @@ const EventInput = z.object({
   contactId: z.string().nullable().optional(),
 });
 
-function eventDate(v: string): Date {
+function eventDate(
+  v: string,
+): { ok: true; value: Date } | { ok: false; error: string } {
   const d = toUtcDate(v);
-  if (!d) throw new Error("日期格式錯誤");
-  return d;
+  if (!d) return { ok: false, error: "日期格式錯誤" };
+  return { ok: true, value: d };
 }
 
 /** 驗證聯絡人屬於本組織；空值回 null。 */
-async function resolveContactId(orgId: string, contactId?: string | null) {
-  if (!contactId) return null;
+async function resolveContactId(
+  orgId: string,
+  contactId?: string | null,
+): Promise<{ ok: true; value: string | null } | { ok: false; error: string }> {
+  if (!contactId) return { ok: true, value: null };
   const c = await db.crmContact.findFirst({
     where: { id: contactId, organizationId: orgId },
     select: { id: true },
   });
-  if (!c) throw new Error("找不到聯絡人");
-  return c.id;
+  if (!c) return { ok: false, error: "找不到聯絡人" };
+  return { ok: true, value: c.id };
 }
 
 export async function createCrmEvent(input: z.input<typeof EventInput>) {
   const { user, org } = await requireActiveOrg();
   const d = EventInput.parse(input);
-  const contactId = await resolveContactId(org.id, d.contactId);
+  const dateRes = eventDate(d.date);
+  if (!dateRes.ok) return { ok: false as const, error: dateRes.error };
+  const contactRes = await resolveContactId(org.id, d.contactId);
+  if (!contactRes.ok) return { ok: false as const, error: contactRes.error };
   await db.crmEvent.create({
     data: {
       organizationId: org.id,
-      date: eventDate(d.date),
+      date: dateRes.value,
       type: d.type,
       title: d.title,
       notes: d.notes || null,
       link: d.link || null,
-      contactId,
+      contactId: contactRes.value,
       createdById: user.id,
     },
   });
   revalidate();
+  return { ok: true as const };
 }
 
 export async function updateCrmEvent(
@@ -392,20 +410,24 @@ export async function updateCrmEvent(
 ) {
   const { org } = await requireActiveOrg();
   const d = EventInput.parse(input);
-  const contactId = await resolveContactId(org.id, d.contactId);
+  const dateRes = eventDate(d.date);
+  if (!dateRes.ok) return { ok: false as const, error: dateRes.error };
+  const contactRes = await resolveContactId(org.id, d.contactId);
+  if (!contactRes.ok) return { ok: false as const, error: contactRes.error };
   const res = await db.crmEvent.updateMany({
     where: { id, organizationId: org.id },
     data: {
-      date: eventDate(d.date),
+      date: dateRes.value,
       type: d.type,
       title: d.title,
       notes: d.notes || null,
       link: d.link || null,
-      contactId,
+      contactId: contactRes.value,
     },
   });
-  if (res.count === 0) throw new Error("找不到活動");
+  if (res.count === 0) return { ok: false as const, error: "找不到活動" };
   revalidate();
+  return { ok: true as const };
 }
 
 export async function deleteCrmEvent(id: string) {
@@ -447,7 +469,7 @@ export async function addActivity(input: z.input<typeof ActivityInput>) {
     where: { id: d.dealId, organizationId: org.id },
     select: { id: true },
   });
-  if (!deal) throw new Error("找不到商機");
+  if (!deal) return { ok: false as const, error: "找不到商機" };
   await db.crmActivity.create({
     data: {
       dealId: d.dealId,
@@ -458,6 +480,7 @@ export async function addActivity(input: z.input<typeof ActivityInput>) {
     },
   });
   revalidate();
+  return { ok: true as const };
 }
 
 export async function toggleActivityDone(id: string, done: boolean) {
@@ -466,8 +489,9 @@ export async function toggleActivityDone(id: string, done: boolean) {
     where: { id, deal: { organizationId: org.id } },
     data: { done },
   });
-  if (res.count === 0) throw new Error("找不到活動");
+  if (res.count === 0) return { ok: false as const, error: "找不到活動" };
   revalidate();
+  return { ok: true as const };
 }
 
 export async function deleteActivity(id: string) {

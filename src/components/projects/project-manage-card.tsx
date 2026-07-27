@@ -198,10 +198,17 @@ export function ProjectManageCard({
   const progress = hasTasks ? roll.progress : project.progress;
   const health = hasTasks ? roll.health : project.health;
 
-  function runAction(fn: () => Promise<unknown>, ok?: string) {
+  function runAction(
+    fn: () => Promise<{ ok: boolean; error?: string } | void>,
+    ok?: string,
+  ) {
     startAction(async () => {
       try {
-        await fn();
+        const res = await fn();
+        if (res && res.ok === false) {
+          toast.error(res.error ?? "操作失敗");
+          return;
+        }
         if (ok) toast.success(ok);
         router.refresh();
       } catch (e) {

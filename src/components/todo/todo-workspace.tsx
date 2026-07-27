@@ -407,7 +407,7 @@ function TodoRow({
       return;
     }
     run(async () => {
-      await updateTodo({
+      const res = await updateTodo({
         id: todo.id,
         title: t,
         note,
@@ -415,6 +415,7 @@ function TodoRow({
         ...(startDate ? { startDate } : { clearStart: true }),
         ...(dueDate ? { dueDate } : { clearDue: true }),
       });
+      if (!res.ok) throw new Error(res.error);
       setOpen(false);
     }, "已更新待辦");
   }
@@ -464,7 +465,12 @@ function TodoRow({
         type="checkbox"
         checked={todo.done}
         disabled={pending}
-        onChange={(e) => run(() => updateTodo({ id: todo.id, done: e.target.checked }))}
+        onChange={(e) =>
+          run(async () => {
+            const res = await updateTodo({ id: todo.id, done: e.target.checked });
+            if (!res.ok) throw new Error(res.error);
+          })
+        }
         className="accent-primary mt-1 h-4 w-4 shrink-0"
       />
       {/* 點內容即可編輯（整筆：內容 / 備註 / 關聯任務 / 日期） */}
@@ -516,7 +522,10 @@ function TodoRow({
         disabled={pending || inReport}
         title={inReport ? "已在今日報告" : "丟到今日報告"}
         onClick={() =>
-          run(() => addTodoToDailyReport(todo.id), "已加入今日報告")
+          run(async () => {
+            const res = await addTodoToDailyReport(todo.id);
+            if (!res.ok) throw new Error(res.error);
+          }, "已加入今日報告")
         }
         className={cn(
           "mt-0.5 shrink-0 rounded-md p-1",
@@ -637,7 +646,10 @@ function TodoRow({
         title="刪除"
         onClick={() => {
           if (confirm(`刪除待辦「${todo.title}」？`))
-            run(() => deleteTodo(todo.id), "已刪除");
+            run(async () => {
+              const res = await deleteTodo(todo.id);
+              if (!res.ok) throw new Error(res.error);
+            }, "已刪除");
         }}
         className="text-muted-foreground hover:text-destructive mt-0.5 shrink-0 rounded-md p-1"
       >
@@ -887,13 +899,15 @@ function PomodoroRow({
   function save() {
     const durationSec = Math.max(1, min * 60 + sec);
     run(
-      () =>
-        updatePomodoro({
+      async () => {
+        const res = await updatePomodoro({
           id: p.id,
           durationSec,
           ...(todoId ? { todoId } : { clearTodo: true }),
           startedAt,
-        }),
+        });
+        if (!res.ok) throw new Error(res.error);
+      },
       "已更新紀錄",
     );
     setOpen(false);
@@ -998,7 +1012,12 @@ function PomodoroRow({
         type="button"
         disabled={pending}
         title="刪除這筆紀錄"
-        onClick={() => run(() => deletePomodoro(p.id), "已刪除紀錄")}
+        onClick={() =>
+          run(async () => {
+            const res = await deletePomodoro(p.id);
+            if (!res.ok) throw new Error(res.error);
+          }, "已刪除紀錄")
+        }
         className="text-muted-foreground hover:text-destructive shrink-0 rounded-md p-1"
       >
         <Trash2 className="h-4 w-4" />

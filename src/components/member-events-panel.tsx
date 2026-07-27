@@ -54,7 +54,7 @@ export function MemberEventsPanel({
     if (!type.trim() || !startDate) return;
     start(async () => {
       try {
-        await createMemberEvent({
+        const res = await createMemberEvent({
           userId,
           type: type.trim(),
           startDate,
@@ -63,6 +63,10 @@ export function MemberEventsPanel({
           attachment: attachment?.dataUrl,
           attachmentName: attachment?.name,
         });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         setType("");
         setEndDate("");
         setNote("");
@@ -80,7 +84,11 @@ export function MemberEventsPanel({
     if (!confirm(`確定刪除「${label}」這筆事件嗎？`)) return;
     start(async () => {
       try {
-        await deleteMemberEvent({ id, userId });
+        const res = await deleteMemberEvent({ id, userId });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success("已刪除");
         router.refresh();
       } catch (e) {

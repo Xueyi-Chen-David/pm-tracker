@@ -308,14 +308,20 @@ export function DocsWorkspace({
     return path;
   }
 
-  function run<T>(
+  // 動作可能以回傳值（非 throw）帶回「預期中的業務錯誤」（找不到 / 權限不足 /
+  // 層數超限…），所以先檢查 ok 再繼續；catch 只處理真正未預期的例外（網路等）。
+  function run<T extends { ok: boolean; error?: string }>(
     fn: () => Promise<T>,
-    opts?: { ok?: string; onDone?: (v: T) => void },
+    opts?: { ok?: string; onDone?: (v: Extract<T, { ok: true }>) => void },
   ) {
     start(async () => {
       try {
         const v = await fn();
-        opts?.onDone?.(v);
+        if (!v.ok) {
+          toast.error(v.error ?? "操作失敗");
+          return;
+        }
+        opts?.onDone?.(v as Extract<T, { ok: true }>);
         if (opts?.ok) toast.success(opts.ok);
         router.refresh();
       } catch (e) {

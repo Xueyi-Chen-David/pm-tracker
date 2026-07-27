@@ -65,9 +65,13 @@ export function CheckInCard({
   function doPunch(kind: "in" | "out") {
     setBusyKind(kind);
     start(async () => {
-      const coords = await getCoords();
       try {
-        await punch({ kind, lat: coords?.lat ?? null, lng: coords?.lng ?? null });
+        const coords = await getCoords();
+        const res = await punch({ kind, lat: coords?.lat ?? null, lng: coords?.lng ?? null });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success(kind === "in" ? "已完成上班打卡" : "已完成下班打卡");
         router.refresh();
       } catch (e) {

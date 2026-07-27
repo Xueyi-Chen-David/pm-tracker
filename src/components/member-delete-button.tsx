@@ -32,7 +32,11 @@ export function MemberDeleteButton({
       return;
     start(async () => {
       try {
-        await deleteWorkspaceMember(id);
+        const res = await deleteWorkspaceMember(id);
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
         toast.success(`已刪除成員 ${name}`);
         if (redirectTo) router.push(redirectTo);
         else router.refresh();
