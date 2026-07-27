@@ -171,9 +171,10 @@ function TodoList({
     }, "已新增待辦");
   }
 
-  // 拖曳排序需要「本機順序」以便即時反映；伺服器資料變動（新增 / 勾選 / 刪除 / 持久化後
-  // refresh）時，用資料指紋於 render 階段重新同步（非 effect）。
-  const sig = todos.map((t) => `${t.id}:${t.done ? 1 : 0}`).join(",");
+  // 拖曳排序需要「本機順序」以便即時反映；伺服器資料變動（新增 / 編輯 / 勾選 / 刪除 /
+  // 持久化後 refresh）時，用資料指紋於 render 階段重新同步（非 effect）。指紋要包含所有
+  // 會被編輯的欄位（不只 id/done），否則改標題 / 備註等不影響 done 的欄位時不會觸發同步。
+  const sig = JSON.stringify(todos);
   const [prevSig, setPrevSig] = useState(sig);
   const [localTodos, setLocalTodos] = useState(todos);
   if (sig !== prevSig) {
