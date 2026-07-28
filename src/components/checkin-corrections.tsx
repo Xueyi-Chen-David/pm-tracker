@@ -66,10 +66,11 @@ export function CheckInCorrections({
 }) {
   return (
     <div className={cn("grid gap-4", mine && canReview && "lg:grid-cols-2")}>
-      {/* 本人：補打卡申請 */}
+      {/* 本人：補打卡申請。固定高度＝預設就撐到底部，項目多時區塊內自行上下捲動
+          （而不是把整頁往下撐長）。 */}
       {mine && (
-        <div className="bg-card rounded-xl border p-4">
-          <div className="mb-3 flex items-center justify-between">
+        <div className="bg-card flex h-[60vh] flex-col rounded-xl border p-4">
+          <div className="mb-3 flex shrink-0 items-center justify-between">
             <h3 className="flex items-center gap-1.5 text-sm font-semibold">
               <Clock className="h-4 w-4" /> 我的補打卡
             </h3>
@@ -80,7 +81,7 @@ export function CheckInCorrections({
               忘記上 / 下班打卡時，點「補打卡」送出申請，經主管核准後補計工時。
             </p>
           ) : (
-            <ul className="divide-y">
+            <ul className="min-h-0 flex-1 divide-y overflow-y-auto">
               {mine.map((c) => (
                 <MyRow key={c.id} c={c} />
               ))}
@@ -89,10 +90,10 @@ export function CheckInCorrections({
         </div>
       )}
 
-      {/* 管理者：待審核清單 */}
+      {/* 管理者：待審核清單（同樣固定高度＋內部捲動）。 */}
       {canReview && (
-        <div className="bg-card rounded-xl border p-4">
-          <h3 className="mb-3 flex items-center gap-1.5 text-sm font-semibold">
+        <div className="bg-card flex h-[60vh] flex-col rounded-xl border p-4">
+          <h3 className="mb-3 flex shrink-0 items-center gap-1.5 text-sm font-semibold">
             待審核補打卡
             {pending && pending.length > 0 && (
               <span className="bg-rose-500 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold text-white">
@@ -103,7 +104,7 @@ export function CheckInCorrections({
           {!pending || pending.length === 0 ? (
             <p className="text-muted-foreground text-sm">目前沒有待審核的補打卡申請。</p>
           ) : (
-            <ul className="divide-y">
+            <ul className="min-h-0 flex-1 divide-y overflow-y-auto">
               {pending.map((c) => (
                 <ReviewRow key={c.id} c={c} />
               ))}
