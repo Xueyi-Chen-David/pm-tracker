@@ -256,6 +256,17 @@ export async function reviewCheckInCorrection(
 
   let resultCheckInId: string | null = null;
   if (approve) {
+    // 核准＝覆蓋當天同種類（上班/下班）既有的打卡紀錄，而不是並存新增一筆——
+    // 否則打卡紙以「當日最早上班 / 最晚下班」挑選顯示時，舊的錯誤時間可能繼續
+    // 勝出，使用者會看到「明明核准了，時間卻沒改到」。
+    await db.checkIn.deleteMany({
+      where: {
+        organizationId: org.id,
+        userId: c.userId,
+        date: c.date,
+        kind: c.kind,
+      },
+    });
     // 補一筆有效打卡（method=manual，計入薪資工時聚合）。id 存回申請本身，
     // 之後本人若刪除這筆申請才能一併移除這筆補建立的打卡紀錄。
     const created = await db.checkIn.create({
