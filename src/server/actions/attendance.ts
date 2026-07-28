@@ -205,6 +205,7 @@ export async function requestCheckInCorrection(
     "/attendance",
   );
   revalidatePath("/attendance");
+  revalidatePath("/checkin"); // 「我的打卡紀錄」打卡紙也要顯示這筆待審核時間
 }
 
 /**
@@ -230,6 +231,7 @@ export async function deleteCheckInCorrection(id: string) {
 
   revalidatePath("/attendance");
   revalidatePath("/payroll");
+  revalidatePath("/checkin"); // 「我的打卡紀錄」打卡紙要一併清掉這筆時間
   return { ok: true as const };
 }
 
@@ -333,6 +335,7 @@ export async function reviewCheckInCorrection(
 
   revalidatePath("/attendance");
   revalidatePath("/payroll");
+  revalidatePath("/checkin"); // 申請人的「我的打卡紀錄」打卡紙要反映核准/駁回結果
   return { ok: true as const };
 }
 

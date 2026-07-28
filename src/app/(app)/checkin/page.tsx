@@ -122,6 +122,22 @@ export default async function CheckInPage({
     todayStr,
   });
   const timecardDays = buildTimecardDays(myCheckIns, days, todayStr);
+  // 待審核的補打卡也疊到打卡紙上（琥珀色「待審核」），核准前就能在同一張表看到，
+  // 不用另外切去「補打卡」分頁確認申請了什麼時間。核准後會變成真正的 in/outAt。
+  const pendingByDate = new Map<string, { in?: string; out?: string }>();
+  for (const c of myCorrections) {
+    if (c.status !== "pending") continue;
+    const slot = pendingByDate.get(c.date) ?? {};
+    if (c.kind === "in") slot.in = c.at;
+    else slot.out = c.at;
+    pendingByDate.set(c.date, slot);
+  }
+  const timecardDaysWithPending = timecardDays.map((d) => {
+    const p = pendingByDate.get(d.dateStr);
+    return p
+      ? { ...d, pendingInAt: p.in ?? null, pendingOutAt: p.out ?? null }
+      : d;
+  });
 
   const eventMembers = canManageAttendance
     ? (directory?.map((d) => ({
@@ -185,7 +201,7 @@ export default async function CheckInPage({
               {/* 本人一律唯讀：要改出勤得走補打卡 / 請假流程，故 canManage 固定 false。 */}
               <AttendanceGrid members={members} days={days} canManage={false} />
               {(checkInEnabled || timecardDays.some((d) => d.inAt || d.outAt)) && (
-                <AttendanceTimecard days={timecardDays} todayStr={todayStr} />
+                <AttendanceTimecard days={timecardDaysWithPending} todayStr={todayStr} />
               )}
             </>
           )

@@ -13,6 +13,9 @@ export type TimecardDay = {
   outAt: string | null; // 當日最晚「下班」時間（ISO）
   inMethod: string | null;
   outMethod: string | null;
+  /** 待審核補打卡的時間（ISO）；尚未核准，只是提示，核准後會變成真正的 inAt/outAt。 */
+  pendingInAt?: string | null;
+  pendingOutAt?: string | null;
 };
 
 const WEEKDAY = ["日", "一", "二", "三", "四", "五", "六"];
@@ -58,6 +61,21 @@ function MethodIcon({ method }: { method: string | null }) {
       ) : (
         <Wifi className="h-3 w-3" />
       )}
+    </span>
+  );
+}
+
+/** 待審核補打卡時間：琥珀色＋「待審核」標籤，與已核准的實際打卡明顯區分。 */
+function PendingTime({ iso }: { iso: string }) {
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-amber-600"
+      title="補打卡待審核，核准後才計入在勤時段"
+    >
+      <span className="tabular-nums">{fmtTime(iso)}</span>
+      <span className="rounded bg-amber-100 px-1 text-[10px] font-medium whitespace-nowrap">
+        待審核
+      </span>
     </span>
   );
 }
@@ -151,6 +169,8 @@ export function AttendanceTimecard({
                           <span className="tabular-nums">{fmtTime(d.inAt)}</span>
                           <MethodIcon method={d.inMethod} />
                         </span>
+                      ) : d.pendingInAt ? (
+                        <PendingTime iso={d.pendingInAt} />
                       ) : (
                         <span className="text-muted-foreground/40">—</span>
                       )}
@@ -162,6 +182,8 @@ export function AttendanceTimecard({
                           <span className="tabular-nums">{fmtTime(d.outAt)}</span>
                           <MethodIcon method={d.outMethod} />
                         </span>
+                      ) : d.pendingOutAt ? (
+                        <PendingTime iso={d.pendingOutAt} />
                       ) : (
                         <span className="text-muted-foreground/40">—</span>
                       )}
