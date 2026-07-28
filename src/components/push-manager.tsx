@@ -20,19 +20,21 @@ function urlBase64ToBuffer(base64: string): ArrayBuffer {
 
 export function PushManager() {
   useEffect(() => {
-    if (!VAPID_PUBLIC_KEY) return;
-    if (
-      typeof window === "undefined" ||
-      !("serviceWorker" in navigator) ||
-      !("PushManager" in window) ||
-      !("Notification" in window)
-    )
+    if (typeof window === "undefined" || !("serviceWorker" in navigator))
       return;
 
     let cancelled = false;
     (async () => {
       try {
+        // 一律註冊 SW：PWA「加到主畫面 / 安裝」在 Android 上需要有已註冊的 SW
+        // 才會出現安裝提示，跟有沒有設定推播金鑰無關。
         const reg = await navigator.serviceWorker.register("/sw.js");
+        if (
+          !VAPID_PUBLIC_KEY ||
+          !("PushManager" in window) ||
+          !("Notification" in window)
+        )
+          return;
         // 預設開啟：尚未決定就詢問通知權限。
         let permission = Notification.permission;
         if (permission === "default") {
