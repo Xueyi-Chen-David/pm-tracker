@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Clock, Check, X, Plus } from "lucide-react";
 import {
   requestCheckInCorrection,
-  cancelCheckInCorrection,
+  deleteCheckInCorrection,
   reviewCheckInCorrection,
 } from "@/server/actions/attendance";
 import type {
@@ -133,27 +133,35 @@ function MyRow({ c }: { c: CheckInCorrectionRow }) {
           <span className="text-rose-600"> · {c.reviewNote}</span>
         )}
       </span>
-      {c.status === "pending" && (
-        <button
-          type="button"
-          disabled={pending}
-          onClick={() => {
-            if (!confirm("撤回這筆補打卡申請？")) return;
-            start(async () => {
-              try {
-                await cancelCheckInCorrection(c.id);
-                toast.success("已撤回");
-                router.refresh();
-              } catch (e) {
-                toast.error(e instanceof Error ? e.message : "撤回失敗");
+      <button
+        type="button"
+        disabled={pending}
+        onClick={() => {
+          const warn =
+            c.status === "pending"
+              ? "撤回這筆補打卡申請？"
+              : c.status === "approved"
+                ? "刪除這筆已核准的補打卡？將一併移除對應的打卡紀錄（出席 / 薪資不會自動回復）。"
+                : "刪除這筆已駁回的補打卡申請？";
+          if (!confirm(warn)) return;
+          start(async () => {
+            try {
+              const res = await deleteCheckInCorrection(c.id);
+              if (!res.ok) {
+                toast.error(res.error);
+                return;
               }
-            });
-          }}
-          className="text-muted-foreground hover:text-foreground shrink-0 text-xs"
-        >
-          撤回
-        </button>
-      )}
+              toast.success(c.status === "pending" ? "已撤回" : "已刪除");
+              router.refresh();
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "刪除失敗");
+            }
+          });
+        }}
+        className="text-muted-foreground hover:text-foreground shrink-0 text-xs"
+      >
+        {c.status === "pending" ? "撤回" : "刪除"}
+      </button>
     </li>
   );
 }

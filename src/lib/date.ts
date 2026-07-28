@@ -35,6 +35,27 @@ export function daysAgoUtc(days: number): Date {
   return new Date(todayUtc().getTime() - days * 24 * 3600 * 1000);
 }
 
+/** Asia/Taipei 全年固定 UTC+8（無日光節約時間）之分鐘位移。 */
+const TAIPEI_UTC_OFFSET_MIN = 8 * 60;
+
+/**
+ * 把使用者輸入的「台灣當地」年月日時分換算成正確的 UTC 時刻。伺服器（Vercel）
+ * 執行環境時區是 UTC，若直接用 `new Date(y, m, d, hh, mm)` 建構會把這些數字當成
+ * 伺服器本地時間（=UTC）解讀，實際存下的時刻會整整偏差 8 小時（例如補打卡輸入
+ * 20:00，存成隔天 4:00）。
+ */
+export function taipeiTimeToUtc(
+  y: number,
+  month: number,
+  day: number,
+  hh: number,
+  mm: number,
+): Date {
+  return new Date(
+    Date.UTC(y, month - 1, day, hh, mm, 0, 0) - TAIPEI_UTC_OFFSET_MIN * 60_000,
+  );
+}
+
 /** 與某週相差 n 週的週一（n 可為負） */
 export function shiftWeek(weekStart: Date | string, n: number): Date {
   return weekStartOf(addWeeks(weekStartOf(weekStart), n));

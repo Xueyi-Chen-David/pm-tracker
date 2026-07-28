@@ -831,10 +831,11 @@ model CheckInCorrection {
   at     DateTime // 申請補登的實際打卡時間
   reason String?  @db.Text // 事由（忘記打卡原因）
 
-  status       String    @default("pending") // pending | approved | rejected
-  reviewedById String? // 審核者 userId
-  reviewedAt   DateTime?
-  reviewNote   String? // 審核備註（駁回原因等）
+  status          String    @default("pending") // pending | approved | rejected
+  reviewedById    String? // 審核者 userId
+  reviewedAt      DateTime?
+  reviewNote      String? // 審核備註（駁回原因等）
+  resultCheckInId String? // 核准時補建立的 CheckIn.id；本人事後刪除此申請時一併移除該筆打卡紀錄
 
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)

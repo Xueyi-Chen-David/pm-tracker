@@ -6,6 +6,7 @@ import { db } from "@/server/db";
 import { requireActiveOrg, requireOrgPermission } from "@/server/org";
 import { hasPermission } from "@/lib/permissions";
 import { displayName } from "@/lib/display";
+import { taipeiTimeToUtc } from "@/lib/date";
 import { createNotification, createNotifications } from "@/server/notify";
 
 /** yyyy-mm-dd → UTC 午夜（對應 @db.Date，避免時區位移）。 */
@@ -179,8 +180,10 @@ export async function requestCheckInCorrection(
   const d = CorrectionInput.parse(input);
   const [hh, mm] = d.time.split(":").map(Number);
   const [y, mo, day] = d.date.split("-").map(Number);
-  // 補登時間：以「當日 + HH:mm」的本地時間存（與打卡 at 一致，供工時聚合）。
-  const at = new Date(y!, mo! - 1, day!, hh!, mm!, 0, 0);
+  // 補登時間：把使用者輸入的台灣當地時刻換算成 UTC 存（與打卡 at 一致，供工時聚合）。
+  // 不能用 `new Date(y, m, d, hh, mm)`——伺服器執行環境是 UTC，會把這些數字誤判成
+  // 伺服器本地時間，存下的時刻整整偏差 8 小時（例如輸入 20:00 會變成隔天 4:00）。
+  const at = taipeiTimeToUtc(y!, mo!, day!, hh!, mm!);
 
   await db.checkInCorrection.create({
     data: {
@@ -204,13 +207,30 @@ export async function requestCheckInCorrection(
   revalidatePath("/attendance");
 }
 
-/** 撤回自己尚未審核的補打卡申請。 */
-export async function cancelCheckInCorrection(id: string) {
+/**
+ * 刪除自己的補打卡申請，不限狀態（待審核＝撤回；已核准/已駁回＝刪除紀錄）。
+ * 若該申請已核准（已補建立一筆真實打卡），一併移除那筆打卡紀錄——使用者的原意
+ * 就是連同打卡紀錄一起撤銷，留著會變成沒有申請紀錄可查的孤兒打卡。
+ * 出席（是否算出席）與薪資不會自動回復，如需調整請洽出勤管理者另行處理。
+ */
+export async function deleteCheckInCorrection(id: string) {
   const { user, org } = await requireActiveOrg();
-  await db.checkInCorrection.deleteMany({
-    where: { id, organizationId: org.id, userId: user.id, status: "pending" },
+  const c = await db.checkInCorrection.findFirst({
+    where: { id, organizationId: org.id, userId: user.id },
+    select: { id: true, resultCheckInId: true },
   });
+  if (!c) return { ok: false as const, error: "找不到這筆補打卡申請。" };
+
+  if (c.resultCheckInId) {
+    await db.checkIn.deleteMany({
+      where: { id: c.resultCheckInId, organizationId: org.id, userId: user.id },
+    });
+  }
+  await db.checkInCorrection.delete({ where: { id: c.id } });
+
   revalidatePath("/attendance");
+  revalidatePath("/payroll");
+  return { ok: true as const };
 }
 
 /**
@@ -232,9 +252,11 @@ export async function reviewCheckInCorrection(
     return { ok: false as const, error: "找不到待審核的補打卡申請。" };
   }
 
+  let resultCheckInId: string | null = null;
   if (approve) {
-    // 補一筆有效打卡（method=manual，計入薪資工時聚合）。
-    await db.checkIn.create({
+    // 補一筆有效打卡（method=manual，計入薪資工時聚合）。id 存回申請本身，
+    // 之後本人若刪除這筆申請才能一併移除這筆補建立的打卡紀錄。
+    const created = await db.checkIn.create({
       data: {
         organizationId: org.id,
         userId: c.userId,
@@ -244,7 +266,9 @@ export async function reviewCheckInCorrection(
         method: "manual",
         valid: true,
       },
+      select: { id: true },
     });
+    resultCheckInId = created.id;
     // 上班補卡：確保當日出席（與正常打卡一致；不覆蓋既有的請假 / 休假登記）。
     if (c.kind === "in") {
       const existing = await db.attendanceRecord.findUnique({
@@ -294,6 +318,7 @@ export async function reviewCheckInCorrection(
       reviewedById: me.id,
       reviewedAt: new Date(),
       reviewNote: note?.trim() || null,
+      resultCheckInId,
     },
   });
 
