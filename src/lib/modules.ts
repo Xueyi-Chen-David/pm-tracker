@@ -5,9 +5,11 @@
  * - `alwaysVisible` 模組（每日報告 / 個人資料）：一律可見。
  * - `adminOnly` 模組：預設只有管理者(OWNER/ADMIN)或老闆可見；其他成員唯有被
  *   「加選授權」（key 列入 allowedModules）才看得到。（目前無 adminOnly 模組）
- * - 一般模組（含團隊 / 出席狀況）：`allowedModules` 的「一般部分」為空 → 可見全部一般模組
+ * - 一般模組（含團隊）：`allowedModules` 的「一般部分」為空 → 可見全部一般模組
  *   （預設全開）；非空 → 只可見列出的一般模組。管理者 / 老闆一律可見全部。
- *   註：出席狀況雖人人可見，頁內的編輯 / 設定仍以 role 於各頁 canManage 控管。
+ * - 出席狀況（attendance）現為 requiresPermission（attendance.view_all）：一般帳號在
+ *   「打卡 / 請假 / 出差」頁已有自己的出勤月曆（我的出勤分頁），不需要側欄再多一個
+ *   幾乎重複的入口；只有具「查看全體出勤」權限者才會在側欄看到「出席狀況」。
  */
 import type { OrgRole } from "@prisma/client";
 import type { PermissionKey } from "@/lib/permissions";
@@ -66,7 +68,14 @@ export const MODULES: readonly AppModule[] = [
   { key: "timeline", label: "時程藍圖", href: "/timeline" },
   { key: "team", label: "團隊", href: "/team" },
   { key: "hr", label: "人事", href: "/hr", requiresPermission: "hr.view" },
-  { key: "attendance", label: "出席狀況", href: "/attendance" },
+  // 一般帳號已經有「打卡 / 請假 / 出差」頁的「我的出勤」分頁可看自己的出勤，
+  // 側欄這個全體出勤檢視 / 管理頁只給有「查看全體出勤」權限的人（人資 / 管理者）。
+  {
+    key: "attendance",
+    label: "出席狀況",
+    href: "/attendance",
+    requiresPermission: "attendance.view_all",
+  },
   // 請假簽核＝只給「要簽核的人」：送出自己的請假已搬到「打卡 / 請假 / 出差」。
   // leave.manage（HR / 管理者）由 requiresPermission 靜態放行；被排進簽核流程但沒有
   // 該權限的一般成員是 DB 決定的，靜態算不出來——由 app/layout.tsx 動態補上（見該處）。
