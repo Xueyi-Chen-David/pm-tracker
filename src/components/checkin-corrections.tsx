@@ -65,11 +65,15 @@ export function CheckInCorrections({
   canReview: boolean;
 }) {
   return (
-    <div className={cn("grid gap-4", mine && canReview && "lg:grid-cols-2")}>
-      {/* 本人：補打卡申請。固定高度＝預設就撐到底部，項目多時區塊內自行上下捲動
-          （而不是把整頁往下撐長）。 */}
+    <div
+      className={cn("grid h-full gap-4", mine && canReview && "lg:grid-cols-2")}
+    >
+      {/* 本人：補打卡申請。h-full＝貼著外層（/checkin 頁）算好的可用高度撐到
+          底部，跟視窗大小無關地保持一致；項目多時區塊內自行上下捲動（而不是
+          把整頁往下撐長）。手機沒有外層固定高度，h-full 解析成 auto，自然退回
+          一般文件捲動。 */}
       {mine && (
-        <div className="bg-card flex h-[60vh] flex-col rounded-xl border p-4">
+        <div className="bg-card flex h-full flex-col rounded-xl border p-4">
           <div className="mb-3 flex shrink-0 items-center justify-between">
             <h3 className="flex items-center gap-1.5 text-sm font-semibold">
               <Clock className="h-4 w-4" /> 我的補打卡
@@ -90,9 +94,9 @@ export function CheckInCorrections({
         </div>
       )}
 
-      {/* 管理者：待審核清單（同樣固定高度＋內部捲動）。 */}
+      {/* 管理者：待審核清單（同樣貼齊底部＋內部捲動）。 */}
       {canReview && (
-        <div className="bg-card flex h-[60vh] flex-col rounded-xl border p-4">
+        <div className="bg-card flex h-full flex-col rounded-xl border p-4">
           <h3 className="mb-3 flex shrink-0 items-center gap-1.5 text-sm font-semibold">
             待審核補打卡
             {pending && pending.length > 0 && (
@@ -102,7 +106,9 @@ export function CheckInCorrections({
             )}
           </h3>
           {!pending || pending.length === 0 ? (
-            <p className="text-muted-foreground text-sm">目前沒有待審核的補打卡申請。</p>
+            <p className="text-muted-foreground text-sm">
+              目前沒有待審核的補打卡申請。
+            </p>
           ) : (
             <ul className="min-h-0 flex-1 divide-y overflow-y-auto">
               {pending.map((c) => (
@@ -122,7 +128,12 @@ function MyRow({ c }: { c: CheckInCorrectionRow }) {
   const meta = STATUS_META[c.status] ?? STATUS_META.pending;
   return (
     <li className="flex items-center gap-2 py-2 text-sm">
-      <span className={cn("shrink-0 rounded px-1.5 text-[10px] font-medium", meta.cls)}>
+      <span
+        className={cn(
+          "shrink-0 rounded px-1.5 text-[10px] font-medium",
+          meta.cls,
+        )}
+      >
         {meta.label}
       </span>
       <span className="min-w-0 flex-1">
@@ -200,7 +211,12 @@ function ReviewRow({ c }: { c: PendingCheckInCorrection }) {
         </span>
       </span>
       <div className="flex shrink-0 gap-1">
-        <Button size="sm" disabled={pending} onClick={() => review(true)} className="h-7 gap-1">
+        <Button
+          size="sm"
+          disabled={pending}
+          onClick={() => review(true)}
+          className="h-7 gap-1"
+        >
           <Check className="h-3.5 w-3.5" /> 核准
         </Button>
         <Button
@@ -229,7 +245,12 @@ function RequestDialog() {
   function submit() {
     start(async () => {
       try {
-        await requestCheckInCorrection({ date, kind, time, reason: reason.trim() || undefined });
+        await requestCheckInCorrection({
+          date,
+          kind,
+          time,
+          reason: reason.trim() || undefined,
+        });
         toast.success("已送出補打卡申請");
         setOpen(false);
         setReason("");
@@ -242,7 +263,12 @@ function RequestDialog() {
 
   return (
     <>
-      <Button size="sm" variant="outline" onClick={() => setOpen(true)} className="gap-1">
+      <Button
+        size="sm"
+        variant="outline"
+        onClick={() => setOpen(true)}
+        className="gap-1"
+      >
         <Plus className="h-4 w-4" /> 補打卡
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
@@ -250,7 +276,8 @@ function RequestDialog() {
           <DialogHeader>
             <DialogTitle>補打卡申請</DialogTitle>
             <DialogDescription>
-              忘記上 / 下班打卡時填寫，送出後由具出勤管理權限者核准，核准後補計當日工時。
+              忘記上 /
+              下班打卡時填寫，送出後由具出勤管理權限者核准，核准後補計當日工時。
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -310,7 +337,11 @@ function RequestDialog() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)} disabled={pending}>
+            <Button
+              variant="outline"
+              onClick={() => setOpen(false)}
+              disabled={pending}
+            >
               取消
             </Button>
             <Button onClick={submit} disabled={pending}>

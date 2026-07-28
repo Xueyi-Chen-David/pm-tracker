@@ -32,10 +32,13 @@ export function CheckInWorkspace({
   correctionBadge?: number;
 }) {
   return (
-    <div className="space-y-4">
+    // 桌機：{today} 自然高度，Tabs 分掉剩餘空間；分頁內容各自在區塊內捲動，
+    // 不必把整頁往下撐長（高度預算由 /checkin/page.tsx 的外層 calc 決定）。
+    // 手機：外層沒有固定高度，這些 lg: 類別自然失效，維持一般文件捲動。
+    <div className="flex flex-col gap-4 lg:h-full lg:min-h-0">
       {today}
-      <Tabs defaultValue="attendance" className="gap-4">
-        <TabsList className="h-9">
+      <Tabs defaultValue="attendance" className="gap-4 lg:min-h-0 lg:flex-1">
+        <TabsList className="h-9 shrink-0">
           <TabsTrigger value="attendance" className="px-3">
             我的出勤
           </TabsTrigger>
@@ -52,16 +55,28 @@ export function CheckInWorkspace({
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="attendance" className="space-y-3">
+        <TabsContent
+          value="attendance"
+          className="space-y-3 lg:min-h-0 lg:overflow-y-auto"
+        >
           {attendance}
         </TabsContent>
-        <TabsContent value="leave" className="space-y-3">
+        <TabsContent
+          value="leave"
+          className="space-y-3 lg:min-h-0 lg:overflow-y-auto"
+        >
           {leave}
         </TabsContent>
-        <TabsContent value="events" className="space-y-3">
+        <TabsContent
+          value="events"
+          className="space-y-3 lg:min-h-0 lg:overflow-y-auto"
+        >
           {events}
         </TabsContent>
-        <TabsContent value="corrections" className="space-y-3">
+        <TabsContent
+          value="corrections"
+          className="space-y-3 lg:min-h-0 lg:overflow-y-auto"
+        >
           {corrections}
         </TabsContent>
       </Tabs>

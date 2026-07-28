@@ -30,7 +30,11 @@ import { CheckInCorrections } from "@/components/checkin-corrections";
 import { CheckInWorkspace } from "@/components/checkin/checkin-workspace";
 import { LeaveRequestForm } from "@/components/leave/leave-request-form";
 import { LeaveEventsSection } from "@/components/leave/leave-events-section";
-import { RequestCard, CancelButton, Empty } from "@/components/leave/request-card";
+import {
+  RequestCard,
+  CancelButton,
+  Empty,
+} from "@/components/leave/request-card";
 
 export const metadata = { title: "打卡 / 請假 / 出差 · Project Pulse" };
 
@@ -142,7 +146,9 @@ export default async function CheckInPage({
   const eventMembers = canManageAttendance
     ? (directory?.map((d) => ({
         userId: d.id,
-        label: d.jobTitle ? `${displayName(d)}（${d.jobTitle}）` : displayName(d),
+        label: d.jobTitle
+          ? `${displayName(d)}（${d.jobTitle}）`
+          : displayName(d),
       })) ?? [])
     : null;
 
@@ -153,7 +159,10 @@ export default async function CheckInPage({
     : myCorrections.filter((c) => c.status === "pending").length;
 
   return (
-    <div className="space-y-4">
+    // 桌機：填滿視窗高度（扣掉 AppContainer 的 py-6＝3rem），讓「補打卡」等分頁
+    // 內容依實際可用空間貼齊底部、在區塊內捲動，而不是把整頁往下撐長；
+    // 手機維持一般文件捲動（與 /todo 頁同一套寫法）。
+    <div className="flex flex-col gap-4 lg:h-[calc(100dvh-3rem)] lg:overflow-hidden">
       <PageHeader
         title="打卡 / 請假 / 出差"
         description={`${year} 年 ${month} 月 · 你的打卡、請假與出差都在這一頁`}
@@ -165,92 +174,104 @@ export default async function CheckInPage({
         />
       </PageHeader>
 
-      <CheckInWorkspace
-        leaveBadge={leaveBadge}
-        correctionBadge={correctionBadge}
-        today={
-          checkInEnabled ? (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-1.5">
-                  <Fingerprint className="h-4 w-4" /> 今日打卡
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <CheckInCard
-                  todayPunches={todayPunches}
-                  matchMode={parseMatchMode(orgConfig?.checkInMatchMode)}
-                />
-              </CardContent>
-            </Card>
-          ) : (
-            <p className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm">
-              你的企業尚未啟用打卡。以下仍可查看出勤月曆、送出請假與登記出差。
-            </p>
-          )
-        }
-        attendance={
-          members.length === 0 ? (
-            <Empty text="找不到你的出勤資料。" />
-          ) : (
-            <>
-              <p className="text-muted-foreground text-xs">
-                出缺勤以打卡為準（唯讀）。忘記打卡請到「補打卡」分頁申請；請假 / 出差請用上方分頁登記。
-                {checkInEnabled && "平日未打卡者於次日起自動標記缺席。"}
+      <div className="min-h-0 lg:flex-1">
+        <CheckInWorkspace
+          leaveBadge={leaveBadge}
+          correctionBadge={correctionBadge}
+          today={
+            checkInEnabled ? (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-1.5">
+                    <Fingerprint className="h-4 w-4" /> 今日打卡
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <CheckInCard
+                    todayPunches={todayPunches}
+                    matchMode={parseMatchMode(orgConfig?.checkInMatchMode)}
+                  />
+                </CardContent>
+              </Card>
+            ) : (
+              <p className="text-muted-foreground rounded-xl border border-dashed px-4 py-6 text-center text-sm">
+                你的企業尚未啟用打卡。以下仍可查看出勤月曆、送出請假與登記出差。
               </p>
-              {/* 本人一律唯讀：要改出勤得走補打卡 / 請假流程，故 canManage 固定 false。 */}
-              <AttendanceGrid members={members} days={days} canManage={false} />
-              {(checkInEnabled || timecardDays.some((d) => d.inAt || d.outAt)) && (
-                <AttendanceTimecard days={timecardDaysWithPending} todayStr={todayStr} />
+            )
+          }
+          attendance={
+            members.length === 0 ? (
+              <Empty text="找不到你的出勤資料。" />
+            ) : (
+              <>
+                <p className="text-muted-foreground text-xs">
+                  出缺勤以打卡為準（唯讀）。忘記打卡請到「補打卡」分頁申請；請假
+                  / 出差請用上方分頁登記。
+                  {checkInEnabled && "平日未打卡者於次日起自動標記缺席。"}
+                </p>
+                {/* 本人一律唯讀：要改出勤得走補打卡 / 請假流程，故 canManage 固定 false。 */}
+                <AttendanceGrid
+                  members={members}
+                  days={days}
+                  canManage={false}
+                />
+                {(checkInEnabled ||
+                  timecardDays.some((d) => d.inAt || d.outAt)) && (
+                  <AttendanceTimecard
+                    days={timecardDaysWithPending}
+                    todayStr={todayStr}
+                  />
+                )}
+              </>
+            )
+          }
+          leave={
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-muted-foreground text-xs">
+                  正式請假走簽核流程，核准後自動登記到出席月曆；輪到誰簽核時對方會收到通知。
+                </p>
+                <LeaveRequestForm leaveTypes={leaveTypes} />
+              </div>
+              {myRequests.length === 0 ? (
+                <Empty text="你還沒有送出任何請假申請。點右上「申請請假」開始。" />
+              ) : (
+                myRequests.map((r) => (
+                  <RequestCard
+                    key={r.id}
+                    req={r}
+                    footer={
+                      r.status === "PENDING" ? <CancelButton id={r.id} /> : null
+                    }
+                  />
+                ))
               )}
             </>
-          )
-        }
-        leave={
-          <>
-            <div className="flex flex-wrap items-center justify-between gap-2">
+          }
+          events={
+            <>
               <p className="text-muted-foreground text-xs">
-                正式請假走簽核流程，核准後自動登記到出席月曆；輪到誰簽核時對方會收到通知。
+                出差、在家工作、外出等免簽核事件直接登記；出差 /
+                在家工作會即時反映到出席月曆。
               </p>
-              <LeaveRequestForm leaveTypes={leaveTypes} />
-            </div>
-            {myRequests.length === 0 ? (
-              <Empty text="你還沒有送出任何請假申請。點右上「申請請假」開始。" />
-            ) : (
-              myRequests.map((r) => (
-                <RequestCard
-                  key={r.id}
-                  req={r}
-                  footer={
-                    r.status === "PENDING" ? <CancelButton id={r.id} /> : null
-                  }
-                />
-              ))
-            )}
-          </>
-        }
-        events={
-          <>
-            <p className="text-muted-foreground text-xs">
-              出差、在家工作、外出等免簽核事件直接登記；出差 / 在家工作會即時反映到出席月曆。
-            </p>
-            <LeaveEventsSection
-              myUserId={user.id}
-              myLabel={displayName(user)}
-              initialEvents={myEvents}
-              canManageAttendance={canManageAttendance}
-              members={eventMembers}
+              <LeaveEventsSection
+                myUserId={user.id}
+                myLabel={displayName(user)}
+                initialEvents={myEvents}
+                canManageAttendance={canManageAttendance}
+                members={eventMembers}
+              />
+            </>
+          }
+          corrections={
+            <CheckInCorrections
+              mine={myCorrections}
+              pending={pendingCorrections}
+              canReview={canReview}
             />
-          </>
-        }
-        corrections={
-          <CheckInCorrections
-            mine={myCorrections}
-            pending={pendingCorrections}
-            canReview={canReview}
-          />
-        }
-      />
+          }
+        />
+      </div>
     </div>
   );
 }
