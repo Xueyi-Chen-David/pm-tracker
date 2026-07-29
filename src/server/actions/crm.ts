@@ -4,6 +4,8 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
 import { requireActiveOrg } from "@/server/org";
+import { primaryName } from "@/lib/display";
+import { CRM_ACTIVITY_ICON, CRM_ACTIVITY_LABEL, CRM_EVENT_ICON } from "@/lib/crm";
 
 function toUtcDate(v?: string | null): Date | null {
   if (!v) return null;
@@ -500,4 +502,188 @@ export async function deleteActivity(id: string) {
     where: { id, deal: { organizationId: org.id } },
   });
   revalidate();
+}
+
+// ── 企業時間軸（依聯絡人「公司」欄位分組，彙整跨聯絡人的完整歷史）───
+
+export type CompanyTimelineEntry = {
+  id: string;
+  at: string; // ISO，供排序 / 顯示
+  color: string; // STAGE_COLORS 的色彩鍵
+  chip: string; // 徽章文字
+  icon: string | null; // 前綴圖示（emoji）
+  contactName: string | null; // 這筆紀錄對應哪位聯絡人
+  dealTitle: string | null; // 這筆紀錄對應哪個商機（活動 / 階段異動才有）
+  fromStageLabel: string | null; // 僅階段異動：前一階段名稱
+  detail: string | null; // 內文（備註 / 活動內容 / 換階段原因）
+  link: string | null; // 僅活動紀錄：可選連結
+  actor: string | null; // 操作者顯示名稱
+};
+
+/**
+ * 讀某企業（依 CrmContact.company 字串分組，同名視為同一企業）名下所有
+ * 聯絡人的完整歷史：CRM 活動紀錄 + 商機跟進活動 + 商機階段異動，合併成
+ * 單一時間軸（依時間升冪），讓使用者一眼看到與這間企業互動的完整路徑。
+ * 「企業」目前沒有獨立資料表，純粹以聯絡人的公司名稱字串分組——跟現有
+ * UI 各處以此字串顯示/篩選公司的作法一致。
+ */
+export async function getCompanyTimeline(
+  company: string,
+): Promise<{ contactCount: number; entries: CompanyTimelineEntry[] }> {
+  const { org } = await requireActiveOrg();
+  const name = company.trim();
+  if (!name) return { contactCount: 0, entries: [] };
+
+  const contacts = await db.crmContact.findMany({
+    where: { organizationId: org.id, company: name },
+    select: { id: true, name: true, createdAt: true },
+  });
+  if (contacts.length === 0) return { contactCount: 0, entries: [] };
+  const contactIds = contacts.map((c) => c.id);
+  const contactNameById = new Map(contacts.map((c) => [c.id, c.name]));
+
+  const [events, deals, dealStages] = await Promise.all([
+    db.crmEvent.findMany({
+      where: { organizationId: org.id, contactId: { in: contactIds } },
+      select: {
+        id: true,
+        type: true,
+        title: true,
+        notes: true,
+        link: true,
+        contactId: true,
+        createdById: true,
+        createdAt: true,
+      },
+    }),
+    db.crmDeal.findMany({
+      where: { organizationId: org.id, contactId: { in: contactIds } },
+      select: {
+        id: true,
+        title: true,
+        contactId: true,
+        activities: {
+          select: {
+            id: true,
+            type: true,
+            body: true,
+            createdById: true,
+            createdAt: true,
+          },
+        },
+        stageChanges: {
+          select: {
+            id: true,
+            fromStage: true,
+            toStage: true,
+            reason: true,
+            changedById: true,
+            changedAt: true,
+          },
+        },
+      },
+    }),
+    db.dealStage.findMany({
+      where: { organizationId: org.id },
+      select: { key: true, label: true, color: true },
+    }),
+  ]);
+  const stageByKey = new Map(dealStages.map((s) => [s.key, s]));
+
+  const actorIds = new Set<string>();
+  for (const e of events) if (e.createdById) actorIds.add(e.createdById);
+  for (const d of deals) {
+    for (const a of d.activities) if (a.createdById) actorIds.add(a.createdById);
+    for (const s of d.stageChanges) if (s.changedById) actorIds.add(s.changedById);
+  }
+  const users = actorIds.size
+    ? await db.user.findMany({
+        where: { id: { in: [...actorIds] } },
+        select: {
+          id: true,
+          name: true,
+          nickname: true,
+          useNickname: true,
+          email: true,
+        },
+      })
+    : [];
+  const userById = new Map(users.map((u) => [u.id, u]));
+  const actorNameOf = (id: string | null) => {
+    const u = id ? userById.get(id) : undefined;
+    return u ? primaryName(u) : null;
+  };
+
+  const entries: CompanyTimelineEntry[] = [];
+
+  for (const c of contacts) {
+    entries.push({
+      id: `contact-${c.id}`,
+      at: c.createdAt.toISOString(),
+      color: "zinc",
+      chip: "新聯絡人",
+      icon: "👤",
+      contactName: c.name,
+      dealTitle: null,
+      fromStageLabel: null,
+      detail: null,
+      link: null,
+      actor: null,
+    });
+  }
+
+  for (const e of events) {
+    entries.push({
+      id: `event-${e.id}`,
+      at: e.createdAt.toISOString(),
+      color: "sky",
+      chip: e.type,
+      icon: CRM_EVENT_ICON[e.type] ?? "📌",
+      contactName: e.contactId ? (contactNameById.get(e.contactId) ?? null) : null,
+      dealTitle: null,
+      fromStageLabel: null,
+      detail: [e.title, e.notes].filter(Boolean).join(" — ") || null,
+      link: e.link,
+      actor: actorNameOf(e.createdById),
+    });
+  }
+
+  for (const d of deals) {
+    const cName = d.contactId ? (contactNameById.get(d.contactId) ?? null) : null;
+    for (const a of d.activities) {
+      entries.push({
+        id: `activity-${a.id}`,
+        at: a.createdAt.toISOString(),
+        color: "violet",
+        chip: CRM_ACTIVITY_LABEL[a.type] ?? a.type,
+        icon: CRM_ACTIVITY_ICON[a.type] ?? "📝",
+        contactName: cName,
+        dealTitle: d.title,
+        fromStageLabel: null,
+        detail: a.body,
+        link: null,
+        actor: actorNameOf(a.createdById),
+      });
+    }
+    for (const s of d.stageChanges) {
+      const to = stageByKey.get(s.toStage);
+      const from = s.fromStage ? stageByKey.get(s.fromStage) : null;
+      entries.push({
+        id: `stage-${s.id}`,
+        at: s.changedAt.toISOString(),
+        color: to?.color ?? "slate",
+        chip: to?.label ?? s.toStage,
+        icon: null,
+        contactName: cName,
+        dealTitle: d.title,
+        fromStageLabel: from?.label ?? null,
+        detail: s.reason,
+        link: null,
+        actor: actorNameOf(s.changedById),
+      });
+    }
+  }
+
+  entries.sort((a, b) => a.at.localeCompare(b.at));
+  return { contactCount: contacts.length, entries };
 }

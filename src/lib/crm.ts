@@ -65,6 +65,16 @@ export const CRM_EVENT_TYPES = [
   "其他",
 ] as const;
 
+/** CRM 活動紀錄類型對應圖示（企業時間軸用；自訂類型回退為 📌）。 */
+export const CRM_EVENT_ICON: Record<string, string> = {
+  拜訪: "🚗",
+  電話: "📞",
+  活動: "🎉",
+  Email: "✉️",
+  會議: "🤝",
+  其他: "📌",
+};
+
 /** 活動類型（電話 / 會議 / Email / 備註 / 待辦）。 */
 export const CRM_ACTIVITY_TYPES = [
   { value: "note", label: "備註", icon: "📝" },

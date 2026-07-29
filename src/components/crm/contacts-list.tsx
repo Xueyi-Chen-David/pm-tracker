@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Pencil, Search, Building2, Mail, Phone } from "lucide-react";
+import { Pencil, Search, Building2, History, Mail, Phone } from "lucide-react";
 import { ContactDialog, type ContactView } from "@/components/crm/contact-dialog";
+import { CompanyTimelineDialog } from "@/components/crm/company-timeline-dialog";
 import type { OwnerLite } from "@/components/okr/key-result-row";
 
 export type ContactRow = ContactView & {
@@ -56,7 +57,7 @@ export function ContactsList({
             <div className="flex-1">聯絡方式</div>
             <div className="w-14 shrink-0 text-center">商機</div>
             <div className="w-28 shrink-0">負責人</div>
-            <div className="w-9 shrink-0" />
+            <div className="w-16 shrink-0" />
           </div>
           <div className="divide-y">
             {filtered.map((c) => (
@@ -106,7 +107,21 @@ export function ContactsList({
                 <div className="text-muted-foreground w-28 shrink-0 truncate text-xs">
                   {c.ownerName || "—"}
                 </div>
-                <div className="w-9 shrink-0">
+                <div className="flex shrink-0 items-center gap-0.5">
+                  {c.company && (
+                    <CompanyTimelineDialog
+                      company={c.company}
+                      trigger={
+                        <button
+                          type="button"
+                          className="text-muted-foreground hover:bg-muted rounded-md p-1.5"
+                          title="企業時間軸"
+                        >
+                          <History className="h-4 w-4" />
+                        </button>
+                      }
+                    />
+                  )}
                   <ContactDialog
                     members={members}
                     contact={c}
