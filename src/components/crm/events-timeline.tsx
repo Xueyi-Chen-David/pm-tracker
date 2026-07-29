@@ -11,6 +11,9 @@ const MIN_GAP = 110; // 相鄰時間點最小像素間距（避免卡片互相�
 const MAX_GAP = 240; // 單一間隔最多顯示這麼寬，超過就壓縮＋插入省略標記
 const PX_PER_DAY = 7; // 比例尺：每天對應的像素寬度
 const SIDE_MARGIN = 24;
+// 卡片交錯顯示的那一側高度預算；卡片（最多三行內容）＋箭頭要能完整放進去，
+// 不能跟主軸／對向卡片擠在一起，否則會出現內容互相蓋住的問題。
+const HALF_HEIGHT = 144; // = h-72(288px) 的一半
 
 type Placed = {
   entry: EventView;
@@ -51,7 +54,8 @@ function humanGap(days: number): string {
  * 活動的視覺化時間軸：一條橫向主軸，紀錄依實際日期比例排開（間隔太近/太遠
  * 都會夾到合理範圍，太遠的間隔改顯示「⋯ 45 天」省略標記，避免軸線被拉到
  * 沒法看，也不會讓密集的活動疊在一起）。卡片交錯顯示在主軸上／下方，各接
- * 一段箭頭連到軸上的點。點卡片＝開啟既有的編輯視窗。
+ * 一段箭頭連到軸上的點；沒放卡片的那一側改顯示日期，讓軸線本身就看得出
+ * 每個點是哪一天，不必打開卡片才看得到。點卡片＝開啟既有的編輯視窗。
  */
 export function EventsTimeline({
   events,
@@ -75,7 +79,10 @@ export function EventsTimeline({
 
   return (
     <div className="bg-card overflow-x-auto rounded-xl border p-4">
-      <div className="relative h-56" style={{ width: totalWidth }}>
+      <div
+        className="relative"
+        style={{ width: totalWidth, height: HALF_HEIGHT * 2 + 12 }}
+      >
         {/* 主軸：貫穿所有項目中點的橫線 */}
         <div
           className="bg-border pointer-events-none absolute top-1/2 h-px"
@@ -114,18 +121,35 @@ export function EventsTimeline({
                     type="button"
                     className="group flex h-full w-full flex-col items-center text-left"
                   >
-                    <div className="flex h-1/2 w-full flex-col items-center justify-end gap-1 pb-1">
-                      {above && <TimelineCard e={e} />}
-                      {above && (
-                        <ArrowDown className="text-muted-foreground/50 h-3 w-3 shrink-0" />
+                    {/* 主軸上方：above 這一輪放卡片＋往下的箭頭，否則只放日期（貼著軸線）。 */}
+                    <div
+                      className="flex w-full flex-col items-center justify-end gap-1 pb-1.5"
+                      style={{ height: HALF_HEIGHT }}
+                    >
+                      {above ? (
+                        <>
+                          <TimelineCard e={e} />
+                          <ArrowDown className="text-muted-foreground/50 h-3 w-3 shrink-0" />
+                        </>
+                      ) : (
+                        <DateLabel date={e.date} />
                       )}
                     </div>
+                    {/* 軸上的點 */}
                     <span className="ring-background relative z-10 h-3 w-3 shrink-0 rounded-full bg-sky-500 ring-4" />
-                    <div className="flex h-1/2 w-full flex-col items-center justify-start gap-1 pt-1">
-                      {!above && (
-                        <ArrowUp className="text-muted-foreground/50 h-3 w-3 shrink-0" />
+                    {/* 主軸下方：above 這一輪只放日期，否則放往上的箭頭＋卡片。 */}
+                    <div
+                      className="flex w-full flex-col items-center justify-start gap-1 pt-1.5"
+                      style={{ height: HALF_HEIGHT }}
+                    >
+                      {above ? (
+                        <DateLabel date={e.date} />
+                      ) : (
+                        <>
+                          <ArrowUp className="text-muted-foreground/50 h-3 w-3 shrink-0" />
+                          <TimelineCard e={e} />
+                        </>
                       )}
-                      {!above && <TimelineCard e={e} />}
                     </div>
                   </button>
                 }
@@ -138,13 +162,22 @@ export function EventsTimeline({
   );
 }
 
+/** 貼著軸線顯示的日期（沒放卡片的那一側），讓軸線本身就看得出每個點是哪一天。 */
+function DateLabel({ date }: { date: string }) {
+  return (
+    <span className="text-muted-foreground text-[11px] font-medium tabular-nums">
+      {format(parseISO(date), "M/d")}
+    </span>
+  );
+}
+
 function TimelineCard({ e }: { e: EventView }) {
   return (
     <div className="bg-card group-hover:border-primary/50 w-40 rounded-lg border p-2 shadow-sm transition-colors">
-      <div className="flex items-center gap-1 text-[11px]">
-        <span>{CRM_EVENT_ICON[e.type] ?? "📌"}</span>
-        <span className="text-muted-foreground">
-          {format(parseISO(e.date), "M/d")}
+      <div className="flex items-center gap-1">
+        <span className="text-sm">{CRM_EVENT_ICON[e.type] ?? "📌"}</span>
+        <span className="text-muted-foreground truncate text-[10px]">
+          {e.type}
         </span>
       </div>
       <div className="mt-0.5 line-clamp-2 text-xs font-medium break-words">
