@@ -39,6 +39,24 @@ export function daysAgoUtc(days: number): Date {
 const TAIPEI_UTC_OFFSET_MIN = 8 * 60;
 
 /**
+ * 「今天（台灣當地日期）」的 UTC 午夜——差勤（打卡日 / 出勤日）一律用這個，不要用 todayUtc()。
+ *
+ * todayUtc() 取的是伺服器當地日期，而 Vercel 執行環境是 UTC：台灣時間 00:00–08:00
+ * 之間，UTC 還停在「昨天」。早上 8 點前打卡的人，打卡與出席會整筆記到前一天，
+ * 當天月曆一片空白、隔天還被自動判成缺席。
+ */
+export function taipeiTodayUtc(): Date {
+  const shifted = new Date(Date.now() + TAIPEI_UTC_OFFSET_MIN * 60_000);
+  return new Date(
+    Date.UTC(
+      shifted.getUTCFullYear(),
+      shifted.getUTCMonth(),
+      shifted.getUTCDate(),
+    ),
+  );
+}
+
+/**
  * 把使用者輸入的「台灣當地」年月日時分換算成正確的 UTC 時刻。伺服器（Vercel）
  * 執行環境時區是 UTC，若直接用 `new Date(y, m, d, hh, mm)` 建構會把這些數字當成
  * 伺服器本地時間（=UTC）解讀，實際存下的時刻會整整偏差 8 小時（例如補打卡輸入

@@ -2,6 +2,11 @@ import { cache } from "react";
 import type { OkrLevel, ProjectStatus } from "@prisma/client";
 import { db } from "./db";
 import { thisWeekStart, weekStartOf } from "@/lib/date";
+import {
+  formatClock,
+  taipeiMinutesOfDay,
+  type CheckInReminderFacts,
+} from "@/lib/checkin-reminder";
 import { DEFAULT_DEAL_STAGES } from "@/lib/crm";
 import { specialLeaveDays } from "@/lib/leave-entitlement";
 
@@ -363,6 +368,65 @@ export async function getPendingCheckInCorrections(orgId: string) {
 export type PendingCheckInCorrection = Awaited<
   ReturnType<typeof getPendingCheckInCorrections>
 >[number];
+
+/**
+ * 「今天忘了打卡」提醒所需的今日事實（見 lib/checkin-reminder.ts）。
+ * 每頁的 layout 都會跑，所以刻意省：週末 / 企業沒開打卡就直接回 null 不查後面的表，
+ * 真的要查也只是三筆走索引的小查詢（同一天、同一人）。
+ *
+ * 回傳 null＝這個人現在完全不需要被提醒（前端連紅點都不會出現）。
+ */
+export async function getCheckInReminderFacts(
+  orgId: string,
+  userId: string,
+  today: Date,
+): Promise<CheckInReminderFacts | null> {
+  const todayStr = today.toISOString().slice(0, 10);
+  const weekday = today.getUTCDay();
+  if (weekday === 0 || weekday === 6) return null; // 週末不提醒
+
+  const orgRow = await db.organization.findUnique({
+    where: { id: orgId },
+    select: { checkInEnabled: true },
+  });
+  if (!orgRow?.checkInEnabled) return null;
+
+  const [punches, record, corrections] = await Promise.all([
+    db.checkIn.findMany({
+      where: { organizationId: orgId, userId, date: today, valid: true },
+      orderBy: { at: "asc" },
+      select: { kind: true, at: true },
+    }),
+    db.attendanceRecord.findUnique({
+      where: {
+        organizationId_userId_date: { organizationId: orgId, userId, date: today },
+      },
+      select: { leave: true, holiday: true, offsite: true, cleared: true },
+    }),
+    db.checkInCorrection.findMany({
+      where: { organizationId: orgId, userId, date: today, status: "pending" },
+      select: { kind: true },
+    }),
+  ]);
+
+  const firstIn = punches.find((p) => p.kind === "in");
+  return {
+    todayStr,
+    weekend: false,
+    hasIn: !!firstIn,
+    hasOut: punches.some((p) => p.kind === "out"),
+    // 請假 / 出差 / 在家工作 / 休假 / 人工清除的日子本來就不用打卡。
+    dayOff: !!record && (record.leave || record.holiday || record.offsite || record.cleared),
+    pendingIn: corrections.some((c) => c.kind === "in"),
+    pendingOut: corrections.some((c) => c.kind === "out"),
+    inAtLabel: firstIn ? taipeiClock(firstIn.at) : null,
+  };
+}
+
+/** UTC 時刻 → 台灣當地 "HH:mm"（伺服器時區為 UTC，不能直接 format）。 */
+function taipeiClock(at: Date): string {
+  return formatClock(taipeiMinutesOfDay(at.getTime()));
+}
 
 /** 出席追蹤成員管理：本組織所有在職成員 + 是否已納入追蹤。 */
 export async function getTrackableMembers(orgId: string) {

@@ -10,13 +10,19 @@ import {
   getUnreadNotificationCount,
   isEligibleLeaveApprover,
   countPendingApprovalsForMember,
+  getCheckInReminderFacts,
 } from "@/server/queries";
 import { visibleModules } from "@/lib/modules";
+import { taipeiTodayUtc } from "@/lib/date";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppContainer } from "@/components/app-container";
 import { ViewAsBanner } from "@/components/view-as-banner";
 import { WhatsNew } from "@/components/whats-new";
 import { PushManager } from "@/components/push-manager";
+import {
+  CheckInReminderProvider,
+  CheckInReminderBar,
+} from "@/components/checkin-reminder";
 import { NotificationWatcher } from "@/components/notification-watcher";
 import { PomodoroIndicator } from "@/components/pomodoro";
 
@@ -39,6 +45,7 @@ export default async function AppLayout({
     previewRoles,
     isLeaveApprover,
     pendingApprovals,
+    checkInFacts,
   ] = await Promise.all([
       getOrgMemberUsers(org.id),
       getNotifications(org.id, user.id, 20),
@@ -56,6 +63,8 @@ export default async function AppLayout({
       // 側欄每頁都跑，故兩者都是輕量查詢（一個小 findMany + 一個 count）。
       isEligibleLeaveApprover(org.id, membership.id),
       countPendingApprovalsForMember(org.id, membership.id),
+      // 「今天忘了打卡」提醒的今日事實。週末 / 企業沒開打卡時只花一次輕查詢就回 null。
+      getCheckInReminderFacts(org.id, user.id, taipeiTodayUtc()),
     ]);
 
   const { access, previewing, preview, previewRoleName } = resolved;
@@ -92,42 +101,48 @@ export default async function AppLayout({
         : null;
 
   return (
-    <div className="min-h-dvh">
-      <AppSidebar
-        user={sidebarUser}
-        users={users}
-        moduleKeys={moduleKeys}
-        activeOrg={{ id: org.id, name: org.name }}
-        orgs={orgs}
-        canPreview={manager}
-        previewRoles={previewRoles}
-        previewValue={previewValue}
-        notifications={notifications.map((n) => ({
-          id: n.id,
-          title: n.title,
-          body: n.body,
-          link: n.link,
-          read: n.read,
-          createdAt: n.createdAt,
-        }))}
-        unread={unread}
-      />
-      <main className="lg:pl-60">
-        {previewing && (
-          <ViewAsBanner
-            role={preview.mode === "role" ? previewRoleName : undefined}
-          />
-        )}
-        <AppContainer>{children}</AppContainer>
-      </main>
-      {/* 「本週更新」彈窗：全 App 掛載一次，使用者下次開網頁時自動秀出新功能。 */}
-      <WhatsNew />
-      {/* 桌面通知：登入後自動註冊 SW + 訂閱推播（預設開啟）。 */}
-      <PushManager />
-      {/* 站內即時彈窗：分頁開著時，新通知以 toast 跳出（Slack 式）。 */}
-      <NotificationWatcher />
-      {/* 全域番茄鐘浮動計時器（模組級 store，切頁 / 關網頁都持續倒數；進行中才顯示）。 */}
-      <PomodoroIndicator />
-    </div>
+    // 打卡提醒的「今日事實」放在 context：側欄小圓點與內容區提示條共用同一份，
+    // 兩者才不會一個說該打卡、一個說不用。預覽他人視角時不提醒（那不是你的卡）。
+    <CheckInReminderProvider facts={previewing ? null : checkInFacts}>
+      <div className="min-h-dvh">
+        <AppSidebar
+          user={sidebarUser}
+          users={users}
+          moduleKeys={moduleKeys}
+          activeOrg={{ id: org.id, name: org.name }}
+          orgs={orgs}
+          canPreview={manager}
+          previewRoles={previewRoles}
+          previewValue={previewValue}
+          notifications={notifications.map((n) => ({
+            id: n.id,
+            title: n.title,
+            body: n.body,
+            link: n.link,
+            read: n.read,
+            createdAt: n.createdAt,
+          }))}
+          unread={unread}
+        />
+        <main className="lg:pl-60">
+          {previewing && (
+            <ViewAsBanner
+              role={preview.mode === "role" ? previewRoleName : undefined}
+            />
+          )}
+          {/* 忘了打卡的細提示條：貼在內容最上方，可直接打卡或收起，不擋任何操作。 */}
+          <CheckInReminderBar />
+          <AppContainer>{children}</AppContainer>
+        </main>
+        {/* 「本週更新」彈窗：全 App 掛載一次，使用者下次開網頁時自動秀出新功能。 */}
+        <WhatsNew />
+        {/* 桌面通知：登入後自動註冊 SW + 訂閱推播（預設開啟）。 */}
+        <PushManager />
+        {/* 站內即時彈窗：分頁開著時，新通知以 toast 跳出（Slack 式）。 */}
+        <NotificationWatcher />
+        {/* 全域番茄鐘浮動計時器（模組級 store，切頁 / 關網頁都持續倒數；進行中才顯示）。 */}
+        <PomodoroIndicator />
+      </div>
+    </CheckInReminderProvider>
   );
 }

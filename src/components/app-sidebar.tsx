@@ -38,6 +38,7 @@ import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/s
 import { NewProjectButton } from "@/components/new-project-button";
 import { OrgSwitcher } from "@/components/org-switcher";
 import { NotificationBell, type NotificationItem } from "@/components/notification-bell";
+import { CheckInReminderDot } from "@/components/checkin-reminder";
 import { WhatsNewTrigger } from "@/components/whats-new";
 import { ViewAsMenu, type PreviewRole } from "@/components/view-as-menu";
 import type { ModuleKey } from "@/lib/modules";
@@ -152,6 +153,10 @@ function NavLinks({
       >
         <Icon className="h-4.5 w-4.5 shrink-0" />
         {item.label}
+        {/* 今天還沒打卡時，「打卡 / 出勤」旁多一顆安靜的小圓點（不擋路、不需處理）。 */}
+        {item.key === "checkin" && (
+          <CheckInReminderDot className={active ? "bg-primary-foreground" : ""} />
+        )}
       </Link>
     );
   };
