@@ -1,4 +1,4 @@
-import { Check, X } from "lucide-react";
+import { Check, Users, X } from "lucide-react";
 import { requireManageContext } from "@/server/org";
 import { db } from "@/server/db";
 import {
@@ -8,7 +8,7 @@ import {
   getOrgLeaveTypes,
 } from "@/server/queries";
 import { parseGeofences, parseMatchMode } from "@/lib/checkin";
-import { todayUtc } from "@/lib/date";
+import { taipeiTodayUtc } from "@/lib/date";
 import { displayName } from "@/lib/display";
 import {
   parseMonth,
@@ -48,13 +48,17 @@ export default async function AttendancePage({
   const canViewPunchTimes = can("attendance.view_punch_times");
   const { month: monthParam } = await searchParams;
 
-  const now = new Date();
-  const thisMonth = { year: now.getFullYear(), month: now.getMonth() + 1 };
+  // 「今天」與「本月」一律以台灣當地日期為準（伺服器跑在 UTC，早上 8 點前會差一天）。
+  const today = taipeiTodayUtc();
+  const todayStr = today.toISOString().slice(0, 10);
+  const thisMonth = {
+    year: today.getUTCFullYear(),
+    month: today.getUTCMonth() + 1,
+  };
   const { year, month } = parseMonth(monthParam, thisMonth);
   const { start, end, days } = monthRange(year, month);
-  const todayStr = todayUtc().toISOString().slice(0, 10);
 
-  const [rows, trackable, leaveTypes, orgConfig, firstCheckIn] =
+  const [rows, trackable, leaveTypes, orgConfig, firstCheckIn, monthPunchers] =
     await Promise.all([
       canViewAll
         ? getAttendanceMonth(org.id, start, end)
@@ -77,6 +81,19 @@ export default async function AttendancePage({
         orderBy: { date: "asc" },
         select: { date: true },
       }),
+      // 本月「有打卡的人」：用來提醒管理者「這些人打了卡卻沒被納入追蹤，所以下表看不到」
+      // ——月曆只列出 trackAttendance=true 的成員，很容易誤以為打卡壞掉了。
+      canViewAll && canManageAtt
+        ? db.checkIn.findMany({
+            where: {
+              organizationId: org.id,
+              date: { gte: start, lt: end },
+              valid: true,
+            },
+            select: { userId: true },
+            distinct: ["userId"],
+          })
+        : Promise.resolve([]),
     ]);
 
   const checkInEnabled = orgConfig?.checkInEnabled ?? false;
@@ -89,6 +106,12 @@ export default async function AttendancePage({
     anchorStr,
     todayStr,
   });
+
+  // 有打卡、卻沒被納入出席追蹤的人數（他們的出席不會出現在下面的月曆）。
+  const trackedIds = new Set(members.map((m) => m.id));
+  const untrackedPunchers = monthPunchers.filter(
+    (p) => !trackedIds.has(p.userId),
+  ).length;
 
   // 每人打卡時間：只在具備權限時才查（沒權限就連資料都不撈到伺服器記憶體）。
   let memberTimecards: MemberTimecard[] = [];
@@ -149,6 +172,18 @@ export default async function AttendancePage({
         )}
         {canManageAtt && <AttendanceTrackManager members={trackable} />}
       </PageHeader>
+
+      {/* 打卡了卻沒被追蹤的人，出席不會出現在下表——這最容易被誤會成「打卡壞了」，
+          所以直接講清楚，並指向右上角的「追蹤成員」。 */}
+      {untrackedPunchers > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/25 dark:bg-amber-950/40 dark:text-amber-100">
+          <Users className="mt-px h-4 w-4 shrink-0" />
+          <span>
+            本月有 {untrackedPunchers} 位成員有打卡紀錄，但未納入出席追蹤，
+            所以他們的出席不會顯示在下面的月曆。請用右上角「追蹤成員」把他們勾選進來。
+          </span>
+        </div>
+      )}
 
       <div className="text-muted-foreground flex flex-wrap items-center gap-4 text-xs">
         {/* 符號說明：下載 PNG 時會整段複製進圖片，讓收到圖的人看得懂每個格子的意思。 */}

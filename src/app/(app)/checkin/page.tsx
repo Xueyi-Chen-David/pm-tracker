@@ -11,7 +11,7 @@ import {
   getOrgMemberDirectory,
 } from "@/server/queries";
 import { parseMatchMode } from "@/lib/checkin";
-import { todayUtc } from "@/lib/date";
+import { taipeiTodayUtc } from "@/lib/date";
 import { displayName } from "@/lib/display";
 import {
   parseMonth,
@@ -57,13 +57,16 @@ export default async function CheckInPage({
   const canManageAttendance = canReview;
   const { month: monthParam } = await searchParams;
 
-  const now = new Date();
-  const thisMonth = { year: now.getFullYear(), month: now.getMonth() + 1 };
+  // 「今天」與「本月」一律以台灣當地日期為準：伺服器跑在 UTC，台灣早上 8 點前
+  // 直接用伺服器日期會整整差一天（月初還會退回上個月）。
+  const today = taipeiTodayUtc();
+  const todayStr = today.toISOString().slice(0, 10);
+  const thisMonth = {
+    year: today.getUTCFullYear(),
+    month: today.getUTCMonth() + 1,
+  };
   const { year, month } = parseMonth(monthParam, thisMonth);
   const { start, end, days } = monthRange(year, month);
-
-  const today = todayUtc();
-  const todayStr = today.toISOString().slice(0, 10);
 
   const [
     orgConfig,

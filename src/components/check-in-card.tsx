@@ -4,9 +4,10 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { LogIn, LogOut, MapPin, Wifi } from "lucide-react";
+import { Check, LogIn, LogOut, MapPin, Wifi } from "lucide-react";
 import { punch } from "@/server/actions/checkin";
 import type { CheckInMatchMode } from "@/lib/checkin";
+import { getCoords } from "@/lib/geo";
 import { Button } from "@/components/ui/button";
 
 type Punch = {
@@ -35,20 +36,6 @@ function MethodBadge({ method }: { method: string | null }) {
       {isGps ? "定位" : "IP"}
     </span>
   );
-}
-
-function getCoords(): Promise<{ lat: number; lng: number } | null> {
-  return new Promise((resolve) => {
-    if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
-      resolve(null);
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(
-      (p) => resolve({ lat: p.coords.latitude, lng: p.coords.longitude }),
-      () => resolve(null), // 拒絕 / 失敗 → 交由 IP 判斷
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 60_000 },
-    );
-  });
 }
 
 export function CheckInCard({
@@ -82,26 +69,49 @@ export function CheckInCard({
     });
   }
 
+  // 每天每種卡只打一次：已打過的那顆直接顯示打卡時間並停用（伺服器端也會擋，
+  // 這裡只是讓使用者不用按下去才知道）。要改時間走「補打卡」。
+  const punchedIn = todayPunches.find((p) => p.kind === "in");
+  const punchedOut = todayPunches.find((p) => p.kind === "out");
+
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-2 gap-2">
         <Button
           variant="outline"
           className="h-11 gap-1.5"
-          disabled={pending}
+          disabled={pending || !!punchedIn}
+          title={punchedIn ? "今天已打過上班卡，如需更正請用補打卡" : undefined}
           onClick={() => doPunch("in")}
         >
-          <LogIn className="h-4 w-4" />
-          {busyKind === "in" ? "打卡中…" : "上班打卡"}
+          {punchedIn ? (
+            <Check className="h-4 w-4 text-emerald-600" />
+          ) : (
+            <LogIn className="h-4 w-4" />
+          )}
+          {busyKind === "in"
+            ? "打卡中…"
+            : punchedIn
+              ? `已上班打卡 ${format(new Date(punchedIn.at), "HH:mm")}`
+              : "上班打卡"}
         </Button>
         <Button
           variant="outline"
           className="h-11 gap-1.5"
-          disabled={pending}
+          disabled={pending || !!punchedOut}
+          title={punchedOut ? "今天已打過下班卡，如需更正請用補打卡" : undefined}
           onClick={() => doPunch("out")}
         >
-          <LogOut className="h-4 w-4" />
-          {busyKind === "out" ? "打卡中…" : "下班打卡"}
+          {punchedOut ? (
+            <Check className="h-4 w-4 text-emerald-600" />
+          ) : (
+            <LogOut className="h-4 w-4" />
+          )}
+          {busyKind === "out"
+            ? "打卡中…"
+            : punchedOut
+              ? `已下班打卡 ${format(new Date(punchedOut.at), "HH:mm")}`
+              : "下班打卡"}
         </Button>
       </div>
 
