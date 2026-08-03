@@ -6,6 +6,17 @@ import { db } from "@/server/db";
 import { requireActiveOrg } from "@/server/org";
 import { primaryName } from "@/lib/display";
 import { CRM_ACTIVITY_ICON, CRM_ACTIVITY_LABEL, CRM_EVENT_ICON } from "@/lib/crm";
+import { extractBusinessCard, type BusinessCardFields } from "@/server/gemini";
+
+// 名片 data URL 格式（png/jpeg/webp/gif 的 base64）；跟 team.ts 的頭貼驗證同一套規則。
+const CARD_DATA_URL_RE = /^data:image\/(png|jpe?g|webp|gif);base64,[A-Za-z0-9+/=]+$/;
+const CARD_MAX_LEN = 1_500_000; // 約對應 1.1MB 原始圖片（前端已壓縮，這是防呆上限）
+
+function validateCardDataUrl(v: string): { ok: true } | { ok: false; error: string } {
+  if (!CARD_DATA_URL_RE.test(v)) return { ok: false, error: "名片圖片格式不正確。" };
+  if (v.length > CARD_MAX_LEN) return { ok: false, error: "名片圖片太大，請換小一點的圖片。" };
+  return { ok: true };
+}
 
 function toUtcDate(v?: string | null): Date | null {
   if (!v) return null;
@@ -31,11 +42,16 @@ const ContactInput = z.object({
   phone: z.string().trim().max(60).optional(),
   note: z.string().trim().max(4000).optional(),
   ownerId: z.string().optional(),
+  businessCardImage: z.string().nullable().optional(),
 });
 
 export async function createContact(input: z.input<typeof ContactInput>) {
   const { user, org } = await requireActiveOrg();
   const d = ContactInput.parse(input);
+  if (d.businessCardImage) {
+    const v = validateCardDataUrl(d.businessCardImage);
+    if (!v.ok) return { ok: false as const, error: v.error };
+  }
   const contact = await db.crmContact.create({
     data: {
       organizationId: org.id,
@@ -46,12 +62,13 @@ export async function createContact(input: z.input<typeof ContactInput>) {
       phone: d.phone || null,
       note: d.note || null,
       ownerId: d.ownerId || null,
+      businessCardImage: d.businessCardImage || null,
       createdById: user.id,
     },
     select: { id: true },
   });
   revalidate();
-  return contact;
+  return { ok: true as const, ...contact };
 }
 
 export async function updateContact(
@@ -60,6 +77,10 @@ export async function updateContact(
 ) {
   const { org } = await requireActiveOrg();
   const d = ContactInput.parse(input);
+  if (d.businessCardImage) {
+    const v = validateCardDataUrl(d.businessCardImage);
+    if (!v.ok) return { ok: false as const, error: v.error };
+  }
   const res = await db.crmContact.updateMany({
     where: { id, organizationId: org.id },
     data: {
@@ -70,11 +91,32 @@ export async function updateContact(
       phone: d.phone || null,
       note: d.note || null,
       ownerId: d.ownerId || null,
+      businessCardImage: d.businessCardImage || null,
     },
   });
   if (res.count === 0) return { ok: false as const, error: "找不到聯絡人" };
   revalidate();
   return { ok: true as const };
+}
+
+/** 讀單一聯絡人的名片圖片（列表查詢刻意不撈這欄，編輯時才個別讀）。 */
+export async function getContactCard(id: string): Promise<string | null> {
+  const { org } = await requireActiveOrg();
+  const row = await db.crmContact.findFirst({
+    where: { id, organizationId: org.id },
+    select: { businessCardImage: true },
+  });
+  return row?.businessCardImage ?? null;
+}
+
+/** 名片 OCR：讀圖片辨識姓名 / 公司 / 職稱 / Email / 電話，供前端自動填表。 */
+export async function extractContactCardFields(
+  dataUrl: string,
+): Promise<{ ok: true; fields: BusinessCardFields } | { ok: false; error: string }> {
+  await requireActiveOrg();
+  const v = validateCardDataUrl(dataUrl);
+  if (!v.ok) return { ok: false, error: v.error };
+  return extractBusinessCard(dataUrl);
 }
 
 export async function deleteContact(id: string) {
@@ -85,6 +127,8 @@ export async function deleteContact(id: string) {
 
 // ── 商機 ────────────────────────────────────────
 
+const PROBABILITY = z.coerce.number().int().min(0).max(100).nullable();
+
 const DealInput = z.object({
   title: z.string().trim().min(1, "請輸入商機名稱").max(200),
   value: z.coerce.number().int().min(0).max(1_000_000_000_000).default(0),
@@ -92,6 +136,7 @@ const DealInput = z.object({
   contactId: z.string().nullable().optional(),
   ownerId: z.string().nullable().optional(),
   expectedCloseDate: z.string().nullable().optional(),
+  probability: PROBABILITY.optional(),
   note: z.string().trim().max(4000).nullable().optional(),
 });
 
@@ -118,6 +163,7 @@ export async function createDeal(input: z.input<typeof DealInput>) {
       contactId: d.contactId || null,
       ownerId: d.ownerId || null,
       expectedCloseDate: toUtcDate(d.expectedCloseDate),
+      probability: d.probability ?? null,
       note: d.note || null,
       sortOrder: (max._max.sortOrder ?? 0) + 1,
       createdById: user.id,
@@ -145,6 +191,7 @@ const DealPatch = z.object({
   contactId: z.string().nullable().optional(),
   ownerId: z.string().nullable().optional(),
   expectedCloseDate: z.string().nullable().optional(),
+  probability: PROBABILITY.optional(),
   note: z.string().trim().max(4000).nullable().optional(),
 });
 
@@ -175,6 +222,7 @@ export async function updateDeal(id: string, patch: z.input<typeof DealPatch>) {
       ...(p.expectedCloseDate !== undefined
         ? { expectedCloseDate: toUtcDate(p.expectedCloseDate) }
         : {}),
+      ...(p.probability !== undefined ? { probability: p.probability } : {}),
       ...(p.note !== undefined ? { note: p.note || null } : {}),
     },
   });
@@ -228,13 +276,21 @@ export async function moveDealStage(id: string, stage: string, reason?: string) 
   return { ok: true as const };
 }
 
-/** 標記成交 / 流失 / 重開（回到管線）。 */
-export async function setDealStatus(id: string, status: z.input<typeof STATUS>) {
+/** 標記成交 / 流失（可選填原因）/ 重開（回到管線，原因清空）。 */
+export async function setDealStatus(
+  id: string,
+  status: z.input<typeof STATUS>,
+  reason?: string,
+) {
   const { org } = await requireActiveOrg();
   const s = STATUS.parse(status);
   const res = await db.crmDeal.updateMany({
     where: { id, organizationId: org.id },
-    data: { status: s, closedAt: s === "OPEN" ? null : new Date() },
+    data: {
+      status: s,
+      closedAt: s === "OPEN" ? null : new Date(),
+      closedReason: s === "OPEN" ? null : reason?.trim() || null,
+    },
   });
   if (res.count === 0) return { ok: false as const, error: "找不到商機" };
   revalidate();
@@ -253,6 +309,7 @@ const StageInput = z.object({
   label: z.string().trim().min(1, "請輸入階段名稱").max(40),
   note: z.string().trim().max(500).optional(),
   color: z.string().trim().max(20).optional(),
+  defaultProbability: PROBABILITY.optional(),
 });
 
 export async function createDealStage(input: z.input<typeof StageInput>) {
@@ -269,6 +326,7 @@ export async function createDealStage(input: z.input<typeof StageInput>) {
       label: d.label,
       note: d.note || null,
       color: d.color || "slate",
+      defaultProbability: d.defaultProbability ?? null,
       sortOrder: (max._max.sortOrder ?? -1) + 1,
     },
   });
@@ -283,7 +341,12 @@ export async function updateDealStage(
   const d = StageInput.parse(input);
   const res = await db.dealStage.updateMany({
     where: { id, organizationId: org.id },
-    data: { label: d.label, note: d.note || null, color: d.color || "slate" },
+    data: {
+      label: d.label,
+      note: d.note || null,
+      color: d.color || "slate",
+      defaultProbability: d.defaultProbability ?? null,
+    },
   });
   if (res.count === 0) return { ok: false as const, error: "找不到階段" };
   revalidate();
@@ -443,7 +506,7 @@ export async function deleteCrmEvent(id: string) {
 /** 讀某商機的活動時間軸（供編輯對話框開啟時載入）。 */
 export async function listDealActivities(dealId: string) {
   const { org } = await requireActiveOrg();
-  return db.crmActivity.findMany({
+  const activities = await db.crmActivity.findMany({
     where: { dealId, deal: { organizationId: org.id } },
     orderBy: { createdAt: "desc" },
     select: {
@@ -453,8 +516,33 @@ export async function listDealActivities(dealId: string) {
       dueDate: true,
       done: true,
       createdAt: true,
+      updatedAt: true,
+      createdById: true,
     },
   });
+  const ids = [
+    ...new Set(
+      activities.map((a) => a.createdById).filter((v): v is string => !!v),
+    ),
+  ];
+  const users = ids.length
+    ? await db.user.findMany({
+        where: { id: { in: ids } },
+        select: {
+          id: true,
+          name: true,
+          nickname: true,
+          useNickname: true,
+          email: true,
+          image: true,
+        },
+      })
+    : [];
+  const byId = new Map(users.map((u) => [u.id, u]));
+  return activities.map((a) => ({
+    ...a,
+    author: a.createdById ? (byId.get(a.createdById) ?? null) : null,
+  }));
 }
 
 const ActivityInput = z.object({
@@ -481,6 +569,19 @@ export async function addActivity(input: z.input<typeof ActivityInput>) {
       createdById: user.id,
     },
   });
+  revalidate();
+  return { ok: true as const };
+}
+
+/** 編輯一則活動 / 跟進的內容（類型、到期日不可改——要換類型就刪掉重建）。 */
+export async function updateActivity(id: string, body: string) {
+  const { org } = await requireActiveOrg();
+  const b = z.string().trim().min(1, "請輸入內容").max(4000).parse(body);
+  const res = await db.crmActivity.updateMany({
+    where: { id, deal: { organizationId: org.id } },
+    data: { body: b },
+  });
+  if (res.count === 0) return { ok: false as const, error: "找不到活動" };
   revalidate();
   return { ok: true as const };
 }
@@ -686,4 +787,177 @@ export async function getCompanyTimeline(
 
   entries.sort((a, b) => a.at.localeCompare(b.at));
   return { contactCount: contacts.length, entries };
+}
+
+// ── 企業進度備註動態（依公司字串，跟企業時間軸同一個分組邏輯）───
+// 多筆、可回覆（一層）：每個人各自留言記錄進度，不是共用一段可覆寫的文字。
+
+/** 讀某企業的進度備註動態（依時間升冪；含作者名稱），供列表就地展開使用。 */
+export async function listCompanyNotes(company: string) {
+  const { org } = await requireActiveOrg();
+  const name = company.trim();
+  if (!name) return [];
+  const notes = await db.crmCompanyNote.findMany({
+    where: { organizationId: org.id, company: name },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      body: true,
+      parentId: true,
+      createdAt: true,
+      updatedAt: true,
+      authorId: true,
+    },
+  });
+  const ids = [
+    ...new Set(notes.map((n) => n.authorId).filter((v): v is string => !!v)),
+  ];
+  const users = ids.length
+    ? await db.user.findMany({
+        where: { id: { in: ids } },
+        select: {
+          id: true,
+          name: true,
+          nickname: true,
+          useNickname: true,
+          email: true,
+          image: true,
+        },
+      })
+    : [];
+  const byId = new Map(users.map((u) => [u.id, u]));
+  return notes.map((n) => ({
+    ...n,
+    author: n.authorId ? (byId.get(n.authorId) ?? null) : null,
+  }));
+}
+
+const CompanyNoteInput = z.object({
+  company: z.string().trim().min(1),
+  body: z.string().trim().min(1, "請輸入內容").max(4000),
+  parentId: z.string().nullable().optional(),
+});
+
+/** 新增一則企業進度備註，或回覆某一則（parentId）。 */
+export async function addCompanyNote(input: z.input<typeof CompanyNoteInput>) {
+  const { user, org } = await requireActiveOrg();
+  const d = CompanyNoteInput.parse(input);
+  if (d.parentId) {
+    const parent = await db.crmCompanyNote.findFirst({
+      where: { id: d.parentId, organizationId: org.id, company: d.company },
+      select: { id: true },
+    });
+    if (!parent) return { ok: false as const, error: "找不到要回覆的備註" };
+  }
+  await db.crmCompanyNote.create({
+    data: {
+      organizationId: org.id,
+      company: d.company,
+      body: d.body,
+      parentId: d.parentId || null,
+      authorId: user.id,
+    },
+  });
+  revalidate();
+  return { ok: true as const };
+}
+
+/** 刪除一則進度備註（連同其底下的回覆一起刪，見 schema 的 onDelete: Cascade）。 */
+export async function deleteCompanyNote(id: string) {
+  const { org } = await requireActiveOrg();
+  await db.crmCompanyNote.deleteMany({ where: { id, organizationId: org.id } });
+  revalidate();
+}
+
+/** 編輯一則已存在的進度備註 / 回覆的內容。 */
+export async function updateCompanyNote(id: string, body: string) {
+  const { org } = await requireActiveOrg();
+  const b = z.string().trim().min(1, "請輸入內容").max(4000).parse(body);
+  const res = await db.crmCompanyNote.updateMany({
+    where: { id, organizationId: org.id },
+    data: { body: b },
+  });
+  if (res.count === 0) return { ok: false as const, error: "找不到備註" };
+  revalidate();
+  return { ok: true as const };
+}
+
+// ── 企業聯絡人名冊（同公司字串底下有幾個聯絡人、彼此的匯報關係）───
+
+export type CompanyContactRow = {
+  id: string;
+  name: string;
+  title: string | null;
+  decisionRole: string | null;
+  reportsToId: string | null;
+  ownerName: string | null;
+};
+
+/** 某企業底下所有聯絡人，含決策角色 / 匯報對象，供企業總覽的名冊區塊使用。 */
+export async function getCompanyContacts(
+  company: string,
+): Promise<CompanyContactRow[]> {
+  const { org } = await requireActiveOrg();
+  const name = company.trim();
+  if (!name) return [];
+  const contacts = await db.crmContact.findMany({
+    where: { organizationId: org.id, company: name },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      name: true,
+      title: true,
+      decisionRole: true,
+      reportsToId: true,
+      owner: {
+        select: { name: true, nickname: true, useNickname: true, email: true },
+      },
+    },
+  });
+  return contacts.map((c) => ({
+    id: c.id,
+    name: c.name,
+    title: c.title,
+    decisionRole: c.decisionRole,
+    reportsToId: c.reportsToId,
+    ownerName: c.owner ? primaryName(c.owner) : null,
+  }));
+}
+
+const ContactRoleInput = z.object({
+  decisionRole: z.string().trim().max(20).nullable().optional(),
+  reportsToId: z.string().nullable().optional(),
+});
+
+/** 更新聯絡人的決策角色 / 匯報對象（企業總覽名冊的行內編輯用）。 */
+export async function updateContactRole(
+  id: string,
+  input: z.input<typeof ContactRoleInput>,
+) {
+  const { org } = await requireActiveOrg();
+  const d = ContactRoleInput.parse(input);
+  if (d.reportsToId) {
+    if (d.reportsToId === id) {
+      return { ok: false as const, error: "不能設定自己為匯報對象" };
+    }
+    const target = await db.crmContact.findFirst({
+      where: { id: d.reportsToId, organizationId: org.id },
+      select: { id: true },
+    });
+    if (!target) return { ok: false as const, error: "找不到匯報對象" };
+  }
+  const res = await db.crmContact.updateMany({
+    where: { id, organizationId: org.id },
+    data: {
+      ...(d.decisionRole !== undefined
+        ? { decisionRole: d.decisionRole || null }
+        : {}),
+      ...(d.reportsToId !== undefined
+        ? { reportsToId: d.reportsToId || null }
+        : {}),
+    },
+  });
+  if (res.count === 0) return { ok: false as const, error: "找不到聯絡人" };
+  revalidate();
+  return { ok: true as const };
 }

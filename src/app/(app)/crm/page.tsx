@@ -6,9 +6,12 @@ import {
   getCrmContacts,
   getDealStages,
   getCrmEvents,
+  getCrmFollowUps,
+  getCrmCompanies,
   getOrgMemberUsers,
 } from "@/server/queries";
-import { fmtMoney } from "@/lib/crm";
+import { fmtMoney, effectiveProbability } from "@/lib/crm";
+import { isAiEnabled } from "@/server/gemini";
 import { primaryName } from "@/lib/display";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
@@ -23,9 +26,11 @@ import {
   type ContactLite,
   type StageView,
 } from "@/components/crm/pipeline-board";
-import { ContactsList, type ContactRow } from "@/components/crm/contacts-list";
+import { type ContactRow } from "@/components/crm/contacts-list";
+import { ContactsSection } from "@/components/crm/contacts-section";
 import { FunnelView, type FunnelStage } from "@/components/crm/funnel-view";
-import type { EventView } from "@/components/crm/types";
+import { FollowUpsList } from "@/components/crm/followups-list";
+import type { EventView, FollowUpView } from "@/components/crm/types";
 
 export const metadata = { title: "CRM · Project Pulse" };
 
@@ -39,6 +44,7 @@ export default async function CrmPage({
   searchParams: Promise<{ tab?: string }>;
 }) {
   const { org } = await requireActiveOrg();
+  const aiEnabled = isAiEnabled();
   const { tab: tabParam } = await searchParams;
   const tab =
     tabParam === "contacts"
@@ -47,16 +53,27 @@ export default async function CrmPage({
         ? "funnel"
         : tabParam === "events"
           ? "events"
-          : "pipeline";
+          : tabParam === "followups"
+            ? "followups"
+            : "pipeline";
 
-  const [dealRows, contactRows, members, stageRows, eventRows] =
-    await Promise.all([
-      getCrmDeals(org.id),
-      getCrmContacts(org.id),
-      getOrgMemberUsers(org.id),
-      getDealStages(org.id),
-      getCrmEvents(org.id),
-    ]);
+  const [
+    dealRows,
+    contactRows,
+    members,
+    stageRows,
+    eventRows,
+    followUpRows,
+    companies,
+  ] = await Promise.all([
+    getCrmDeals(org.id),
+    getCrmContacts(org.id),
+    getOrgMemberUsers(org.id),
+    getDealStages(org.id),
+    getCrmEvents(org.id),
+    getCrmFollowUps(org.id),
+    getCrmCompanies(org.id),
+  ]);
 
   const events: EventView[] = eventRows.map((e) => ({
     id: e.id,
@@ -76,7 +93,9 @@ export default async function CrmPage({
     label: s.label,
     note: s.note,
     color: s.color,
+    defaultProbability: s.defaultProbability,
   }));
+  const stageByKey = new Map(stages.map((s) => [s.key, s]));
 
   const deals: DealView[] = dealRows.map((d) => ({
     id: d.id,
@@ -89,6 +108,8 @@ export default async function CrmPage({
       : null,
     owner: d.owner,
     expectedCloseDate: ymd(d.expectedCloseDate),
+    probability: d.probability,
+    closedReason: d.closedReason,
     note: d.note,
     activityCount: d._count.activities,
   }));
@@ -96,6 +117,30 @@ export default async function CrmPage({
   const openDeals = deals.filter((d) => d.status === "OPEN");
   const won = deals.filter((d) => d.status === "WON");
   const lost = deals.filter((d) => d.status === "LOST");
+  const weightedPipelineValue = openDeals.reduce((sum, d) => {
+    const prob = effectiveProbability(
+      d.probability,
+      stageByKey.get(d.stage)?.defaultProbability,
+    );
+    return sum + Math.round((d.value * prob) / 100);
+  }, 0);
+
+  const followUps: FollowUpView[] = followUpRows.map((f) => ({
+    id: f.id,
+    body: f.body,
+    dueDate: ymd(f.dueDate),
+    deal: {
+      id: f.deal.id,
+      title: f.deal.title,
+      contact: f.deal.contact
+        ? {
+            id: f.deal.contact.id,
+            name: f.deal.contact.name,
+            company: f.deal.contact.company,
+          }
+        : null,
+    },
+  }));
 
   // 漏斗：依階段順序統計所有商機的數量與金額。
   const funnelStages: FunnelStage[] = stages.map((s) => {
@@ -140,6 +185,7 @@ export default async function CrmPage({
       >
         <ContactDialog
           members={members}
+          aiEnabled={aiEnabled}
           trigger={
             <Button variant="outline" className="gap-1.5">
               <Plus className="h-4 w-4" /> 新增聯絡人
@@ -170,6 +216,7 @@ export default async function CrmPage({
           icon={<Wallet className="h-5 w-5" />}
           label="管線金額"
           value={fmtMoney(pipelineValue)}
+          sub={`加權 ${fmtMoney(weightedPipelineValue)}`}
           tone="violet"
         />
         <StatTile
@@ -190,6 +237,9 @@ export default async function CrmPage({
 
       {/* 分頁 */}
       <div className="flex items-center gap-1 border-b">
+        <TabLink href="/crm?tab=followups" active={tab === "followups"}>
+          待跟進 · {followUps.length}
+        </TabLink>
         <TabLink href="/crm?tab=pipeline" active={tab === "pipeline"}>
           銷售管線
         </TabLink>
@@ -205,7 +255,17 @@ export default async function CrmPage({
       </div>
 
       <div className="min-h-0 flex-1">
-        {tab === "pipeline" ? (
+        {tab === "followups" ? (
+          <div className="h-full overflow-y-auto pb-2">
+            <FollowUpsList
+              followUps={followUps}
+              deals={deals}
+              members={members}
+              contacts={contacts}
+              stages={stages}
+            />
+          </div>
+        ) : tab === "pipeline" ? (
           <PipelineBoard
             deals={openDeals}
             members={members}
@@ -222,7 +282,12 @@ export default async function CrmPage({
           </div>
         ) : (
           <div className="h-full overflow-y-auto pb-2">
-            <ContactsList contacts={contactRowsView} members={members} />
+            <ContactsSection
+              contacts={contactRowsView}
+              companies={companies}
+              members={members}
+              aiEnabled={aiEnabled}
+            />
           </div>
         )}
       </div>

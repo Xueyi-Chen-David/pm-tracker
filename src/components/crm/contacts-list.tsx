@@ -11,12 +11,106 @@ export type ContactRow = ContactView & {
   dealCount: number;
 };
 
+/**
+ * 單一聯絡人列：依聯絡人清單、依公司展開後的名冊，共用同一份 UI。
+ * showCompany=false（依公司展開時用）：公司名稱已經是外層那一行的標題了，
+ * 這裡不用再重複顯示一次，只留姓名。
+ */
+export function ContactRowItem({
+  contact: c,
+  members,
+  aiEnabled = false,
+  showCompany = true,
+}: {
+  contact: ContactRow;
+  members: OwnerLite[];
+  aiEnabled?: boolean;
+  showCompany?: boolean;
+}) {
+  return (
+    <div className="hover:bg-muted/40 flex items-center gap-3 px-3 py-2 text-sm">
+      <div className="w-56 min-w-0 shrink-0">
+        {showCompany && c.company ? (
+          <>
+            <div className="flex min-w-0 items-center gap-1 font-semibold">
+              <Building2 className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">{c.company}</span>
+            </div>
+            {c.name && (
+              <div className="text-muted-foreground truncate text-xs">
+                {c.name}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="truncate font-semibold">{c.name || "—"}</div>
+        )}
+      </div>
+      <div className="text-muted-foreground w-28 shrink-0 truncate">
+        {c.title || "—"}
+      </div>
+      <div className="text-muted-foreground flex-1 space-y-0.5 text-xs">
+        {c.email && (
+          <a
+            href={`mailto:${c.email}`}
+            className="flex items-center gap-1 truncate hover:underline"
+          >
+            <Mail className="h-3 w-3 shrink-0" /> {c.email}
+          </a>
+        )}
+        {c.phone && (
+          <div className="flex items-center gap-1 truncate">
+            <Phone className="h-3 w-3 shrink-0" /> {c.phone}
+          </div>
+        )}
+        {!c.email && !c.phone && "—"}
+      </div>
+      <div className="w-14 shrink-0 text-center tabular-nums">{c.dealCount}</div>
+      <div className="text-muted-foreground w-28 shrink-0 truncate text-xs">
+        {c.ownerName || "—"}
+      </div>
+      <div className="flex shrink-0 items-center gap-0.5">
+        {c.company && (
+          <CompanyTimelineDialog
+            company={c.company}
+            trigger={
+              <button
+                type="button"
+                className="text-muted-foreground hover:bg-muted rounded-md p-1.5"
+                title="企業時間軸"
+              >
+                <History className="h-4 w-4" />
+              </button>
+            }
+          />
+        )}
+        <ContactDialog
+          members={members}
+          contact={c}
+          aiEnabled={aiEnabled}
+          trigger={
+            <button
+              type="button"
+              className="text-muted-foreground hover:bg-muted rounded-md p-1.5"
+              title="編輯"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+          }
+        />
+      </div>
+    </div>
+  );
+}
+
 export function ContactsList({
   contacts,
   members,
+  aiEnabled = false,
 }: {
   contacts: ContactRow[];
   members: OwnerLite[];
+  aiEnabled?: boolean;
 }) {
   const [q, setQ] = useState("");
   const filtered = useMemo(() => {
@@ -61,82 +155,12 @@ export function ContactsList({
           </div>
           <div className="divide-y">
             {filtered.map((c) => (
-              <div
+              <ContactRowItem
                 key={c.id}
-                className="hover:bg-muted/40 flex items-center gap-3 px-3 py-2 text-sm"
-              >
-                <div className="w-56 min-w-0 shrink-0">
-                  {c.company ? (
-                    <>
-                      <div className="flex min-w-0 items-center gap-1 font-semibold">
-                        <Building2 className="text-muted-foreground h-3.5 w-3.5 shrink-0" />
-                        <span className="truncate">{c.company}</span>
-                      </div>
-                      {c.name && (
-                        <div className="text-muted-foreground truncate text-xs">
-                          {c.name}
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="truncate font-semibold">{c.name || "—"}</div>
-                  )}
-                </div>
-                <div className="text-muted-foreground w-28 shrink-0 truncate">
-                  {c.title || "—"}
-                </div>
-                <div className="text-muted-foreground flex-1 space-y-0.5 truncate text-xs">
-                  {c.email && (
-                    <a
-                      href={`mailto:${c.email}`}
-                      className="inline-flex items-center gap-1 hover:underline"
-                    >
-                      <Mail className="h-3 w-3" /> {c.email}
-                    </a>
-                  )}
-                  {c.phone && (
-                    <div className="inline-flex items-center gap-1">
-                      <Phone className="h-3 w-3" /> {c.phone}
-                    </div>
-                  )}
-                  {!c.email && !c.phone && "—"}
-                </div>
-                <div className="w-14 shrink-0 text-center tabular-nums">
-                  {c.dealCount}
-                </div>
-                <div className="text-muted-foreground w-28 shrink-0 truncate text-xs">
-                  {c.ownerName || "—"}
-                </div>
-                <div className="flex shrink-0 items-center gap-0.5">
-                  {c.company && (
-                    <CompanyTimelineDialog
-                      company={c.company}
-                      trigger={
-                        <button
-                          type="button"
-                          className="text-muted-foreground hover:bg-muted rounded-md p-1.5"
-                          title="企業時間軸"
-                        >
-                          <History className="h-4 w-4" />
-                        </button>
-                      }
-                    />
-                  )}
-                  <ContactDialog
-                    members={members}
-                    contact={c}
-                    trigger={
-                      <button
-                        type="button"
-                        className="text-muted-foreground hover:bg-muted rounded-md p-1.5"
-                        title="編輯"
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </button>
-                    }
-                  />
-                </div>
-              </div>
+                contact={c}
+                members={members}
+                aiEnabled={aiEnabled}
+              />
             ))}
           </div>
         </div>

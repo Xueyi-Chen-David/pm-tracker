@@ -96,6 +96,35 @@ export function fmtMoney(v: number): string {
   return "¥" + Math.round(v || 0).toLocaleString("ja-JP");
 }
 
+/**
+ * 有效成交機率：商機自己設定優先，否則沿用所在階段的預設值；兩者都沒設定
+ * 時視為 100%，讓沒設定過機率的組織「加權管線金額」跟「管線金額」相等，
+ * 不會無中生有把既有數字打折。
+ */
+export function effectiveProbability(
+  dealProbability: number | null | undefined,
+  stageDefaultProbability: number | null | undefined,
+): number {
+  if (dealProbability != null) return dealProbability;
+  if (stageDefaultProbability != null) return stageDefaultProbability;
+  return 100;
+}
+
+/** 聯絡人在企業內的決策角色（自由文字，這裡只是 UI 給的預設選項）。 */
+export const DECISION_ROLES = ["決策者", "影響者", "窗口", "使用者"] as const;
+
+/** 決策角色徽章顏色（企業聯絡人清單用；未知值回退 zinc）。 */
+export const DECISION_ROLE_BADGE: Record<string, string> = {
+  決策者: "bg-rose-100 text-rose-700",
+  影響者: "bg-amber-100 text-amber-700",
+  窗口: "bg-sky-100 text-sky-700",
+  使用者: "bg-zinc-100 text-zinc-700",
+};
+
+export function decisionRoleBadge(role: string | null | undefined): string {
+  return (role && DECISION_ROLE_BADGE[role]) || "bg-zinc-100 text-zinc-700";
+}
+
 /** 精簡金額（大額縮寫，卡片用）：¥1.2M / ¥350K / ¥900。 */
 export function fmtMoneyShort(v: number): string {
   const n = Math.round(v || 0);

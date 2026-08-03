@@ -1040,6 +1040,7 @@ const leaveRequestSelect = {
   currentStep: true,
   createdAt: true,
   decidedAt: true,
+  deletedAt: true,
   leaveType: { select: { id: true, name: true, color: true } },
   member: { select: { id: true, user: { select: userIdentitySelect } } },
   approvals: {
@@ -1058,10 +1059,10 @@ const leaveRequestSelect = {
   },
 } as const;
 
-/** 我送出的請假申請（最新在前）。 */
+/** 我送出的請假申請（最新在前）。已被 HR 刪除的不顯示。 */
 export async function getMyLeaveRequests(orgId: string, userId: string) {
   return db.leaveRequest.findMany({
-    where: { organizationId: orgId, userId },
+    where: { organizationId: orgId, userId, deletedAt: null },
     orderBy: { createdAt: "desc" },
     take: 50,
     select: leaveRequestSelect,
@@ -1084,6 +1085,7 @@ export async function getPendingApprovalsForMember(
     where: {
       organizationId: orgId,
       status: "PENDING",
+      deletedAt: null,
       approvals: { some: { approverMemberId: membershipId, status: "PENDING" } },
     },
     orderBy: { createdAt: "asc" },
@@ -1113,6 +1115,7 @@ export async function countPendingApprovalsForMember(
     where: {
       organizationId: orgId,
       status: "PENDING",
+      deletedAt: null,
       approvals: { some: { approverMemberId: membershipId, status: "PENDING" } },
     },
   });
@@ -1166,11 +1169,21 @@ export async function getMemberEventsForUser(orgId: string, userId: string) {
   });
 }
 
-/** 全體請假申請（HR / 管理者總覽，最新在前）。 */
+/** 全體請假申請（HR / 管理者總覽，最新在前）。已刪除的不顯示，見 getDeletedLeaveRequests。 */
 export async function getAllLeaveRequests(orgId: string, take = 100) {
   return db.leaveRequest.findMany({
-    where: { organizationId: orgId },
+    where: { organizationId: orgId, deletedAt: null },
     orderBy: { createdAt: "desc" },
+    take,
+    select: leaveRequestSelect,
+  });
+}
+
+/** 已刪除的請假申請（HR 復原用；最近刪除的在前）。 */
+export async function getDeletedLeaveRequests(orgId: string, take = 100) {
+  return db.leaveRequest.findMany({
+    where: { organizationId: orgId, deletedAt: { not: null } },
+    orderBy: { deletedAt: "desc" },
     take,
     select: leaveRequestSelect,
   });
@@ -1813,12 +1826,24 @@ export async function getCrmDeals(orgId: string) {
 }
 export type CrmDealRow = Awaited<ReturnType<typeof getCrmDeals>>[number];
 
-/** 聯絡人清單：含負責人與商機數。 */
+/**
+ * 聯絡人清單：含負責人與商機數。刻意用明確 select（不用 include 撈全部欄位）——
+ * CrmContact 有 businessCardImage 這種大 data URL 欄位，列表不需要它，撈了只是拖慢
+ * 頁面；要看單一聯絡人的名片圖，改用 getContactCard 個別查。
+ */
 export async function getCrmContacts(orgId: string) {
   return db.crmContact.findMany({
     where: { organizationId: orgId },
     orderBy: { createdAt: "desc" },
-    include: {
+    select: {
+      id: true,
+      name: true,
+      company: true,
+      title: true,
+      email: true,
+      phone: true,
+      note: true,
+      ownerId: true,
       owner: { select: userIdentitySelect },
       _count: { select: { deals: true } },
     },
@@ -1859,3 +1884,126 @@ export async function getDealStages(orgId: string) {
   return db.dealStage.findMany({ where: { organizationId: orgId }, orderBy: order });
 }
 export type DealStageRow = Awaited<ReturnType<typeof getDealStages>>[number];
+
+/** 待跟進活動（type=task 且未完成），跨所有商機彙整（今日跟進總覽用）。無到期日的排最後。 */
+export async function getCrmFollowUps(orgId: string) {
+  return db.crmActivity.findMany({
+    where: { type: "task", done: false, deal: { organizationId: orgId } },
+    orderBy: [{ dueDate: "asc" }, { createdAt: "asc" }],
+    include: {
+      deal: {
+        select: {
+          id: true,
+          title: true,
+          contact: { select: { id: true, name: true, company: true } },
+        },
+      },
+    },
+  });
+}
+export type CrmFollowUpRow = Awaited<ReturnType<typeof getCrmFollowUps>>[number];
+
+export type CompanyRow = {
+  company: string;
+  contactCount: number;
+  decisionMakers: string[];
+  openDealCount: number;
+  openValue: number;
+  wonDealCount: number;
+  wonValue: number;
+  noteCount: number;
+  latestNote: string | null;
+};
+
+/**
+ * 以「公司」為單位彙整（依 CrmContact.company 字串分組，同名視為同一企業，
+ * 跟企業時間軸 / 進度備註同一套分組邏輯）：聯絡人數、決策者名單、進行中
+ * / 已成交商機數與金額、備註則數與最新一則預覽。供依公司視角的總覽列表使用。
+ */
+export async function getCrmCompanies(orgId: string): Promise<CompanyRow[]> {
+  const contacts = await db.crmContact.findMany({
+    where: { organizationId: orgId, NOT: { company: null } },
+    select: { id: true, company: true, name: true, decisionRole: true },
+  });
+
+  const byCompany = new Map<
+    string,
+    { contactIds: string[]; decisionMakers: string[] }
+  >();
+  for (const c of contacts) {
+    const key = c.company?.trim();
+    if (!key) continue;
+    const g = byCompany.get(key) ?? { contactIds: [], decisionMakers: [] };
+    g.contactIds.push(c.id);
+    if (c.decisionRole === "決策者") g.decisionMakers.push(c.name);
+    byCompany.set(key, g);
+  }
+  if (byCompany.size === 0) return [];
+
+  const contactIdToCompany = new Map(
+    contacts
+      .filter((c) => c.company?.trim())
+      .map((c) => [c.id, c.company!.trim()]),
+  );
+  const allContactIds = [...contactIdToCompany.keys()];
+
+  const [deals, notes] = await Promise.all([
+    db.crmDeal.findMany({
+      where: { organizationId: orgId, contactId: { in: allContactIds } },
+      select: { contactId: true, value: true, status: true },
+    }),
+    db.crmCompanyNote.findMany({
+      where: { organizationId: orgId, company: { in: [...byCompany.keys()] } },
+      orderBy: { createdAt: "desc" },
+      select: { company: true, body: true },
+    }),
+  ]);
+  const noteStatsByCompany = new Map<
+    string,
+    { count: number; latest: string | null }
+  >();
+  for (const n of notes) {
+    const s = noteStatsByCompany.get(n.company) ?? { count: 0, latest: null };
+    s.count += 1;
+    if (s.latest === null) s.latest = n.body; // notes 已依 createdAt desc 排序，第一筆即最新
+    noteStatsByCompany.set(n.company, s);
+  }
+
+  const dealAgg = new Map(
+    [...byCompany.keys()].map((k) => [
+      k,
+      { openDealCount: 0, openValue: 0, wonDealCount: 0, wonValue: 0 },
+    ]),
+  );
+  for (const d of deals) {
+    const company = d.contactId ? contactIdToCompany.get(d.contactId) : undefined;
+    if (!company) continue;
+    const agg = dealAgg.get(company);
+    if (!agg) continue;
+    if (d.status === "OPEN") {
+      agg.openDealCount += 1;
+      agg.openValue += d.value;
+    } else if (d.status === "WON") {
+      agg.wonDealCount += 1;
+      agg.wonValue += d.value;
+    }
+  }
+
+  return [...byCompany.entries()]
+    .map(([company, g]) => {
+      const agg = dealAgg.get(company)!;
+      const noteStats = noteStatsByCompany.get(company);
+      return {
+        company,
+        contactCount: g.contactIds.length,
+        decisionMakers: g.decisionMakers,
+        openDealCount: agg.openDealCount,
+        openValue: agg.openValue,
+        wonDealCount: agg.wonDealCount,
+        wonValue: agg.wonValue,
+        noteCount: noteStats?.count ?? 0,
+        latestNote: noteStats?.latest ?? null,
+      };
+    })
+    .sort((a, b) => a.company.localeCompare(b.company, "ja"));
+}

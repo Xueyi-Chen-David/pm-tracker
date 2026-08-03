@@ -16,14 +16,21 @@ import {
   deleteDeal,
   setDealStatus,
   addActivity,
+  updateActivity,
   toggleActivityDone,
   deleteActivity,
   listDealActivities,
   listDealStageChanges,
 } from "@/server/actions/crm";
-import { CRM_ACTIVITY_TYPES, CRM_ACTIVITY_ICON, stageColor } from "@/lib/crm";
-import { fmtDate } from "@/lib/date";
+import {
+  CRM_ACTIVITY_TYPES,
+  CRM_ACTIVITY_ICON,
+  CRM_ACTIVITY_LABEL,
+  stageColor,
+} from "@/lib/crm";
+import { fmtDate, fmtDateShort, isOverdue } from "@/lib/date";
 import { primaryName, type NameSource } from "@/lib/display";
+import { NoteBubble } from "@/components/crm/note-bubble";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,6 +69,8 @@ type Activity = {
   dueDate: Date | string | null;
   done: boolean;
   createdAt: Date | string;
+  updatedAt: Date | string;
+  author: OwnerLite | null;
 };
 
 export function DealDialog({
@@ -85,6 +94,7 @@ export function DealDialog({
   const [pending, start] = useTransition();
   const [activities, setActivities] = useState<Activity[]>([]);
   const [changes, setChanges] = useState<StageChange[]>([]);
+  const [closeAction, setCloseAction] = useState<"WON" | "LOST" | null>(null);
   const editing = !!deal;
   const firstStage = defaultStage ?? stages[0]?.key ?? "LEAD";
   const stageMap = new Map(stages.map((s) => [s.key, s]));
@@ -115,6 +125,10 @@ export function DealDialog({
       contactId: String(fd.get("contactId") ?? "") || null,
       ownerId: String(fd.get("ownerId") ?? "") || null,
       expectedCloseDate: String(fd.get("expectedCloseDate") ?? "") || null,
+      probability: (() => {
+        const raw = String(fd.get("probability") ?? "").trim();
+        return raw === "" ? null : Number(raw);
+      })(),
       note: String(fd.get("note") ?? "").trim() || null,
     };
     if (!input.title) return setError("請輸入商機名稱");
@@ -156,6 +170,13 @@ export function DealDialog({
     setError(null);
     setOpen(true);
   };
+
+  function confirmClose(reason: string) {
+    const status = closeAction;
+    setCloseAction(null);
+    if (!status || !deal) return;
+    run(() => setDealStatus(deal.id, status, reason));
+  }
 
   return (
     <>
@@ -246,14 +267,32 @@ export function DealDialog({
               </div>
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="d-close">預計成交日</Label>
-              <Input
-                id="d-close"
-                name="expectedCloseDate"
-                type="date"
-                defaultValue={deal?.expectedCloseDate ?? ""}
-              />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="d-close">預計成交日</Label>
+                <Input
+                  id="d-close"
+                  name="expectedCloseDate"
+                  type="date"
+                  defaultValue={deal?.expectedCloseDate ?? ""}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="d-prob">成交機率 %（選填，覆寫階段預設）</Label>
+                <Input
+                  id="d-prob"
+                  name="probability"
+                  type="number"
+                  min={0}
+                  max={100}
+                  placeholder={
+                    stageMap.get(deal?.stage ?? firstStage)?.defaultProbability != null
+                      ? `階段預設 ${stageMap.get(deal?.stage ?? firstStage)!.defaultProbability}`
+                      : "未設定"
+                  }
+                  defaultValue={deal?.probability ?? ""}
+                />
+              </div>
             </div>
 
             <div className="space-y-1.5">
@@ -308,7 +347,7 @@ export function DealDialog({
                 <StatusButton
                   active={deal.status === "WON"}
                   cls="border-emerald-300 text-emerald-700 data-[on=true]:bg-emerald-600"
-                  onClick={() => run(() => setDealStatus(deal.id, "WON"))}
+                  onClick={() => setCloseAction("WON")}
                   disabled={pending}
                 >
                   成交
@@ -316,7 +355,7 @@ export function DealDialog({
                 <StatusButton
                   active={deal.status === "LOST"}
                   cls="border-rose-300 text-rose-700 data-[on=true]:bg-rose-600"
-                  onClick={() => run(() => setDealStatus(deal.id, "LOST"))}
+                  onClick={() => setCloseAction("LOST")}
                   disabled={pending}
                 >
                   流失
@@ -332,6 +371,11 @@ export function DealDialog({
                   </button>
                 )}
               </div>
+              {deal.status !== "OPEN" && deal.closedReason && (
+                <p className="text-muted-foreground -mt-1.5 text-xs break-words whitespace-pre-wrap">
+                  原因：{deal.closedReason}
+                </p>
+              )}
 
               <StageTimeline changes={changes} stageMap={stageMap} />
 
@@ -339,7 +383,6 @@ export function DealDialog({
                 dealId={deal.id}
                 activities={activities}
                 pending={pending}
-                onOptimistic={(a) => setActivities((prev) => [a, ...prev])}
                 onChanged={refreshActivities}
                 run={run}
               />
@@ -347,7 +390,74 @@ export function DealDialog({
           )}
         </DialogContent>
       </Dialog>
+
+      {deal && (
+        <ClosedReasonDialog
+          key={closeAction ?? "none"}
+          status={closeAction}
+          defaultReason={deal.closedReason ?? ""}
+          pending={pending}
+          onCancel={() => setCloseAction(null)}
+          onConfirm={confirmClose}
+        />
+      )}
     </>
+  );
+}
+
+/** 標記成交 / 流失時彈出的原因輸入視窗（選填）。樣式沿用看板換階段的原因視窗。 */
+function ClosedReasonDialog({
+  status,
+  defaultReason,
+  pending,
+  onCancel,
+  onConfirm,
+}: {
+  status: "WON" | "LOST" | null;
+  defaultReason: string;
+  pending: boolean;
+  onCancel: () => void;
+  onConfirm: (reason: string) => void;
+}) {
+  const [reason, setReason] = useState(defaultReason);
+
+  return (
+    <Dialog open={!!status} onOpenChange={(o) => !o && onCancel()}>
+      <DialogContent className="sm:max-w-sm">
+        <DialogHeader>
+          <DialogTitle>
+            標記為「{status === "WON" ? "成交" : "流失"}」
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-1.5">
+          <Label htmlFor="cr-reason">主要原因（選填）</Label>
+          <Textarea
+            id="cr-reason"
+            rows={3}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder={
+              status === "WON"
+                ? "例：價格談妥、決策者拍板…"
+                : "例：預算問題、競爭者、時機不對、沒回應…"
+            }
+          />
+        </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={onCancel}
+            disabled={pending}
+          >
+            取消
+          </Button>
+          <Button type="button" onClick={() => onConfirm(reason)} disabled={pending}>
+            確定
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -363,7 +473,7 @@ function StageTimeline({
   return (
     <div className="space-y-2">
       <div className="text-sm font-medium">階段歷程</div>
-      <ol className="border-muted relative ml-1 space-y-3 border-l pl-4">
+      <ol className="border-muted relative ml-1 max-h-40 space-y-3 overflow-y-auto border-l pt-0.5 pl-4">
         {changes.map((c) => {
           const st = stageMap.get(c.toStage);
           const col = stageColor(st?.color);
@@ -441,14 +551,12 @@ function ActivitySection({
   dealId,
   activities,
   pending,
-  onOptimistic,
   onChanged,
   run,
 }: {
   dealId: string;
   activities: Activity[];
   pending: boolean;
-  onOptimistic: (a: Activity) => void;
   onChanged: () => void;
   run: (
     fn: () => Promise<{ ok: boolean; error?: string } | void>,
@@ -456,6 +564,8 @@ function ActivitySection({
   ) => void;
 }) {
   const [type, setType] = useState("note");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editBody, setEditBody] = useState("");
 
   function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -464,15 +574,6 @@ function ActivitySection({
     const body = String(fd.get("body") ?? "").trim();
     if (!body) return;
     const dueDate = String(fd.get("dueDate") ?? "") || null;
-    // 樂觀更新：先本地插入，送出後 onChanged 重新載入取代（本地 state 不會閃動）。
-    onOptimistic({
-      id: `tmp-${Date.now()}`,
-      type,
-      body,
-      dueDate,
-      done: false,
-      createdAt: new Date(),
-    });
     run(() => addActivity({ dealId, type: type as never, body, dueDate }), () => {
       form.reset();
       setType("note");
@@ -480,9 +581,22 @@ function ActivitySection({
     });
   }
 
+  function saveEdit(id: string) {
+    if (!editBody.trim()) return;
+    run(() => updateActivity(id, editBody), () => {
+      setEditingId(null);
+      onChanged();
+    });
+  }
+
   return (
     <div className="space-y-2">
-      <div className="text-sm font-medium">活動 / 跟進</div>
+      <div>
+        <div className="text-sm font-medium">活動 / 跟進</div>
+        <p className="text-muted-foreground text-xs">
+          只記跟這筆商機有關的紀錄；跟這間公司整體的關係追蹤，請到「公司」總覽裡留進度備註。
+        </p>
+      </div>
       <form onSubmit={submit} className="space-y-2">
         <div className="flex gap-2">
           <select
@@ -517,60 +631,66 @@ function ActivitySection({
         </div>
       </form>
 
-      <div className="max-h-56 space-y-1.5 overflow-y-auto pr-1">
+      <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
         {activities.length === 0 ? (
           <p className="text-muted-foreground text-xs">尚無活動紀錄。</p>
         ) : (
           activities.map((a) => (
-            <div
+            <NoteBubble
               key={a.id}
-              className="hover:bg-muted/40 group flex items-start gap-2 rounded-md px-1.5 py-1"
-            >
-              <span className="mt-0.5 text-sm">
-                {CRM_ACTIVITY_ICON[a.type] ?? "📝"}
-              </span>
-              <div className="min-w-0 flex-1">
-                <div
-                  className={cn(
-                    "text-sm break-words whitespace-pre-wrap",
-                    a.type === "task" && a.done && "text-muted-foreground line-through",
+              author={a.author}
+              createdAt={a.createdAt}
+              updatedAt={a.updatedAt}
+              body={a.body}
+              pending={pending}
+              small
+              strikethrough={a.type === "task" && a.done}
+              editing={editingId === a.id}
+              editBody={editBody}
+              onEditBodyChange={setEditBody}
+              onStartEdit={() => {
+                setEditingId(a.id);
+                setEditBody(a.body);
+              }}
+              onCancelEdit={() => setEditingId(null)}
+              onSaveEdit={() => saveEdit(a.id)}
+              onDelete={() => run(() => deleteActivity(a.id), onChanged)}
+              headerBadge={
+                <span className="bg-muted text-muted-foreground inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium">
+                  {CRM_ACTIVITY_ICON[a.type] ?? "📝"}{" "}
+                  {CRM_ACTIVITY_LABEL[a.type] ?? a.type}
+                  {a.type === "task" && a.dueDate && (
+                    <span
+                      className={cn(
+                        isOverdue(a.dueDate, a.done) && "text-rose-600",
+                      )}
+                    >
+                      {" "}
+                      · 到期 {fmtDateShort(a.dueDate)}
+                    </span>
                   )}
-                >
-                  {a.body}
-                </div>
-                <div className="text-muted-foreground text-[11px]">
-                  {fmtDate(new Date(a.createdAt))}
-                  {a.dueDate && ` · 到期 ${fmtDate(new Date(a.dueDate))}`}
-                </div>
-              </div>
-              {a.type === "task" && (
-                <button
-                  type="button"
-                  disabled={pending}
-                  title={a.done ? "標記未完成" : "標記完成"}
-                  onClick={() =>
-                    run(() => toggleActivityDone(a.id, !a.done), onChanged)
-                  }
-                  className={cn(
-                    "rounded p-1",
-                    a.done
-                      ? "text-emerald-600"
-                      : "text-muted-foreground hover:bg-muted",
-                  )}
-                >
-                  <Check className="h-3.5 w-3.5" />
-                </button>
-              )}
-              <button
-                type="button"
-                disabled={pending}
-                onClick={() => run(() => deleteActivity(a.id), onChanged)}
-                className="text-muted-foreground hover:text-destructive rounded p-1 opacity-0 group-hover:opacity-100"
-                title="刪除"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
+                </span>
+              }
+              extraActions={
+                a.type === "task" ? (
+                  <button
+                    type="button"
+                    disabled={pending}
+                    title={a.done ? "標記未完成" : "標記完成"}
+                    onClick={() =>
+                      run(() => toggleActivityDone(a.id, !a.done), onChanged)
+                    }
+                    className={cn(
+                      a.done
+                        ? "text-emerald-600"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Check className="h-3 w-3" />
+                  </button>
+                ) : undefined
+              }
+            />
           ))
         )}
       </div>

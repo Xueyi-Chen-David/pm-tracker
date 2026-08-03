@@ -44,6 +44,9 @@ export function StageDialog({
   const [label, setLabel] = useState(stage?.label ?? "");
   const [note, setNote] = useState(stage?.note ?? "");
   const [color, setColor] = useState(stage?.color ?? "slate");
+  const [probability, setProbability] = useState(
+    stage?.defaultProbability != null ? String(stage.defaultProbability) : "",
+  );
   const editing = !!stage;
 
   const openDialog = () => {
@@ -51,13 +54,21 @@ export function StageDialog({
     setLabel(stage?.label ?? "");
     setNote(stage?.note ?? "");
     setColor(stage?.color ?? "slate");
+    setProbability(
+      stage?.defaultProbability != null ? String(stage.defaultProbability) : "",
+    );
     setOpen(true);
   };
 
   function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!label.trim()) return setError("請輸入階段名稱");
-    const input = { label: label.trim(), note: note.trim() || undefined, color };
+    const input = {
+      label: label.trim(),
+      note: note.trim() || undefined,
+      color,
+      defaultProbability: probability.trim() === "" ? null : Number(probability),
+    };
     start(async () => {
       try {
         if (editing) {
@@ -142,6 +153,18 @@ export function StageDialog({
                   />
                 ))}
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="st-prob">預設成交機率 %（選填，供加權管線金額）</Label>
+              <Input
+                id="st-prob"
+                type="number"
+                min={0}
+                max={100}
+                placeholder="例：70"
+                value={probability}
+                onChange={(e) => setProbability(e.target.value)}
+              />
             </div>
             {error && (
               <p className="bg-destructive/10 text-destructive rounded-md px-3 py-2 text-sm">

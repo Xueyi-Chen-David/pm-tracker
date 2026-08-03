@@ -3,6 +3,8 @@
 import {
   cloneElement,
   isValidElement,
+  useEffect,
+  useRef,
   useState,
   useTransition,
 } from "react";
@@ -13,7 +15,10 @@ import {
   createContact,
   updateContact,
   deleteContact,
+  getContactCard,
 } from "@/server/actions/crm";
+import type { BusinessCardFields } from "@/server/gemini";
+import { BusinessCardUploader } from "@/components/crm/business-card-uploader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,16 +47,48 @@ export function ContactDialog({
   trigger,
   members,
   contact,
+  aiEnabled = false,
 }: {
   trigger: React.ReactElement;
   members: OwnerLite[];
   contact?: ContactView;
+  aiEnabled?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, start] = useTransition();
+  const [cardImage, setCardImage] = useState<string | null>(null);
   const editing = !!contact;
+
+  const nameRef = useRef<HTMLInputElement>(null);
+  const companyRef = useRef<HTMLInputElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const phoneRef = useRef<HTMLInputElement>(null);
+
+  // 開啟編輯時，個別把名片圖片撈回來（列表查詢刻意不含這個大欄位）。
+  // 新增時不用重置 cardImage——trigger 的 onClick 已經在打開前同步清過了。
+  useEffect(() => {
+    if (open && contact) {
+      getContactCard(contact.id)
+        .then(setCardImage)
+        .catch(() => setCardImage(null));
+    }
+  }, [open, contact]);
+
+  // OCR 回填：換照片或按「重新辨識」都是使用者主動觸發的，直接覆蓋——
+  // 之前寫成「只填空欄位」，換第二張照片時欄位已經有值，看起來就像按了沒反應。
+  function applyExtracted(fields: BusinessCardFields) {
+    const fill = (ref: React.RefObject<HTMLInputElement | null>, v: string | null) => {
+      if (v && ref.current) ref.current.value = v;
+    };
+    fill(nameRef, fields.name);
+    fill(companyRef, fields.company);
+    fill(titleRef, fields.title);
+    fill(emailRef, fields.email);
+    fill(phoneRef, fields.phone);
+  }
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -64,16 +101,15 @@ export function ContactDialog({
       phone: String(fd.get("phone") ?? "").trim() || undefined,
       note: String(fd.get("note") ?? "").trim() || undefined,
       ownerId: String(fd.get("ownerId") ?? "") || undefined,
+      businessCardImage: cardImage,
     };
     if (!input.name) return setError("請輸入名稱");
     start(async () => {
       try {
-        if (editing) {
-          const res = await updateContact(contact.id, input);
-          if (!res.ok) return setError(res.error);
-        } else {
-          await createContact(input);
-        }
+        const res = editing
+          ? await updateContact(contact.id, input)
+          : await createContact(input);
+        if (!res.ok) return setError(res.error);
         setOpen(false);
         toast.success(editing ? "已更新聯絡人" : "已新增聯絡人");
         router.refresh();
@@ -89,66 +125,108 @@ export function ContactDialog({
         ? cloneElement(trigger as React.ReactElement<{ onClick?: () => void }>, {
             onClick: () => {
               setError(null);
+              setCardImage(null);
               setOpen(true);
             },
           })
         : trigger}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>{editing ? "編輯聯絡人" : "新增聯絡人"}</DialogTitle>
           </DialogHeader>
           <form onSubmit={handleSubmit} className="space-y-3">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="c-name">姓名</Label>
-                <Input id="c-name" name="name" required defaultValue={contact?.name ?? ""} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="c-company">公司</Label>
-                <Input
-                  id="c-company"
-                  name="company"
-                  defaultValue={contact?.company ?? ""}
-                  placeholder="例：井上酒造"
+            <div className="flex flex-col gap-4 sm:flex-row">
+              <div className="space-y-1.5 sm:w-80 sm:shrink-0">
+                <Label>名片</Label>
+                <BusinessCardUploader
+                  image={cardImage}
+                  onImageChange={setCardImage}
+                  aiEnabled={aiEnabled}
+                  onExtracted={applyExtracted}
                 />
               </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="c-title">職稱</Label>
-                <Input id="c-title" name="title" defaultValue={contact?.title ?? ""} />
+              <div className="min-w-0 flex-1 space-y-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="c-name">姓名</Label>
+                    <Input
+                      id="c-name"
+                      name="name"
+                      required
+                      ref={nameRef}
+                      defaultValue={contact?.name ?? ""}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="c-company">公司</Label>
+                    <Input
+                      id="c-company"
+                      name="company"
+                      ref={companyRef}
+                      defaultValue={contact?.company ?? ""}
+                      placeholder="例：井上酒造"
+                    />
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="c-title">職稱</Label>
+                    <Input
+                      id="c-title"
+                      name="title"
+                      ref={titleRef}
+                      defaultValue={contact?.title ?? ""}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="c-owner">負責人</Label>
+                    <select
+                      id="c-owner"
+                      name="ownerId"
+                      defaultValue={contact?.ownerId ?? ""}
+                      className="border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm"
+                    >
+                      <option value="">—</option>
+                      {members.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name || m.email}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="c-email">Email</Label>
+                    <Input
+                      id="c-email"
+                      name="email"
+                      type="email"
+                      ref={emailRef}
+                      defaultValue={contact?.email ?? ""}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="c-phone">電話</Label>
+                    <Input
+                      id="c-phone"
+                      name="phone"
+                      ref={phoneRef}
+                      defaultValue={contact?.phone ?? ""}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="c-note">備註</Label>
+                  <Textarea
+                    id="c-note"
+                    name="note"
+                    rows={2}
+                    defaultValue={contact?.note ?? ""}
+                  />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="c-owner">負責人</Label>
-                <select
-                  id="c-owner"
-                  name="ownerId"
-                  defaultValue={contact?.ownerId ?? ""}
-                  className="border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm"
-                >
-                  <option value="">—</option>
-                  {members.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name || m.email}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="c-email">Email</Label>
-                <Input id="c-email" name="email" type="email" defaultValue={contact?.email ?? ""} />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="c-phone">電話</Label>
-                <Input id="c-phone" name="phone" defaultValue={contact?.phone ?? ""} />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="c-note">備註</Label>
-              <Textarea id="c-note" name="note" rows={2} defaultValue={contact?.note ?? ""} />
             </div>
 
             {error && (

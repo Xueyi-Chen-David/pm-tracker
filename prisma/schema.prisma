@@ -179,6 +179,7 @@ model Organization {
   dealStages          DealStage[]
   dealStageChanges    DealStageChange[]
   crmEvents           CrmEvent[]
+  crmCompanyNotes     CrmCompanyNote[]
   todoItems           TodoItem[]
   pomodoroSessions    PomodoroSession[]
   // 人資：自訂角色 / 假別 / 薪資設定 / 薪資單。
@@ -1003,6 +1004,17 @@ model CrmContact {
   phone   String?
   note    String? @db.Text
 
+  decisionRole String? // 決策者 / 影響者 / 窗口 / 使用者（自由文字，UI 給預設選項）
+
+  // 名片照片（前端壓縮後的 data URL）。刻意不放進 getCrmContacts 的列表查詢
+  // （只在編輯單一聯絡人時才查），避免像頭貼那次一樣把大 blob 拖進不需要它的查詢。
+  businessCardImage String? @db.Text
+
+  // 同一企業內的匯報 / 關係對象（只在同公司內有意義，UI 端限制選項）。
+  reportsToId String?
+  reportsTo   CrmContact?  @relation("CrmContactReportsTo", fields: [reportsToId], references: [id], onDelete: SetNull)
+  reports     CrmContact[] @relation("CrmContactReportsTo")
+
   ownerId     String?
   owner       User?   @relation("CrmContactOwner", fields: [ownerId], references: [id])
   createdById String?
@@ -1014,6 +1026,7 @@ model CrmContact {
   updatedAt DateTime @updatedAt
 
   @@index([organizationId])
+  @@index([reportsToId])
 }
 
 /// 商機 / 交易（銷售管線的一張卡）。
@@ -1035,6 +1048,8 @@ model CrmDeal {
 
   expectedCloseDate DateTime? @db.Date // 預計成交日
   closedAt          DateTime? // 成交 / 流失時間
+  closedReason      String?   @db.Text // 成交 / 流失原因（設狀態時選填）
+  probability       Int? // 成交機率 0-100；未填則沿用 DealStage.defaultProbability
   note              String?   @db.Text
   sortOrder         Int       @default(0) // 同一階段內排序
   createdById       String?
@@ -1056,11 +1071,12 @@ model DealStage {
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  key       String // 穩定鍵：預設階段用語意鍵（LEAD…），自訂為 cuid
-  label     String // 顯示名稱（可編輯）
-  note      String? @db.Text // 小備註（顯示於欄位上方）
-  color     String  @default("slate") // 色名（slate/sky/cyan/violet/amber/emerald/rose/zinc…）
-  sortOrder Int     @default(0)
+  key                String // 穩定鍵：預設階段用語意鍵（LEAD…），自訂為 cuid
+  label              String // 顯示名稱（可編輯）
+  note               String? @db.Text // 小備註（顯示於欄位上方）
+  color              String  @default("slate") // 色名（slate/sky/cyan/violet/amber/emerald/rose/zinc…）
+  defaultProbability Int? // 此階段預設成交機率 0-100（供加權管線金額；商機可個別覆寫）
+  sortOrder          Int     @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1102,6 +1118,7 @@ model CrmActivity {
 
   createdById String?
   createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   @@index([dealId])
 }
@@ -1130,6 +1147,31 @@ model CrmEvent {
   @@index([organizationId])
   @@index([date])
   @@index([contactId])
+}
+
+/// 企業層級的狀態備註（依 CrmContact.company 字串分組，同名視為同一企業）。
+/// 跟聯絡人 / 商機各自的備註是分開的：這裡記的是「這家公司整體目前是什麼狀態」
+/// （例如關係階段、偏好、注意事項），不綁在單一聯絡人或單一商機底下。
+/// 同一企業一筆（用 company 字串當 key，跟企業時間軸的分組邏輯一致）。
+model CrmCompanyNote {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  company String
+  body    String @db.Text
+
+  // parentId 為 null＝主動態；有值＝某則底下的留言（只做一層，不支援留言的留言）。
+  parentId String?
+  parent   CrmCompanyNote?  @relation("CrmCompanyNoteReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies  CrmCompanyNote[] @relation("CrmCompanyNoteReplies")
+
+  authorId  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId, company])
+  @@index([parentId])
 }
 
 // ─────────────────────────────────────────────
@@ -1292,12 +1334,19 @@ model LeaveRequest {
 
   approvals LeaveApproval[]
 
+  // 軟刪除：HR 在「全體請假」刪除誤送 / 測試 / 重複的申請時，不做實體刪除——
+  // 直接刪除會讓這筆請假連同簽核紀錄完全無跡可查（尤其已核准、已影響出勤 / 薪資的申請）。
+  // 非空＝已刪除，預設查詢一律排除；HR 可在「已刪除」清單復原（清空這兩欄）。
+  deletedAt   DateTime?
+  deletedById String? // 刪除者（membership 所屬 userId；供稽核回溯，無 FK）
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([organizationId, status])
   @@index([memberId])
   @@index([userId])
+  @@index([organizationId, deletedAt])
 }
 
 /// 單一請假申請的其中一關簽核（送出時由組織關卡解析而來，記錄實際簽核人與其決定）。

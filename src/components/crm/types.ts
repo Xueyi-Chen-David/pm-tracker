@@ -14,6 +14,7 @@ export type StageView = {
   label: string;
   note: string | null;
   color: string;
+  defaultProbability: number | null;
 };
 
 export type DealView = {
@@ -25,6 +26,8 @@ export type DealView = {
   contact: ContactLite | null;
   owner: OwnerLite | null;
   expectedCloseDate: string | null;
+  probability: number | null; // 未填則沿用該階段的 defaultProbability
+  closedReason: string | null;
   note: string | null;
   activityCount: number;
 };
@@ -37,4 +40,11 @@ export type EventView = {
   notes: string | null;
   link: string | null;
   contact: ContactLite | null;
+};
+
+export type FollowUpView = {
+  id: string;
+  body: string;
+  dueDate: string | null; // yyyy-mm-dd
+  deal: { id: string; title: string; contact: ContactLite | null };
 };
