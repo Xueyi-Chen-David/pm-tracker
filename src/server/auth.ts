@@ -86,7 +86,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         });
         token.nickname = dbUser?.nickname ?? null;
         token.useNickname = dbUser?.useNickname ?? false;
-        token.picture = dbUser?.image ?? null;
+        // 自訂頭貼存的是 base64 data URL（可達 ~700KB，見 team.ts updateAvatar）。
+        // 絕不能塞進 JWT——塞進去會把 session cookie 撐成好幾十個 chunk，
+        // 總 header 大小爆掉瀏覽器/伺服器上限，變成整站打不開的 431。
+        // 這裡本來就沒人讀 session.user.image（各頁的頭貼都是直接查 DB），
+        // 只在是一般網址（如 Google 頭貼）時才帶入。
+        const image = dbUser?.image ?? null;
+        token.picture = image && !image.startsWith("data:") ? image : null;
       }
       return token;
     },
