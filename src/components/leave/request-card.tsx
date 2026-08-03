@@ -41,9 +41,11 @@ export function RequestCard({
   footer?: React.ReactNode;
 }) {
   const status = leaveStatusMeta(req.status);
+  const isHourly = !!(req.startTime && req.endTime);
   const sameDay = +new Date(req.startDate) === +new Date(req.endDate);
-  const range =
-    fmtDate(req.startDate) + (sameDay ? "" : ` – ${fmtDate(req.endDate)}`);
+  const range = isHourly
+    ? `${fmtDate(req.startDate)} ${req.startTime}–${req.endTime}`
+    : fmtDate(req.startDate) + (sameDay ? "" : ` – ${fmtDate(req.endDate)}`);
 
   return (
     <Card className="space-y-3 p-4">
@@ -75,7 +77,9 @@ export function RequestCard({
         <span className="text-muted-foreground inline-flex items-center gap-1 text-sm">
           <CalendarRange className="h-3.5 w-3.5" />
           {range}
-          {req.days > 0 && ` · ${req.days} 天`}
+          {isHourly
+            ? req.hours && ` · ${req.hours} 小時`
+            : req.days > 0 && ` · ${req.days} 天`}
         </span>
       </div>
 

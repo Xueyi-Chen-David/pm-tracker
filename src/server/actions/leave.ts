@@ -179,3 +179,21 @@ export async function setLeaveApprovalFlow(input: z.input<typeof FlowInput>) {
   revalidatePath("/leave");
   return { ok: true as const };
 }
+
+/**
+ * 設定某成員是否「免簽核」：他送出的請假一律直接核准，跳過組織設定的簽核關卡
+ * （他當別人的簽核人不受影響）。需 `leave.manage`。membershipId＝該成員在本組織的 membership id。
+ */
+export async function setMemberLeaveApprovalExempt(
+  membershipId: string,
+  exempt: boolean,
+) {
+  const { org } = await requireOrgPermission("leave.manage");
+  const res = await db.organizationMember.updateMany({
+    where: { id: membershipId, organizationId: org.id },
+    data: { leaveApprovalExempt: exempt },
+  });
+  if (res.count === 0) return { ok: false as const, error: "找不到成員。" };
+  revalidatePath("/leave");
+  return { ok: true as const };
+}

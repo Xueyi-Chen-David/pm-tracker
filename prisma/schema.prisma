@@ -229,6 +229,8 @@ model OrganizationMember {
   // 這些人與正式上級主管一樣，可在每日報告看到並回饋這位成員的日報，但可見性不沿其
   // 自身主管鏈往上傳遞。純 id 陣列（無 FK）；成員被移除時由 deleteWorkspaceMember 清掉殘留 id。
   secondaryManagerIds String[] @default([])
+  // 免簽核：這位成員送出的請假一律直接核准，跳過組織設定的簽核關卡（他當其他人的簽核人不受影響）。
+  leaveApprovalExempt Boolean  @default(false)
 
   // 人資：指派的自訂角色（多對多，如 人資 / 會計）；權限取聯集。刪除角色時自動解除指派。
   roleDefs      OrgRoleDef[]   @relation("MemberRoles")
@@ -551,6 +553,9 @@ model AttendanceRecord {
   offsite     Boolean    @default(false) // 出差 / 在家工作（在外工作）：出席月曆顯示為圈圈
   holiday     Boolean    @default(false) // 休假 / 放假：既不算出席也不算缺席（週末預設放假不寫入，這是人工指定的休）
   leave       Boolean    @default(false) // 請假（特休 / 事假 / 病假…）：既不算出席也不算缺席，事由記在 reason
+  // 時數請假（同一天內請幾小時）：與 leave 互斥——這天仍算出席（present 不受影響），
+  // 只是扣薪 / 額度換算會多算 leaveHours/該員標準工時 天。leave=true 那天不會同時有值。
+  leaveHours  Float?
   // 請假時對應的假別（決定薪資扣薪比例）。null＝未指定假別的一般請假（薪資視為無薪，可由 HR 補指派）。
   leaveTypeId String?
   leaveType   LeaveType? @relation(fields: [leaveTypeId], references: [id], onDelete: SetNull)
@@ -1271,7 +1276,11 @@ model LeaveRequest {
   leaveType   LeaveType? @relation(fields: [leaveTypeId], references: [id], onDelete: SetNull)
   startDate   DateTime   @db.Date
   endDate     DateTime   @db.Date
-  days        Float      @default(0) // 換算工作天（週末不計；顯示 / 統計用）
+  days        Float      @default(0) // 換算工作天（週末不計；顯示 / 統計用）。時數請假＝ hours / 該成員 standardHoursPerDay
+  // 時數請假（同一天內請幾小時）。三者要嘛全空（整天請假），要嘛全有值；startDate 須等於 endDate。
+  startTime String? // "HH:mm"
+  endTime   String? // "HH:mm"
+  hours     Float? // = endTime - startTime（小時，可含分鐘小數）
   reason      String?    @db.Text
   attachment     String? @db.Text // 證明附件（data URL；圖片 / PDF）
   attachmentName String? // 附件原始檔名

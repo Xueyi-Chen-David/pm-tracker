@@ -30,21 +30,34 @@ function toDate(v: string): Date | null {
   return new Date(Date.UTC(y, m - 1, day));
 }
 
-/** 通知內文用的「假別 · 日期範圍 · N 天」摘要。 */
+/** "HH:mm" → 當天的分鐘數；格式錯誤回傳 null。 */
+function toMinutes(v: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(v);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null;
+  return h * 60 + min;
+}
+
+/** 通知內文用的「假別 · 日期範圍（或時數區間）· N 天/小時」摘要。 */
 function rangeLabel(
   start: Date,
   end: Date,
   days: number,
   leaveTypeName?: string | null,
+  hourly?: { startTime: string; endTime: string; hours: number } | null,
 ): string {
-  const range =
-    start.getTime() === end.getTime()
+  const range = hourly
+    ? `${fmtDate(start)} ${hourly.startTime}–${hourly.endTime}`
+    : start.getTime() === end.getTime()
       ? fmtDate(start)
       : `${fmtDate(start)} – ${fmtDate(end)}`;
   const parts: string[] = [];
   if (leaveTypeName) parts.push(leaveTypeName);
   parts.push(range);
-  if (days > 0) parts.push(`${days} 天`);
+  if (hourly) parts.push(`${hourly.hours} 小時`);
+  else if (days > 0) parts.push(`${days} 天`);
   return parts.join(" · ");
 }
 
@@ -70,6 +83,11 @@ async function notify(opts: {
 /**
  * 核准後落地：以「請假」成員事件寫入出席月曆（重用 recompute；請假日不算出席也不算缺席），
  * 並把假別帶到當範圍的請假紀錄上（供薪資扣薪）。
+ *
+ * 時數請假（hourly 有值）是例外路徑：不建立「請假」成員事件（那會被 recomputeAttendance
+ * 判成整天缺席／請假，蓋掉這天原本的出勤），而是直接把時數疊加到當天 AttendanceRecord.leaveHours，
+ * 出席狀態維持不動。標記 auto:false（人工性質），避免日後其他事件觸發 recomputeAttendance
+ * 重算同一天時，因為找不到對應成員事件而被整筆刪除。
  */
 async function materializeApprovedLeave(opts: {
   orgId: string;
@@ -81,9 +99,60 @@ async function materializeApprovedLeave(opts: {
   reason: string | null;
   attachment?: string | null;
   attachmentName?: string | null;
+  hourly?: { startTime: string; endTime: string; hours: number } | null;
 }) {
-  const { orgId, userId, createdById, startDate, endDate, leaveTypeId, reason } =
-    opts;
+  const {
+    orgId,
+    userId,
+    createdById,
+    startDate,
+    endDate,
+    leaveTypeId,
+    reason,
+    hourly,
+  } = opts;
+
+  if (hourly) {
+    const existing = await db.attendanceRecord.findUnique({
+      where: {
+        organizationId_userId_date: { organizationId: orgId, userId, date: startDate },
+      },
+      select: { id: true, leaveHours: true, cleared: true },
+    });
+    const reasonLabel = `請假 ${hourly.startTime}–${hourly.endTime}`;
+    if (existing) {
+      await db.attendanceRecord.update({
+        where: { id: existing.id },
+        data: {
+          leaveHours: (existing.leaveHours ?? 0) + hourly.hours,
+          leaveTypeId: leaveTypeId ?? undefined,
+          // 若這天原本被人工「清除」（墓碑）：核准的請假仍要看得見，順帶恢復出席狀態。
+          ...(existing.cleared
+            ? { cleared: false, present: true, reason: reasonLabel }
+            : {}),
+        },
+      });
+    } else {
+      await db.attendanceRecord.create({
+        data: {
+          organizationId: orgId,
+          userId,
+          date: startDate,
+          present: true,
+          leaveHours: hourly.hours,
+          leaveTypeId,
+          reason: reasonLabel,
+          auto: false,
+          createdById,
+        },
+      });
+    }
+    revalidatePath("/attendance");
+    revalidatePath("/team");
+    revalidatePath(`/me/${userId}`);
+    return;
+  }
+
   await db.memberEvent.create({
     data: {
       organizationId: orgId,
@@ -115,6 +184,9 @@ const SubmitInput = z.object({
   leaveTypeId: z.string().min(1).optional().nullable(),
   startDate: z.string().min(1, "請選擇開始日期"),
   endDate: z.string().min(1, "請選擇結束日期"),
+  // 時數請假（選填）：兩者要嘛都給、要嘛都不給；給了就只能是同一天（startDate＝endDate）。
+  startTime: z.string().optional(),
+  endTime: z.string().optional(),
   reason: z.string().trim().max(2000).optional(),
   attachment: z.string().optional(), // 證明附件 data URL（選填）
   attachmentName: z.string().trim().max(200).optional(),
@@ -132,6 +204,31 @@ export async function submitLeaveRequest(input: z.input<typeof SubmitInput>) {
   if (end.getTime() < start.getTime()) {
     return { ok: false as const, error: "結束日期不能早於開始日期。" };
   }
+
+  // 時數請假：驗證時間格式、結束早於開始、且只能是單一天。
+  let hourly: { startTime: string; endTime: string; hours: number } | null = null;
+  if (d.startTime || d.endTime) {
+    if (!d.startTime || !d.endTime) {
+      return { ok: false as const, error: "請同時填寫開始與結束時間。" };
+    }
+    if (start.getTime() !== end.getTime()) {
+      return { ok: false as const, error: "時數請假只能選單一天。" };
+    }
+    const startMin = toMinutes(d.startTime);
+    const endMin = toMinutes(d.endTime);
+    if (startMin === null || endMin === null) {
+      return { ok: false as const, error: "時間格式錯誤" };
+    }
+    if (endMin <= startMin) {
+      return { ok: false as const, error: "結束時間必須晚於開始時間。" };
+    }
+    hourly = {
+      startTime: d.startTime,
+      endTime: d.endTime,
+      hours: Math.round(((endMin - startMin) / 60) * 100) / 100,
+    };
+  }
+
   // 證明附件（選填）：驗證格式與大小。
   const attachment = d.attachment?.trim() || null;
   if (attachment) {
@@ -152,7 +249,17 @@ export async function submitLeaveRequest(input: z.input<typeof SubmitInput>) {
     leaveTypeName = lt.name;
   }
 
-  const days = countWorkdays(start, end);
+  let days: number;
+  if (hourly) {
+    const sp = await db.salaryProfile.findUnique({
+      where: { memberId: membership.id },
+      select: { standardHoursPerDay: true },
+    });
+    const hoursPerDay = sp && sp.standardHoursPerDay > 0 ? sp.standardHoursPerDay : 8;
+    days = Math.round((hourly.hours / hoursPerDay) * 100) / 100;
+  } else {
+    days = countWorkdays(start, end);
+  }
 
   // 組織簽核關卡 + 有效（在職）成員——解析出這次申請的實際簽核人序列。
   const [steps, activeMembers] = await Promise.all([
@@ -167,12 +274,10 @@ export async function submitLeaveRequest(input: z.input<typeof SubmitInput>) {
     }),
   ]);
   const validIds = new Set(activeMembers.map((m) => m.id));
-  const chain = resolveApprovalChain(
-    steps,
-    membership.id,
-    membership.managerId ?? null,
-    validIds,
-  );
+  // 免簽核成員（HR 於簽核流程頁指定）：一律視同沒有關卡，送出即自動核准。
+  const chain = membership.leaveApprovalExempt
+    ? []
+    : resolveApprovalChain(steps, membership.id, membership.managerId ?? null, validIds);
 
   const now = new Date();
   const request = await db.leaveRequest.create({
@@ -184,6 +289,9 @@ export async function submitLeaveRequest(input: z.input<typeof SubmitInput>) {
       startDate: start,
       endDate: end,
       days,
+      startTime: hourly?.startTime,
+      endTime: hourly?.endTime,
+      hours: hourly?.hours,
       reason: d.reason || null,
       attachment,
       attachmentName,
@@ -215,6 +323,7 @@ export async function submitLeaveRequest(input: z.input<typeof SubmitInput>) {
       reason: d.reason || null,
       attachment,
       attachmentName,
+      hourly,
     });
   } else {
     // 通知第一關簽核人。
@@ -228,13 +337,23 @@ export async function submitLeaveRequest(input: z.input<typeof SubmitInput>) {
         userId: first.userId,
         type: "leave_request",
         title: `${displayName(user)} 送出一筆請假待你簽核`,
-        body: rangeLabel(start, end, days, leaveTypeName),
+        body: rangeLabel(start, end, days, leaveTypeName, hourly),
       });
     }
   }
 
   revalidatePath("/leave");
-  return { ok: true as const, autoApproved: !chain.length, id: request.id };
+  return {
+    ok: true as const,
+    autoApproved: !chain.length,
+    // 自動核准的原因：免簽核成員 vs 組織尚未設定任何簽核關卡——前端訊息不同。
+    autoApproveReason: !chain.length
+      ? membership.leaveApprovalExempt
+        ? ("exempt" as const)
+        : ("no_flow" as const)
+      : undefined,
+    id: request.id,
+  };
 }
 
 const DecideInput = z.object({
@@ -272,7 +391,11 @@ export async function decideLeaveApproval(input: z.input<typeof DecideInput>) {
 
   const now = new Date();
   const comment = d.comment || null;
-  const label = rangeLabel(request.startDate, request.endDate, request.days);
+  const hourly =
+    request.startTime && request.endTime && request.hours != null
+      ? { startTime: request.startTime, endTime: request.endTime, hours: request.hours }
+      : null;
+  const label = rangeLabel(request.startDate, request.endDate, request.days, null, hourly);
 
   if (d.decision === "REJECT") {
     await db.$transaction([
@@ -325,6 +448,7 @@ export async function decideLeaveApproval(input: z.input<typeof DecideInput>) {
       reason: request.reason,
       attachment: request.attachment,
       attachmentName: request.attachmentName,
+      hourly,
     });
     await notify({
       orgId: org.id,

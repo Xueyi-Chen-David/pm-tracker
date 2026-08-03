@@ -79,6 +79,7 @@ export function buildGridMembers(
         offsite: r.offsite,
         holiday: r.holiday,
         leave: r.leave,
+        leaveHours: r.leaveHours ?? null,
         leaveTypeName: r.leaveType?.name ?? null,
       };
     }
@@ -95,6 +96,7 @@ export function buildGridMembers(
           offsite: false,
           holiday: false,
           leave: false,
+          leaveHours: null,
           leaveTypeName: null,
         };
       }

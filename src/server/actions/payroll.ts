@@ -131,6 +131,7 @@ async function gatherAttendance(
         present: true,
         holiday: true,
         leave: true,
+        leaveHours: true,
         cleared: true,
         leaveTypeId: true,
         leaveType: { select: { name: true, paidPercent: true } },
@@ -164,6 +165,15 @@ async function gatherAttendance(
       cur.days += 1;
       leaveMap.set(key, cur);
       continue;
+    }
+    // 時數請假：這天仍算出席（見下方 present 分支），另把 leaveHours 換算成約當天數疊加進同一顆假別統計。
+    if (r.leaveHours && r.leaveHours > 0) {
+      const key = r.leaveTypeId ?? "__none";
+      const name = r.leaveType?.name ?? "未指定假別";
+      const paidPercent = r.leaveType?.paidPercent ?? 100;
+      const cur = leaveMap.get(key) ?? { name, paidPercent, days: 0 };
+      cur.days += r.leaveHours / (standardHoursPerDay > 0 ? standardHoursPerDay : 8);
+      leaveMap.set(key, cur);
     }
     if (r.present) presentDays += 1;
     else absentDays += 1; // 明確登記的缺席（不含顯示層的「未打卡」自動缺席）

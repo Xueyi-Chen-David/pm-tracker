@@ -24,7 +24,11 @@ import { LeaveApprovalFlowManager } from "@/components/leave/leave-approval-flow
 import { LeaveQuotaPanel } from "@/components/leave/leave-quota-panel";
 import { RequestCard, Empty } from "@/components/leave/request-card";
 
-type MemberOption = { membershipId: string; label: string };
+type MemberOption = {
+  membershipId: string;
+  label: string;
+  leaveApprovalExempt: boolean;
+};
 type FlowStep = {
   approverType: "MANAGER" | "MEMBER";
   approverMemberId: string | null;

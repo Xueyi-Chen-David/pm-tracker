@@ -23,7 +23,7 @@ function cellLabel(mark: Mark | undefined): string | undefined {
   if (mark.holiday) return "休假";
   if (mark.leave) return mark.leaveTypeName ?? "請假";
   if (mark.offsite) return mark.reason ?? "在外";
-  if (mark.present) return "出席";
+  if (mark.present) return mark.leaveHours ? `出席（請假${mark.leaveHours}h）` : "出席";
   return "缺席";
 }
 

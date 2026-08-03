@@ -35,6 +35,8 @@ type Mark = {
   leave: boolean;
   /** 假別名稱（特休 / 事假…）；leave=true 時才有意義。無指定假別則為 null。 */
   leaveTypeName: string | null;
+  /** 時數請假（與 leave 互斥）：這天仍算出席，只是有部分時數請假，右上角疊小圈標示。 */
+  leaveHours: number | null;
 };
 
 export type GridMember = {
@@ -75,6 +77,22 @@ function leaveLabel(mark: Mark | null | undefined): string {
 function offsiteLabel(mark: Mark | null | undefined): string {
   const reason = mark?.reason?.trim();
   return reason ? twoChars(reason) : "出差";
+}
+
+/**
+ * 時數請假的右上角小圈標示（如「2h」）：與 leave/holiday 互斥，疊在出席 / 缺席 / 在外工作格上。
+ * mark.reason 此時是「請假 09:00–11:00」格式，供 tooltip 沿用，不需另外拼字串。
+ */
+function HourlyBadge({ mark }: { mark?: Mark }) {
+  if (mark?.holiday || mark?.leave || !mark?.leaveHours || mark.leaveHours <= 0) return null;
+  return (
+    <span
+      className="absolute -top-1.5 -right-1.5 rounded-full border border-pink-300 bg-pink-100 px-1 text-[8px] leading-tight font-semibold text-pink-700"
+      aria-hidden
+    >
+      {mark.leaveHours}h
+    </span>
+  );
 }
 
 export function AttendanceGrid({
@@ -225,11 +243,13 @@ function StaticCell({
   const isOffsite = !isHoliday && !isLeave && mark?.offsite === true;
   const isPresent = !isHoliday && !isLeave && !isOffsite && mark?.present === true;
   const isAbsent = !isHoliday && !isLeave && !isOffsite && mark?.present === false;
+  const hourlyNote =
+    !isHoliday && !isLeave && mark?.leaveHours ? ` · 請假 ${mark.leaveHours} 小時` : "";
   return (
     <div
-      title={`${label}${isHoliday ? " · 休假" : isLeave ? ` · ${mark?.leaveTypeName ?? "請假"}` : weekend && !mark ? " · 放假" : ""}${(isAbsent || isOffsite || isLeave) && mark?.reason ? ` · ${mark.reason}` : ""}`}
+      title={`${label}${isHoliday ? " · 休假" : isLeave ? ` · ${mark?.leaveTypeName ?? "請假"}` : weekend && !mark ? " · 放假" : ""}${(isAbsent || isOffsite || isLeave) && mark?.reason ? ` · ${mark.reason}` : ""}${hourlyNote}`}
       className={cn(
-        "mx-auto flex h-7 w-7 items-center justify-center rounded-md border text-xs",
+        "relative mx-auto flex h-7 w-7 items-center justify-center rounded-md border text-xs",
         isPresent && "border-emerald-300 bg-emerald-100 text-emerald-700",
         isAbsent && "border-rose-300 bg-rose-100 text-rose-700",
         isOffsite && "rounded-full border-sky-400 bg-sky-100 text-sky-700",
@@ -266,6 +286,7 @@ function StaticCell({
           ·
         </span>
       )}
+      <HourlyBadge mark={mark} />
     </div>
   );
 }
@@ -338,6 +359,8 @@ function AttendanceCell({
                 leave: status === "leave",
                 // 請假才記假別名稱（供 tooltip / 匯出顯示 特休、事假…）。
                 leaveTypeName: status === "leave" ? (opts?.leave?.name ?? null) : null,
+                // 這裡只改整天狀態，不動時數請假（伺服器端 update 也沒帶這欄）：延續原值。
+                leaveHours: state?.leaveHours ?? null,
               },
         );
         setOpen(false);
@@ -355,12 +378,14 @@ function AttendanceCell({
   const isPresent = !isHoliday && !isLeave && !isOffsite && state?.present === true;
   const isAbsent = !isHoliday && !isLeave && !isOffsite && state?.present === false;
 
+  const hourlyNote =
+    !isHoliday && !isLeave && state?.leaveHours ? ` · 請假 ${state.leaveHours} 小時` : "";
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        title={`${label}${isHoliday ? " · 休假" : isLeave ? ` · ${state?.leaveTypeName ?? "請假"}` : weekend && !state ? " · 放假" : ""}${(isAbsent || isOffsite || isLeave) && state?.reason ? ` · ${state.reason}` : ""}`}
+        title={`${label}${isHoliday ? " · 休假" : isLeave ? ` · ${state?.leaveTypeName ?? "請假"}` : weekend && !state ? " · 放假" : ""}${(isAbsent || isOffsite || isLeave) && state?.reason ? ` · ${state.reason}` : ""}${hourlyNote}`}
         className={cn(
-          "mx-auto flex h-7 w-7 items-center justify-center rounded-md border text-xs transition-colors",
+          "relative mx-auto flex h-7 w-7 items-center justify-center rounded-md border text-xs transition-colors",
           isPresent && "border-emerald-300 bg-emerald-100 text-emerald-700",
           isAbsent && "border-rose-300 bg-rose-100 text-rose-700",
           isOffsite && "rounded-full border-sky-400 bg-sky-100 text-sky-700",
@@ -396,6 +421,7 @@ function AttendanceCell({
         ) : (
           <span aria-hidden>·</span>
         )}
+        <HourlyBadge mark={state ?? undefined} />
       </PopoverTrigger>
       <PopoverContent align="center" className="w-56 gap-2">
         <div className="text-muted-foreground text-xs">

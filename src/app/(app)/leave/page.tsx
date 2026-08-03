@@ -54,6 +54,7 @@ export default async function LeavePage() {
     directory?.map((d) => ({
       membershipId: d.membershipId,
       label: d.jobTitle ? `${displayName(d)}（${d.jobTitle}）` : displayName(d),
+      leaveApprovalExempt: d.leaveApprovalExempt,
     })) ?? null;
 
   return (

@@ -3,13 +3,21 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowUp, ArrowDown, Trash2, Plus, Save, GitBranch } from "lucide-react";
-import { setLeaveApprovalFlow } from "@/server/actions/leave";
+import { ArrowUp, ArrowDown, Trash2, Plus, Save, GitBranch, UserCheck } from "lucide-react";
+import {
+  setLeaveApprovalFlow,
+  setMemberLeaveApprovalExempt,
+} from "@/server/actions/leave";
 import { APPROVER_TYPE_LABEL } from "@/lib/leave-approval";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
 
-type MemberOption = { membershipId: string; label: string };
+type MemberOption = {
+  membershipId: string;
+  label: string;
+  leaveApprovalExempt: boolean;
+};
 type Step = { approverType: "MANAGER" | "MEMBER"; approverMemberId: string | null };
 
 const inputCls =
@@ -204,6 +212,67 @@ export function LeaveApprovalFlowManager({
           )}
         </div>
       )}
+
+      <div className="space-y-2 border-t pt-4">
+        <div>
+          <div className="flex items-center gap-1.5 text-sm font-medium">
+            <UserCheck className="h-4 w-4" /> 免簽核成員
+          </div>
+          <p className="text-muted-foreground text-xs">
+            開啟後，這個人送出的請假一律直接核准、跳過上方的簽核關卡（不影響他當別人簽核人）。
+          </p>
+        </div>
+        {members.length === 0 ? (
+          <p className="text-muted-foreground text-sm">目前組織沒有其他成員。</p>
+        ) : (
+          <div className="max-h-64 space-y-1 overflow-y-auto rounded-md border p-1.5">
+            {members.map((m) => (
+              <ExemptMemberRow key={m.membershipId} member={m} canManage={canManage} />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** 單一成員的「免簽核」開關列：切換即儲存（不用另外按儲存）。 */
+function ExemptMemberRow({
+  member,
+  canManage,
+}: {
+  member: MemberOption;
+  canManage: boolean;
+}) {
+  const router = useRouter();
+  const [exempt, setExempt] = useState(member.leaveApprovalExempt);
+  const [pending, start] = useTransition();
+
+  return (
+    <div className="flex items-center justify-between gap-3 rounded px-2 py-1.5 text-sm">
+      <span className="truncate">{member.label}</span>
+      <Switch
+        size="sm"
+        checked={exempt}
+        disabled={!canManage || pending}
+        onCheckedChange={(v) => {
+          setExempt(v);
+          start(async () => {
+            try {
+              const res = await setMemberLeaveApprovalExempt(member.membershipId, v);
+              if (!res.ok) {
+                setExempt(!v);
+                toast.error(res.error);
+                return;
+              }
+              router.refresh();
+            } catch (e) {
+              setExempt(!v);
+              toast.error(e instanceof Error ? e.message : "更新失敗");
+            }
+          });
+        }}
+      />
     </div>
   );
 }
