@@ -4,6 +4,7 @@ import {
   getPendingApprovalsForMember,
   isEligibleLeaveApprover,
   getAllLeaveRequests,
+  getDeletedLeaveRequests,
   getLeaveApprovalFlow,
   getOrgMemberDirectory,
   getLeaveQuotaOverview,
@@ -26,11 +27,12 @@ export default async function LeavePage() {
   const canManageLeave = can("leave.manage");
 
   const quotaYear = new Date().getFullYear();
-  const [pending, isEligibleApprover, allRequests, flow, directory, quota] =
+  const [pending, isEligibleApprover, allRequests, deletedRequests, flow, directory, quota] =
     await Promise.all([
       getPendingApprovalsForMember(org.id, membership.id),
       isEligibleLeaveApprover(org.id, membership.id),
       canManageLeave ? getAllLeaveRequests(org.id) : Promise.resolve(null),
+      canManageLeave ? getDeletedLeaveRequests(org.id) : Promise.resolve(null),
       canManageLeave ? getLeaveApprovalFlow(org.id) : Promise.resolve(null),
       canManageLeave ? getOrgMemberDirectory(org.id) : Promise.resolve(null),
       canManageLeave
@@ -71,6 +73,7 @@ export default async function LeavePage() {
         pending={pending}
         isEligibleApprover={isEligibleApprover}
         allRequests={allRequests}
+        deletedRequests={deletedRequests}
         canManageLeave={canManageLeave}
         flowSteps={flowSteps}
         members={members}

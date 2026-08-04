@@ -488,25 +488,50 @@ export async function decideLeaveApproval(input: z.input<typeof DecideInput>) {
 }
 
 /**
- * 管理員（具 leave.manage 權限）刪除一筆請假簽核紀錄；逐關簽核（LeaveApproval）
- * 因 onDelete: Cascade 一併移除。用於清理誤送 / 測試 / 重複的申請。
+ * 管理員（具 leave.manage 權限）刪除一筆請假簽核紀錄。用於清理誤送 / 測試 / 重複的申請。
+ *
+ * 軟刪除，不實體移除：直接刪除會讓這筆申請（連同簽核意見、假別、時數…）完全無跡可查，
+ * 尤其是已核准、已經影響出勤 / 薪資的申請——刪掉之後不但看不到「當初為什麼准了這天假」，
+ * 也沒辦法回頭復原。改為標記 deletedAt/deletedById：預設清單（全體請假 / 我的請假 /
+ * 待我簽核）一律排除，HR 可在「已刪除」清單看到並復原（見 restoreLeaveRequest）。
  *
  * 注意：已核准並「落地」到出席月曆的請假，其出席紀錄 / 成員事件是獨立資料，
  *      不會被此刪除連動撤銷——若要一併移除，請於「出席狀況」調整該員月曆。
  *      （與 cancelLeaveRequest 的既有語意一致：出席以月曆為準。）
  */
 export async function deleteLeaveRequest(id: string) {
-  const { org } = await requireOrgPermission("leave.manage");
+  const { org, user } = await requireOrgPermission("leave.manage");
   const request = await db.leaveRequest.findFirst({
-    where: { id, organizationId: org.id },
+    where: { id, organizationId: org.id, deletedAt: null },
     select: { id: true, status: true },
   });
   if (!request) return { ok: false as const, error: "找不到這筆請假申請。" };
 
-  await db.leaveRequest.delete({ where: { id: request.id } });
+  await db.leaveRequest.update({
+    where: { id: request.id },
+    data: { deletedAt: new Date(), deletedById: user.id },
+  });
 
   revalidatePath("/leave");
   return { ok: true as const, status: request.status };
+}
+
+/** 管理員復原一筆先前刪除的請假申請（清空 deletedAt/deletedById）。需 `leave.manage`。 */
+export async function restoreLeaveRequest(id: string) {
+  const { org } = await requireOrgPermission("leave.manage");
+  const request = await db.leaveRequest.findFirst({
+    where: { id, organizationId: org.id, deletedAt: { not: null } },
+    select: { id: true },
+  });
+  if (!request) return { ok: false as const, error: "找不到這筆已刪除的請假申請。" };
+
+  await db.leaveRequest.update({
+    where: { id: request.id },
+    data: { deletedAt: null, deletedById: null },
+  });
+
+  revalidatePath("/leave");
+  return { ok: true as const };
 }
 
 /** 申請人撤回自己尚未定案（待簽核）的請假申請。 */

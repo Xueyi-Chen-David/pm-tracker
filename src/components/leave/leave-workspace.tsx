@@ -3,10 +3,11 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Check, X, Trash2 } from "lucide-react";
+import { Check, X, Trash2, RotateCcw, ChevronDown } from "lucide-react";
 import {
   decideLeaveApproval,
   deleteLeaveRequest,
+  restoreLeaveRequest,
 } from "@/server/actions/leave-requests";
 import type { LeaveRequestRow, LeaveQuotaOverview } from "@/server/queries";
 import { Button } from "@/components/ui/button";
@@ -44,6 +45,7 @@ export function LeaveWorkspace({
   pending,
   isEligibleApprover,
   allRequests,
+  deletedRequests,
   canManageLeave,
   flowSteps,
   members,
@@ -53,6 +55,7 @@ export function LeaveWorkspace({
   pending: LeaveRequestRow[];
   isEligibleApprover: boolean;
   allRequests: LeaveRequestRow[] | null;
+  deletedRequests: LeaveRequestRow[] | null;
   canManageLeave: boolean;
   flowSteps: FlowStep[] | null;
   members: MemberOption[] | null;
@@ -123,6 +126,7 @@ export function LeaveWorkspace({
               />
             ))
           )}
+          <DeletedRequestsSection deletedRequests={deletedRequests ?? []} />
         </TabsContent>
       )}
 
@@ -243,7 +247,10 @@ function ApprovalActions({ requestId }: { requestId: string }) {
   );
 }
 
-/** 管理員（leave.manage）刪除一筆請假簽核紀錄；已核准者提醒出席月曆需另行調整。 */
+/**
+ * 管理員（leave.manage）刪除一筆請假簽核紀錄；已核准者提醒出席月曆需另行調整。
+ * 軟刪除，可在下方「已刪除的申請」復原，不是真的永久移除。
+ */
 function DeleteRequestButton({ id, status }: { id: string; status: string }) {
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -256,8 +263,8 @@ function DeleteRequestButton({ id, status }: { id: string; status: string }) {
       onClick={() => {
         const warn =
           status === "APPROVED"
-            ? "確定刪除這筆「已核准」的請假簽核紀錄？\n\n注意：已登記到出席月曆的請假日不會一併移除，如需撤銷請另於「出席狀況」調整該員月曆。此動作無法復原。"
-            : "確定刪除這筆請假簽核紀錄？此動作無法復原。";
+            ? "確定刪除這筆「已核准」的請假簽核紀錄？\n\n注意：已登記到出席月曆的請假日不會一併移除，如需撤銷請另於「出席狀況」調整該員月曆。刪除後可在下方「已刪除的申請」復原。"
+            : "確定刪除這筆請假簽核紀錄？刪除後可在下方「已刪除的申請」復原。";
         if (!confirm(warn)) return;
         start(async () => {
           try {
@@ -266,7 +273,7 @@ function DeleteRequestButton({ id, status }: { id: string; status: string }) {
               toast.error(res.error);
               return;
             }
-            toast.success("已刪除簽核紀錄");
+            toast.success("已刪除簽核紀錄（可於「已刪除的申請」復原）");
             router.refresh();
           } catch (e) {
             toast.error(e instanceof Error ? e.message : "刪除失敗");
@@ -275,6 +282,70 @@ function DeleteRequestButton({ id, status }: { id: string; status: string }) {
       }}
     >
       <Trash2 className="h-4 w-4" /> 刪除
+    </Button>
+  );
+}
+
+/** 「已刪除的申請」：預設收合，展開後可逐筆復原（清空 deletedAt）。 */
+function DeletedRequestsSection({
+  deletedRequests,
+}: {
+  deletedRequests: LeaveRequestRow[];
+}) {
+  const [open, setOpen] = useState(false);
+  if (deletedRequests.length === 0) return null;
+  return (
+    <div className="border-t pt-3">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="text-muted-foreground flex items-center gap-1 text-sm hover:text-foreground"
+      >
+        <ChevronDown className={`h-4 w-4 transition-transform ${open ? "" : "-rotate-90"}`} />
+        已刪除的申請（{deletedRequests.length}）
+      </button>
+      {open && (
+        <div className="mt-3 space-y-3">
+          {deletedRequests.map((r) => (
+            <RequestCard
+              key={r.id}
+              req={r}
+              showRequester
+              footer={<RestoreRequestButton id={r.id} />}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 管理員（leave.manage）復原一筆先前刪除的請假申請。 */
+function RestoreRequestButton({ id }: { id: string }) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  return (
+    <Button
+      size="sm"
+      variant="outline"
+      disabled={pending}
+      onClick={() => {
+        start(async () => {
+          try {
+            const res = await restoreLeaveRequest(id);
+            if (!res.ok) {
+              toast.error(res.error);
+              return;
+            }
+            toast.success("已復原這筆請假申請");
+            router.refresh();
+          } catch (e) {
+            toast.error(e instanceof Error ? e.message : "復原失敗");
+          }
+        });
+      }}
+    >
+      <RotateCcw className="h-4 w-4" /> 復原
     </Button>
   );
 }
