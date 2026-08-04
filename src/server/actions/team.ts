@@ -416,6 +416,14 @@ export async function setMemberDepartment(userId: string, department: string) {
  *     資格的 User——這正是「改了對方還是看不到」的成因。所以還沒登入過時兩個欄位一起改。
  *   - 已經登入過：User.email 是驗證過的真實登入身分，不在這裡動，只改
  *     OrganizationMember.email（純本組織聯絡 / 顯示用）。
+ *
+ * 正確的信箱剛好已經是「另一個」User（這是多租戶系統，User 表是跨組織共用的——那個人
+ * 很可能只是已經在別的組織用這個信箱登入過，跟「這個組織還沒加入」不衝突）：
+ *   - 還沒登入過的邀請：不能硬改 stub 的 User.email（會撞 email 的 unique 限制），
+ *     改成把這筆組織成員關係「轉接」到那個既有帳號上——這樣本人之後登入就是用他既有的
+ *     帳號直接加進這個組織，符合「讓他直接加入」的預期。原本的 stub User 留著（沒有
+ *     任何組織成員資格、無害），不主動刪除，避免波及可能已經掛在它身上的其他資料。
+ *   - 已經登入過的成員撞號：這代表兩個都是真實帳號，需要人工合併，這裡不處理，回錯誤。
  */
 export async function setMemberEmailByAdmin(userId: string, email: string) {
   const { org } = await requireOrgPermission("hr.manage_position");
@@ -432,16 +440,37 @@ export async function setMemberEmailByAdmin(userId: string, email: string) {
     return { ok: false as const, error: "此組織已有其他成員使用這個 Email。" };
   }
 
-  const [accountCount, emailTaken] = await Promise.all([
+  const [accountCount, existingUser] = await Promise.all([
     db.account.count({ where: { userId } }),
     db.user.findFirst({ where: { email: next, id: { not: userId } }, select: { id: true } }),
   ]);
   const hasLoggedIn = accountCount > 0;
-  if (!hasLoggedIn && emailTaken) {
+
+  if (existingUser && hasLoggedIn) {
     return {
       ok: false as const,
-      error: "已有其他帳號使用這個 Email，無法用來更正一筆尚未登入過的邀請。",
+      error: "已有其他帳號使用這個 Email，且這位成員已經登入過，無法直接更正（需要合併帳號）。",
     };
+  }
+
+  if (existingUser) {
+    // 還沒登入過的邀請，而正確信箱其實是另一個既有帳號：把這筆組織成員關係轉接過去，
+    // 而不是硬改 stub 的 email（User.email 是 unique，改了會撞號）。
+    const alreadyMember = await db.organizationMember.findUnique({
+      where: { organizationId_userId: { organizationId: org.id, userId: existingUser.id } },
+    });
+    if (alreadyMember) {
+      return { ok: false as const, error: "這個 Email 對應的帳號已經是本組織成員了。" };
+    }
+    const res = await db.organizationMember.updateMany({
+      where: { organizationId: org.id, userId },
+      data: { userId: existingUser.id, email: next },
+    });
+    if (res.count === 0) return { ok: false as const, error: "該成員不屬於目前組織。" };
+    revalidatePath("/hr");
+    revalidatePath("/team");
+    revalidatePath(`/me/${existingUser.id}`);
+    return { ok: true as const, mergedIntoExisting: true };
   }
 
   const res = await db.organizationMember.updateMany({

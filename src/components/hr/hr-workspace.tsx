@@ -542,9 +542,9 @@ function MemberEditor({
 
   const otherManagers = managerOptions.filter((o) => o.membershipId !== m.membershipId);
 
-  function run(
-    fn: () => Promise<{ ok: boolean; error?: string } | void>,
-    msg: string,
+  function run<T extends { ok: boolean; error?: string }>(
+    fn: () => Promise<T | void>,
+    msg: string | ((res: T | void) => string),
   ) {
     start(async () => {
       try {
@@ -553,7 +553,7 @@ function MemberEditor({
           toast.error(res.error ?? "儲存失敗");
           return;
         }
-        toast.success(msg);
+        toast.success(typeof msg === "function" ? msg(res) : msg);
         router.refresh();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "儲存失敗");
@@ -599,14 +599,16 @@ function MemberEditor({
               disabled={pending}
               placeholder="此組織聯絡 / 邀請用的信箱"
               onChange={(e) => setOrgEmail(e.target.value)}
-              onBlur={() =>
-                commitText(
-                  orgEmail,
-                  m.orgEmail,
-                  (v) => setMemberEmailByAdmin(m.id, v),
-                  "已更正 Email",
-                )
-              }
+              onBlur={() => {
+                if (orgEmail.trim() === (m.orgEmail ?? "").trim()) return;
+                run(
+                  () => setMemberEmailByAdmin(m.id, orgEmail),
+                  (res) =>
+                    res && "mergedIntoExisting" in res && res.mergedIntoExisting
+                      ? "這個信箱已經有帳號，已把邀請轉接過去"
+                      : "已更正 Email",
+                );
+              }}
             />
           </Field>
           <Field label="部門">
