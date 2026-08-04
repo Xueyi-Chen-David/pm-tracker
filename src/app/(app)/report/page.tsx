@@ -37,6 +37,17 @@ import { ProgressBar } from "@/components/progress-bar";
 
 export const metadata = { title: "週報 · Project Pulse" };
 
+/**
+ * 會議記錄的 notes 是 HTML（圖片內嵌環繞排版，見 meeting-notes-canvas.tsx），
+ * 這裡只是週報的緊湊條列，不適合整段浮動圖片版面，去標籤取純文字摘要即可。
+ */
+function meetingNotesPreview(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export default async function ReportPage({
   searchParams,
 }: {
@@ -381,7 +392,7 @@ export default async function ReportPage({
                       )}
                       {m.notes && (
                         <div className="mt-0.5 whitespace-pre-wrap text-slate-600">
-                          {m.notes}
+                          {meetingNotesPreview(m.notes)}
                         </div>
                       )}
                     </li>

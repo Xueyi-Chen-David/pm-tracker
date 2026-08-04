@@ -36,7 +36,8 @@ export type MeetingValues = {
   attendees?: string | null;
   link?: string | null;
   notes?: string | null;
-  noteImages?: NoteImage[];
+  /** 改版前舊紀錄的浮動圖片（新紀錄圖片已內嵌在 notes 裡，這裡會是空陣列）。 */
+  legacyImages?: NoteImage[];
   recordedById?: string | null;
 };
 
@@ -246,7 +247,7 @@ export function MeetingFormDialog({
               <Label>會議記錄 / 決議（選填）</Label>
               <MeetingNotesCanvas
                 defaultNotes={values?.notes}
-                defaultImages={values?.noteImages ?? []}
+                legacyImages={values?.legacyImages ?? []}
               />
             </div>
 

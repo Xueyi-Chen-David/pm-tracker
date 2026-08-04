@@ -1,24 +1,32 @@
 "use server";
 
 import { z } from "zod";
-import { Prisma } from "@prisma/client";
+import sanitizeHtml from "sanitize-html";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
 import { requireActiveOrg } from "@/server/org";
+import { NOTE_IMG_CLASS } from "@/lib/meeting-notes";
 
-const NoteImageInput = z.object({
-  id: z.string().min(1),
-  url: z.string().regex(/^\/api\/report-image\/[\w-]+$/, "圖片來源不正確"),
-});
-
-/** noteImages 是隱藏欄位帶進來的 JSON 字串；壞資料就當沒有圖片，不擋整份表單送出。 */
-function parseNoteImages(raw: FormDataEntryValue | null): z.infer<typeof NoteImageInput>[] {
-  if (typeof raw !== "string" || !raw.trim()) return [];
-  try {
-    return z.array(NoteImageInput).max(30).parse(JSON.parse(raw));
-  } catch {
-    return [];
-  }
+/**
+ * 會議記錄的 notes 是使用者用 contentEditable 打的 HTML（圖片內嵌、文字環繞，見
+ * meeting-notes-canvas.tsx）。送進 DB 前一律過白名單：只留文字排版用的標籤，圖片
+ * 一律強制套用固定 class（不理會前端傳來的 class/style，避免夾帶任意樣式），且圖片
+ * 網址一定要符合站內 /api/report-image 的格式，不接受外部圖片或貼上的雜訊 HTML。
+ */
+function sanitizeNotes(raw: string): string {
+  return sanitizeHtml(raw, {
+    allowedTags: ["img", "br", "div", "b", "i", "strong", "em", "u"],
+    allowedAttributes: { img: ["src", "alt", "class"] },
+    transformTags: {
+      img: (_tagName, attribs) => ({
+        tagName: "img",
+        attribs: { src: attribs.src ?? "", alt: "", class: NOTE_IMG_CLASS },
+      }),
+    },
+    exclusiveFilter: (frame) =>
+      frame.tag === "img" &&
+      !/^\/api\/report-image\/[\w-]+$/.test(frame.attribs.src ?? ""),
+  }).trim();
 }
 
 const MeetingInput = z.object({
@@ -28,7 +36,7 @@ const MeetingInput = z.object({
   attendeeIds: z.array(z.string()).default([]),
   attendees: z.string().trim().max(2000).optional(),
   link: z.string().trim().max(2000).optional(), // 會議連結（Meet / 文件…）
-  notes: z.string().trim().max(8000).optional(),
+  notes: z.string().trim().max(20000).optional(), // HTML，圖片標籤比純文字長，上限拉高
   recordedById: z.string().trim().optional(),
 });
 
@@ -70,7 +78,7 @@ export async function createMeetingAction(
   const d = parsed.data;
   const date = toDate(d.date);
   if (!date) return { error: "日期格式錯誤" };
-  const noteImages = parseNoteImages(formData.get("noteImages"));
+  const notes = d.notes ? sanitizeNotes(d.notes) : "";
   await db.meeting.create({
     data: {
       organizationId: org.id,
@@ -80,8 +88,7 @@ export async function createMeetingAction(
       attendeeIds: d.attendeeIds,
       attendees: d.attendees || null,
       link: d.link || null,
-      notes: d.notes || null,
-      noteImages: noteImages.length ? noteImages : undefined,
+      notes: notes || null,
       createdById: user.id,
       // 記錄人：未指定就預設是建立者本人；之後可在表單裡改成別人。
       recordedById: d.recordedById || user.id,
@@ -106,7 +113,9 @@ export async function updateMeetingAction(
   const d = parsed.data;
   const date = toDate(d.date);
   if (!date) return { error: "日期格式錯誤" };
-  const noteImages = parseNoteImages(formData.get("noteImages"));
+  const notes = d.notes ? sanitizeNotes(d.notes) : "";
+  // noteImages 刻意不動：新編輯器的圖片已內嵌在 notes 裡；若這筆是改版前的舊紀錄，
+  // 保留原本的 noteImages 讓唯讀畫面的舊圖 fallback 繼續顯示（見 MeetingNotesCanvas）。
   await db.meeting.updateMany({
     where: { id, organizationId: org.id },
     data: {
@@ -116,8 +125,7 @@ export async function updateMeetingAction(
       attendeeIds: d.attendeeIds,
       attendees: d.attendees || null,
       link: d.link || null,
-      notes: d.notes || null,
-      noteImages: noteImages.length ? noteImages : Prisma.JsonNull,
+      notes: notes || null,
       ...(d.recordedById ? { recordedById: d.recordedById } : {}),
     },
   });

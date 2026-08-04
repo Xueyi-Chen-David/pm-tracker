@@ -530,9 +530,11 @@ model Meeting {
   attendeeIds String[] // 與會成員（User id；「全體」＝全部成員）
   attendees   String?  @db.Text // 其他與會者（非系統成員，自由文字）
   link        String?  @db.Text // 會議連結（Google Meet / 會議文件…；可能很長）
-  notes       String?  @db.Text // 會議記錄 / 決議
-  // 筆記畫布上的浮動圖片：[{id,url,xPct,yPct,wPct,hPct}]，座標/尺寸皆為相對畫布的
-  // 百分比（0-100），畫布固定高度、寬度隨容器伸縮，編輯與檢視共用同一份座標。
+  // 會議記錄 / 決議：一段 HTML（圖片以 <img> 內嵌、文字環繞排版，像 Word 插入圖片）。
+  // 送出前後端都會用 sanitize-html 過白名單，見 server/actions/meetings.ts。
+  notes       String?  @db.Text
+  // 舊版「筆記畫布」留下的浮動圖片：[{id,url,xPct,yPct,wPct,hPct}] 或 [{id,url}]（不同代改版）。
+  // 新資料一律不寫這欄——圖片已內嵌進 notes 的 HTML 裡；只保留給改版前的舊紀錄顯示 fallback 用。
   noteImages  Json?
   createdById String?
   recordedById String? // 記錄人；新增時預設帶入建立者，可事後改成別人

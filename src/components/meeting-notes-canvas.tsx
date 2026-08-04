@@ -1,9 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { ImagePlus, Loader2, X } from "lucide-react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { ImagePlus, Loader2 } from "lucide-react";
+import { NOTE_IMG_CLASS } from "@/lib/meeting-notes";
 
 export type NoteImage = {
   id: string;
@@ -39,44 +39,105 @@ function compress(file: File, maxW = 900, quality = 0.8): Promise<string> {
 }
 
 /**
- * 會議筆記：文字（一般打字）+ 圖片縮圖排在文字下方（跟文字一起排列，不會疊在文字上面蓋住）。
- * editable=false 時純顯示（用於清單頁的唯讀卡片），沒有工具列與刪除按鈕。
- * 圖片一律在「插入」當下就壓縮＋上傳到 /api/report-image 換成短網址（不是等表單送出才傳），
- * 所以送出表單時 noteImages 已經是純資料，不用再處理非同步上傳。
+ * 會議筆記：圖片直接「插入」在文字裡面、文字像 Word 一樣環繞圖片排版——不是分開上下 / 左右
+ * 兩塊，是同一段內容。用 contentEditable 而非 textarea，因為瀏覽器原生 textarea 沒辦法讓
+ * 文字繞著圖片排版。存檔時是一段 HTML（<img> 用固定 class 浮動 + 純文字/<br>/<div>換行），
+ * 送出前後端都會用 sanitize-html 過白名單（見 server/actions/meetings.ts），只放行圖片
+ * 來自 /api/report-image，不接受貼上外部 HTML / 任意來源圖片。
+ *
+ * 舊資料相容：改版前的紀錄，notes 是純文字、圖片存在獨立的 noteImages 陣列（不在文字裡）。
+ * 這裡不特別區分新舊格式——舊 notes 只可能是「透過 textarea 打的純文字」，不可能含有真正
+ * 的標籤，直接當 HTML 顯示是安全的；舊 noteImages 若沒有任何一張的網址出現在 notes 內容裡
+ * （新格式一定會出現，因為是內嵌的），代表是舊資料，額外在下方顯示一個小圖庫作為 fallback，
+ * 不會讓舊紀錄的圖片憑空消失。
+ *
+ * editable=false 時純顯示（用於清單頁的唯讀卡片），沒有工具列。
  */
 export function MeetingNotesCanvas({
   notesName = "notes",
-  imagesName = "noteImages",
   defaultNotes = "",
-  defaultImages = [],
+  /** 舊資料的圖片（改版前存在獨立陣列裡的）；新資料圖片已內嵌在 notes 裡，這裡通常是空陣列。 */
+  legacyImages = [],
   editable = true,
 }: {
   notesName?: string;
-  imagesName?: string;
   defaultNotes?: string | null;
-  defaultImages?: NoteImage[];
+  legacyImages?: NoteImage[];
   editable?: boolean;
 }) {
+  const editorRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const [notes, setNotes] = useState(defaultNotes ?? "");
-  const [images, setImages] = useState<NoteImage[]>(defaultImages);
+  const savedRangeRef = useRef<Range | null>(null);
+  const hiddenInputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
-  const [preview, setPreview] = useState<string | null>(null);
+  const [imageCount, setImageCount] = useState(0);
 
-  function removeImage(id: string) {
-    setImages((prev) => prev.filter((im) => im.id !== id));
+  function syncHiddenInput() {
+    if (hiddenInputRef.current && editorRef.current) {
+      hiddenInputRef.current.value = editorRef.current.innerHTML;
+    }
+  }
+
+  // contentEditable 的初始內容只在掛載時塞一次（非受控），避免每次 render 重設游標位置。
+  useEffect(() => {
+    if (!editable || !editorRef.current) return;
+    editorRef.current.innerHTML = defaultNotes ?? "";
+    setImageCount(editorRef.current.querySelectorAll("img").length);
+    syncHiddenInput();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editable]);
+
+  function onInput() {
+    if (!editorRef.current) return;
+    setImageCount(editorRef.current.querySelectorAll("img").length);
+    syncHiddenInput();
+  }
+
+  /** 貼上一律降成純文字，不接受從外部貼進來的格式化 HTML。 */
+  function onPaste(e: React.ClipboardEvent<HTMLDivElement>) {
+    e.preventDefault();
+    const text = e.clipboardData.getData("text/plain");
+    document.execCommand("insertText", false, text);
+  }
+
+  /** 按鈕 mousedown 先於 click/檔案選取視窗搶走 focus，這裡先記住目前游標位置。 */
+  function onInsertMouseDown() {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0 && editorRef.current?.contains(sel.anchorNode)) {
+      savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+    } else {
+      savedRangeRef.current = null;
+    }
+  }
+
+  function insertImageHtml(url: string) {
+    const editor = editorRef.current;
+    if (!editor) return;
+    const html = `<img class="${NOTE_IMG_CLASS}" src="${url}" alt="" />`;
+    editor.focus();
+    const sel = window.getSelection();
+    if (savedRangeRef.current && sel) {
+      sel.removeAllRanges();
+      sel.addRange(savedRangeRef.current);
+    }
+    const ok = document.execCommand("insertHTML", false, html);
+    if (!ok) {
+      // 保底：極少數不支援 execCommand 的環境，直接插到最後面。
+      editor.insertAdjacentHTML("beforeend", html);
+    }
+    onInput();
   }
 
   async function addFiles(files: File[]) {
     const imgs = files.filter((f) => f.type.startsWith("image/"));
     if (!imgs.length) return;
-    if (images.length >= MAX_IMAGES) {
+    if (imageCount >= MAX_IMAGES) {
       toast.message(`最多 ${MAX_IMAGES} 張圖`);
       return;
     }
     setBusy(true);
     try {
-      const room = Math.max(0, MAX_IMAGES - images.length);
+      const room = Math.max(0, MAX_IMAGES - imageCount);
       for (const file of imgs.slice(0, room)) {
         const dataUrl = await compress(file);
         const res = await fetch("/api/report-image", {
@@ -85,7 +146,7 @@ export function MeetingNotesCanvas({
         });
         if (!res.ok) throw new Error("圖片上傳失敗");
         const { url } = (await res.json()) as { url: string };
-        setImages((prev) => [...prev, { id: crypto.randomUUID(), url }]);
+        insertImageHtml(url);
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "圖片上傳失敗");
@@ -108,75 +169,55 @@ export function MeetingNotesCanvas({
     void addFiles(files);
   }
 
+  if (!editable) {
+    const notes = defaultNotes ?? "";
+    // 舊資料 fallback：noteImages 裡有、但網址沒出現在 notes HTML 裡的（代表沒內嵌），額外補顯示。
+    const orphaned = legacyImages.filter((im) => !notes.includes(im.url));
+    return (
+      <div className="space-y-2">
+        {notes && (
+          <div
+            className="overflow-hidden text-sm break-words whitespace-pre-wrap [&_img]:align-top"
+            dangerouslySetInnerHTML={{ __html: notes }}
+          />
+        )}
+        {orphaned.length > 0 && (
+          <div className="flex flex-wrap gap-2">
+            {orphaned.map((im) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={im.id}
+                src={im.url}
+                alt=""
+                className="h-20 w-20 rounded-md border object-cover"
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
-    <div
-      className="space-y-2"
-      onDragOver={(e) => editable && e.preventDefault()}
-      onDrop={onDrop}
-    >
-      {editable ? (
-        <textarea
-          name={notesName}
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          placeholder="討論重點、決議事項、待辦…（也可把圖片拖曳到這裡插入）"
-          rows={6}
-          className="border-input bg-muted/20 text-foreground w-full resize-none rounded-md border p-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
-        />
-      ) : (
-        notes && (
-          <div className="text-sm break-words whitespace-pre-wrap">{notes}</div>
-        )
-      )}
-
-      {(images.length > 0 || editable) && (
-        <div className="flex flex-wrap items-center gap-2">
-          {images.map((im) => (
-            <div key={im.id} className="group relative h-20 w-20 shrink-0">
-              <button
-                type="button"
-                onClick={() => setPreview(im.url)}
-                className="h-full w-full overflow-hidden rounded-md border"
-                title="放大檢視"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={im.url}
-                  alt=""
-                  className="h-full w-full object-cover"
-                />
-              </button>
-              {editable && (
-                <button
-                  type="button"
-                  onClick={() => removeImage(im.id)}
-                  title="刪除圖片"
-                  className="absolute top-0.5 right-0.5 rounded bg-black/50 p-0.5 text-white opacity-0 transition-opacity group-hover:opacity-100"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              )}
-            </div>
-          ))}
-          {editable && (
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              disabled={busy}
-              className="border-input hover:bg-muted text-muted-foreground flex h-20 w-20 shrink-0 flex-col items-center justify-center gap-1 rounded-md border border-dashed text-xs disabled:opacity-60"
-            >
-              {busy ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <ImagePlus className="h-4 w-4" />
-              )}
-              插入圖片
-            </button>
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <span className="text-muted-foreground text-xs">
+          圖片會插在游標位置，文字自動環繞排版；貼上內容一律當純文字。
+        </span>
+        <button
+          type="button"
+          onMouseDown={onInsertMouseDown}
+          onClick={() => fileRef.current?.click()}
+          disabled={busy}
+          className="border-input hover:bg-muted inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-xs disabled:opacity-60"
+        >
+          {busy ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <ImagePlus className="h-3.5 w-3.5" />
           )}
-        </div>
-      )}
-
-      {editable && (
+          插入圖片
+        </button>
         <input
           ref={fileRef}
           type="file"
@@ -185,24 +226,20 @@ export function MeetingNotesCanvas({
           className="hidden"
           onChange={onPick}
         />
-      )}
-      {editable && (
-        <input type="hidden" name={imagesName} value={JSON.stringify(images)} readOnly />
-      )}
+      </div>
 
-      <Dialog open={!!preview} onOpenChange={(o) => !o && setPreview(null)}>
-        <DialogContent className="max-w-[85vw] p-2 sm:max-w-[min(85vw,56rem)]">
-          <DialogTitle className="sr-only">圖片放大檢視</DialogTitle>
-          {preview && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={preview}
-              alt=""
-              className="max-h-[70vh] w-full rounded-md object-contain"
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={onInput}
+        onPaste={onPaste}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={onDrop}
+        data-placeholder="討論重點、決議事項、待辦…（可插入圖片，文字會自動環繞）"
+        className="border-input bg-muted/20 text-foreground min-h-40 w-full overflow-hidden rounded-md border p-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] empty:before:text-muted-foreground empty:before:content-[attr(data-placeholder)]"
+      />
+      <input ref={hiddenInputRef} type="hidden" name={notesName} />
     </div>
   );
 }
