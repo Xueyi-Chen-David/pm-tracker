@@ -531,7 +531,11 @@ model Meeting {
   attendees   String?  @db.Text // 其他與會者（非系統成員，自由文字）
   link        String?  @db.Text // 會議連結（Google Meet / 會議文件…；可能很長）
   notes       String?  @db.Text // 會議記錄 / 決議
+  // 筆記畫布上的浮動圖片：[{id,url,xPct,yPct,wPct,hPct}]，座標/尺寸皆為相對畫布的
+  // 百分比（0-100），畫布固定高度、寬度隨容器伸縮，編輯與檢視共用同一份座標。
+  noteImages  Json?
   createdById String?
+  recordedById String? // 記錄人；新增時預設帶入建立者，可事後改成別人
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

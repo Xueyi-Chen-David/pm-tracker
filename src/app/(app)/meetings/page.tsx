@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus, Pencil, Users, CalendarDays, Link2 } from "lucide-react";
+import { Plus, Pencil, Users, CalendarDays, Link2, PencilLine } from "lucide-react";
 import { requireActiveOrg } from "@/server/org";
 import { getMeetings, getOrgMemberUsers } from "@/server/queries";
 import { meetingCategoryBadge } from "@/lib/constants";
@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { MeetingFormDialog } from "@/components/meeting-form-dialog";
 import { MeetingDeleteButton } from "@/components/meeting-delete-button";
+import { MeetingNotesCanvas, type NoteImage } from "@/components/meeting-notes-canvas";
 import { ViewportScroll } from "@/components/viewport-scroll";
 import { Button, buttonVariants } from "@/components/ui/button";
 
@@ -19,7 +20,7 @@ export default async function MeetingsPage({
 }: {
   searchParams: Promise<{ cat?: string }>;
 }) {
-  const { org } = await requireActiveOrg();
+  const { org, user } = await requireActiveOrg();
   const { cat } = await searchParams;
   const [all, members] = await Promise.all([
     getMeetings(org.id),
@@ -35,6 +36,7 @@ export default async function MeetingsPage({
         <MeetingFormDialog
           mode="create"
           members={members}
+          currentUserId={user.id}
           trigger={
             <Button>
               <Plus className="h-4 w-4" /> 新增會議
@@ -85,6 +87,10 @@ export default async function MeetingsPage({
             ]
               .filter(Boolean)
               .join("；");
+            const recorderName = m.recordedById
+              ? (nameById.get(m.recordedById) ?? null)
+              : null;
+            const images = (m.noteImages as NoteImage[] | null) ?? [];
             return (
               <div key={m.id} className="bg-card rounded-xl border p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -108,6 +114,12 @@ export default async function MeetingsPage({
                       <div className="text-muted-foreground mt-1 inline-flex items-start gap-1 text-xs">
                         <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                         <span className="whitespace-pre-wrap">{attendeeText}</span>
+                      </div>
+                    )}
+                    {recorderName && (
+                      <div className="text-muted-foreground mt-1 inline-flex items-center gap-1 text-xs">
+                        <PencilLine className="h-3.5 w-3.5 shrink-0" />
+                        記錄：{recorderName}
                       </div>
                     )}
                     {m.link &&
@@ -137,6 +149,7 @@ export default async function MeetingsPage({
                     <MeetingFormDialog
                       mode="edit"
                       members={members}
+                      currentUserId={user.id}
                       values={{
                         id: m.id,
                         date: fmtDateInput(m.date),
@@ -146,6 +159,8 @@ export default async function MeetingsPage({
                         attendees: m.attendees,
                         link: m.link,
                         notes: m.notes,
+                        noteImages: images,
+                        recordedById: m.recordedById,
                       }}
                       trigger={
                         <Button variant="ghost" size="icon-sm" title="編輯">
@@ -156,9 +171,19 @@ export default async function MeetingsPage({
                     <MeetingDeleteButton id={m.id} title={m.title} />
                   </div>
                 </div>
-                {m.notes && (
-                  <div className="mt-2 border-t pt-2 text-sm break-words whitespace-pre-wrap">
-                    {m.notes}
+                {(m.notes || images.length > 0) && (
+                  <div className="mt-2 border-t pt-2">
+                    {images.length > 0 ? (
+                      <MeetingNotesCanvas
+                        editable={false}
+                        defaultNotes={m.notes}
+                        defaultImages={images}
+                      />
+                    ) : (
+                      <div className="text-sm break-words whitespace-pre-wrap">
+                        {m.notes}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

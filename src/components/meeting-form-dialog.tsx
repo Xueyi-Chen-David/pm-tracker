@@ -23,6 +23,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { MeetingNotesCanvas, type NoteImage } from "@/components/meeting-notes-canvas";
 
 export type MemberOption = NameSource & { id: string };
 
@@ -35,17 +36,22 @@ export type MeetingValues = {
   attendees?: string | null;
   link?: string | null;
   notes?: string | null;
+  noteImages?: NoteImage[];
+  recordedById?: string | null;
 };
 
 export function MeetingFormDialog({
   mode,
   values,
   members,
+  currentUserId,
   trigger,
 }: {
   mode: "create" | "edit";
   values?: MeetingValues;
   members: MemberOption[];
+  /** 新增時「記錄人」預設帶入的人（通常是目前登入者）。 */
+  currentUserId: string;
   trigger: React.ReactNode;
 }) {
   const router = useRouter();
@@ -95,7 +101,7 @@ export function MeetingFormDialog({
     <>
       <span onClick={() => handleOpenChange(true)}>{trigger}</span>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+        <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>{mode === "create" ? "新增會議" : "編輯會議"}</DialogTitle>
             <DialogDescription>
@@ -146,14 +152,31 @@ export function MeetingFormDialog({
               />
             </div>
 
-            <div className="space-y-1.5">
-              <Label htmlFor="m-link">會議連結（選填）</Label>
-              <Input
-                id="m-link"
-                name="link"
-                defaultValue={values?.link ?? ""}
-                placeholder="https://…（Google Meet / 會議文件）"
-              />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label htmlFor="m-link">會議連結（選填）</Label>
+                <Input
+                  id="m-link"
+                  name="link"
+                  defaultValue={values?.link ?? ""}
+                  placeholder="https://…（Google Meet / 會議文件）"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="m-recorder">記錄人</Label>
+                <select
+                  id="m-recorder"
+                  name="recordedById"
+                  defaultValue={values?.recordedById ?? currentUserId}
+                  className="border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm"
+                >
+                  {members.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {displayName(m)}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <div className="space-y-1.5">
@@ -220,13 +243,10 @@ export function MeetingFormDialog({
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="m-notes">會議記錄 / 決議（選填）</Label>
-              <Textarea
-                id="m-notes"
-                name="notes"
-                rows={5}
-                defaultValue={values?.notes ?? ""}
-                placeholder="討論重點、決議事項、待辦…"
+              <Label>會議記錄 / 決議（選填）</Label>
+              <MeetingNotesCanvas
+                defaultNotes={values?.notes}
+                defaultImages={values?.noteImages ?? []}
               />
             </div>
 
