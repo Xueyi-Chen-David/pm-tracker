@@ -404,9 +404,18 @@ export async function setMemberDepartment(userId: string, department: string) {
 
 /**
  * 管理員直接更正某成員在「本組織」使用的 Email（不經驗證信）——用於修正打錯的字、
- * 或成員無法收信自助改信箱時的補救。只改 OrganizationMember.email（該組織的聯絡 /
- * 邀請信箱），不影響全域登入身分 User.email，也不影響此人在其他組織的信箱。
- * 跟自助改信箱（server/actions/email-change.ts）是兩條獨立路徑，互不干擾。需 hr.manage_position。
+ * 或成員無法收信自助改信箱時的補救。跟自助改信箱（server/actions/email-change.ts）
+ * 是兩條獨立路徑，互不干擾。需 hr.manage_position。
+ *
+ * 這個人「有沒有登入過」（有沒有連結的 Account）決定改的範圍：
+ *   - 還沒登入過（邀請時打錯信箱的常見情境）：User.email 當初建立 placeholder 帳號時
+ *     就是照邀請信箱填的，同時也是 Auth.js 拿去比對「這個 Google 帳號要不要接到這筆
+ *     邀請」的唯一依據（見 handle-login.ts 的 getUserByEmail，只比對 User.email，
+ *     完全不看 OrganizationMember.email）。只改 OrganizationMember.email 的話，這個人
+ *     用正確信箱登入時仍然對不上 placeholder、Auth.js 會建一個全新、沒有任何組織成員
+ *     資格的 User——這正是「改了對方還是看不到」的成因。所以還沒登入過時兩個欄位一起改。
+ *   - 已經登入過：User.email 是驗證過的真實登入身分，不在這裡動，只改
+ *     OrganizationMember.email（純本組織聯絡 / 顯示用）。
  */
 export async function setMemberEmailByAdmin(userId: string, email: string) {
   const { org } = await requireOrgPermission("hr.manage_position");
@@ -422,15 +431,33 @@ export async function setMemberEmailByAdmin(userId: string, email: string) {
   if (dup) {
     return { ok: false as const, error: "此組織已有其他成員使用這個 Email。" };
   }
+
+  const [accountCount, emailTaken] = await Promise.all([
+    db.account.count({ where: { userId } }),
+    db.user.findFirst({ where: { email: next, id: { not: userId } }, select: { id: true } }),
+  ]);
+  const hasLoggedIn = accountCount > 0;
+  if (!hasLoggedIn && emailTaken) {
+    return {
+      ok: false as const,
+      error: "已有其他帳號使用這個 Email，無法用來更正一筆尚未登入過的邀請。",
+    };
+  }
+
   const res = await db.organizationMember.updateMany({
     where: { organizationId: org.id, userId },
     data: { email: next },
   });
   if (res.count === 0) return { ok: false as const, error: "該成員不屬於目前組織。" };
+
+  if (!hasLoggedIn) {
+    await db.user.update({ where: { id: userId }, data: { email: next } });
+  }
+
   revalidatePath("/hr");
   revalidatePath("/team");
   revalidatePath(`/me/${userId}`);
-  return { ok: true as const };
+  return { ok: true as const, updatedLoginEmail: !hasLoggedIn };
 }
 
 // ── 批次設定（團隊清單多選）：一次對多位成員套用同一設定。需擁有者 / 管理員。 ──
