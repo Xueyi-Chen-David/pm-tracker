@@ -1,15 +1,15 @@
 import Link from "next/link";
-import { Plus, Pencil, Users, CalendarDays, Link2, PencilLine } from "lucide-react";
+import { Plus, Pencil } from "lucide-react";
 import { requireActiveOrg } from "@/server/org";
 import { getMeetings, getOrgMemberUsers } from "@/server/queries";
-import { meetingCategoryBadge } from "@/lib/constants";
-import { fmtDate } from "@/lib/date";
 import { displayName } from "@/lib/display";
 import { cn } from "@/lib/utils";
 import { PageHeader } from "@/components/page-header";
 import { MeetingFormDialog } from "@/components/meeting-form-dialog";
 import { MeetingDeleteButton } from "@/components/meeting-delete-button";
-import { MeetingNotesCanvas, type NoteImage } from "@/components/meeting-notes-canvas";
+import { MeetingCard } from "@/components/meeting-card";
+import { CopyLinkButton } from "@/components/copy-link-button";
+import type { NoteImage } from "@/components/meeting-notes-canvas";
 import { ViewportScroll } from "@/components/viewport-scroll";
 import { Button, buttonVariants } from "@/components/ui/button";
 
@@ -73,79 +73,16 @@ export default async function MeetingsPage({
       ) : (
         <ViewportScroll className="space-y-3 pr-1">
           {meetings.map((m) => {
-            const names = m.attendeeIds
-              .map((id) => nameById.get(id))
-              .filter((n): n is string => !!n);
-            const isAll = members.length > 0 && names.length === members.length;
-            const attendeeText = [
-              names.length
-                ? isAll
-                  ? `全體（${names.length} 人）`
-                  : names.join("、")
-                : "",
-              m.attendees,
-            ]
-              .filter(Boolean)
-              .join("；");
-            const recorderName = m.recordedById
-              ? (nameById.get(m.recordedById) ?? null)
-              : null;
             const images = (m.noteImages as NoteImage[] | null) ?? [];
             return (
-              <div key={m.id} className="bg-card rounded-xl border p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="mb-1 flex flex-wrap items-center gap-2">
-                      <span
-                        className={cn(
-                          "rounded-full border px-2 py-0.5 text-xs font-medium",
-                          meetingCategoryBadge(m.category),
-                        )}
-                      >
-                        {m.category}
-                      </span>
-                      <span className="text-muted-foreground inline-flex items-center gap-1 text-xs">
-                        <CalendarDays className="h-3.5 w-3.5" />
-                        {fmtDate(m.date)}
-                      </span>
-                    </div>
-                    <h3 className="font-semibold">{m.title}</h3>
-                    {attendeeText && (
-                      <div className="text-muted-foreground mt-1 inline-flex items-start gap-1 text-xs">
-                        <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                        <span className="whitespace-pre-wrap">{attendeeText}</span>
-                      </div>
-                    )}
-                    {recorderName && (
-                      <div className="text-muted-foreground mt-1 inline-flex items-center gap-1 text-xs">
-                        <PencilLine className="h-3.5 w-3.5 shrink-0" />
-                        記錄：{recorderName}
-                      </div>
-                    )}
-                    {m.link &&
-                      (safeLink(m.link) ? (
-                        <a
-                          href={safeLink(m.link)!}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          title={m.link}
-                          className="text-primary mt-1 flex max-w-full items-center gap-1 text-xs hover:underline"
-                        >
-                          <Link2 className="h-3.5 w-3.5 shrink-0" />
-                          <span className="min-w-0 max-w-[20rem] truncate">
-                            {shortLink(m.link)}
-                          </span>
-                        </a>
-                      ) : (
-                        <div className="text-muted-foreground mt-1 flex max-w-full items-center gap-1 text-xs">
-                          <Link2 className="h-3.5 w-3.5 shrink-0" />
-                          <span className="min-w-0 max-w-[20rem] truncate">
-                            {m.link}
-                          </span>
-                        </div>
-                      ))}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1">
+              <MeetingCard
+                key={m.id}
+                meeting={m}
+                nameById={nameById}
+                memberCount={members.length}
+                actions={
+                  <>
+                    <CopyLinkButton path={`/meetings/${m.id}`} />
                     <MeetingFormDialog
                       mode="edit"
                       members={members}
@@ -159,7 +96,7 @@ export default async function MeetingsPage({
                         attendees: m.attendees,
                         link: m.link,
                         notes: m.notes,
-                        noteImages: images,
+                        legacyImages: images,
                         recordedById: m.recordedById,
                       }}
                       trigger={
@@ -169,24 +106,9 @@ export default async function MeetingsPage({
                       }
                     />
                     <MeetingDeleteButton id={m.id} title={m.title} />
-                  </div>
-                </div>
-                {(m.notes || images.length > 0) && (
-                  <div className="mt-2 border-t pt-2">
-                    {images.length > 0 ? (
-                      <MeetingNotesCanvas
-                        editable={false}
-                        defaultNotes={m.notes}
-                        defaultImages={images}
-                      />
-                    ) : (
-                      <div className="text-sm break-words whitespace-pre-wrap">
-                        {m.notes}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
+                  </>
+                }
+              />
             );
           })}
         </ViewportScroll>
@@ -220,17 +142,4 @@ function Chip({
 /** Date → yyyy-mm-dd（UTC，對應 @db.Date 儲存），給編輯表單的 date input。 */
 function fmtDateInput(d: Date): string {
   return d.toISOString().slice(0, 10);
-}
-
-/** 可點的安全連結：有 http(s) 直接用；看起來像網域就補 https；否則回 null（不連）。 */
-function safeLink(url: string): string | null {
-  const u = url.trim();
-  if (/^https?:\/\//i.test(u)) return u;
-  if (/^[\w-]+(\.[\w-]+)+/.test(u)) return `https://${u}`;
-  return null;
-}
-
-/** 顯示用的精簡連結：去掉 https:// 與 www.（配合 max-w + truncate，畫面不會太長）。 */
-function shortLink(url: string): string {
-  return url.trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "");
 }

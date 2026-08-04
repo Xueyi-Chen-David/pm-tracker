@@ -718,6 +718,19 @@ export async function getMeetings(orgId: string, category?: string) {
 
 export type MeetingRow = Awaited<ReturnType<typeof getMeetings>>[number];
 
+/**
+ * 單筆會議（分享連結 /meetings/[id] 用）。刻意不吃 orgId——連結不限「目前使用中的組織」，
+ * 呼叫端要另外用回傳的 organizationId 檢查「這個人是不是該組織的成員」才能顯示內容。
+ */
+export async function getMeetingById(id: string) {
+  return db.meeting.findUnique({
+    where: { id },
+    include: { organization: { select: { name: true } } },
+  });
+}
+
+export type MeetingWithOrg = Awaited<ReturnType<typeof getMeetingById>>;
+
 /** 本組織落在指定週內的會議，依日期排序。 */
 export async function getMeetingsForWeek(orgId: string, weekStart: Date) {
   const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 3600 * 1000);
