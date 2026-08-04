@@ -608,9 +608,6 @@ function MemberEditor({
                 )
               }
             />
-            <p className="text-muted-foreground mt-1 text-xs">
-              直接更正打錯的字；只改這個組織用的信箱，不影響本人登入身分。
-            </p>
           </Field>
           <Field label="部門">
             <input
