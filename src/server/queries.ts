@@ -919,6 +919,7 @@ export async function getHrDirectory(orgId: string) {
     orderBy: [{ active: "desc" }, { isBoss: "desc" }, { user: { name: "asc" } }],
     select: {
       id: true,
+      email: true, // 此組織使用的聯絡 / 邀請信箱（非全域登入身分，見下方 orgEmail）
       role: true,
       isBoss: true,
       active: true,
@@ -932,9 +933,12 @@ export async function getHrDirectory(orgId: string) {
     },
   });
   // 展開後 id＝userId（連結 / action 用），membershipId＝成員關係 id（主管欄位的值）。
+  // m.user.email（展開進 ...m.user 的 email）＝全域登入信箱；orgEmail 才是這組織用的，
+  // 兩者刻意分開欄位名稱，避免呼叫端誤把其中一個當另一個用。
   return members.map((m) => ({
     ...m.user,
     membershipId: m.id,
+    orgEmail: m.email,
     role: m.role,
     isBoss: m.isBoss,
     active: m.active,

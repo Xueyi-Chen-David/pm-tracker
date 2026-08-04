@@ -23,6 +23,7 @@ import {
   setMemberSecondaryManagers,
   setMemberActive,
   setMemberRoles,
+  setMemberEmailByAdmin,
 } from "@/server/actions/team";
 import { formatSeniority, specialLeaveDays } from "@/lib/leave-entitlement";
 import { displayName, displayInitial } from "@/lib/display";
@@ -537,6 +538,7 @@ function MemberEditor({
   const [jobTitle, setJobTitle] = useState(m.jobTitle ?? "");
   const [department, setDepartment] = useState(m.department ?? "");
   const [hireDate, setHireDate] = useState(m.hireDate ?? "");
+  const [orgEmail, setOrgEmail] = useState(m.orgEmail ?? "");
 
   const otherManagers = managerOptions.filter((o) => o.membershipId !== m.membershipId);
 
@@ -588,6 +590,27 @@ function MemberEditor({
                 commitText(jobTitle, m.jobTitle, (v) => setMemberJobTitle(m.id, v), "已更新職稱")
               }
             />
+          </Field>
+          <Field label="Email（本組織）">
+            <input
+              type="email"
+              className={inputCls}
+              value={orgEmail}
+              disabled={pending}
+              placeholder="此組織聯絡 / 邀請用的信箱"
+              onChange={(e) => setOrgEmail(e.target.value)}
+              onBlur={() =>
+                commitText(
+                  orgEmail,
+                  m.orgEmail,
+                  (v) => setMemberEmailByAdmin(m.id, v),
+                  "已更正 Email",
+                )
+              }
+            />
+            <p className="text-muted-foreground mt-1 text-xs">
+              直接更正打錯的字；只改這個組織用的信箱，不影響本人登入身分。
+            </p>
           </Field>
           <Field label="部門">
             <input

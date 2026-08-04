@@ -402,6 +402,37 @@ export async function setMemberDepartment(userId: string, department: string) {
   revalidatePath(`/me/${userId}`);
 }
 
+/**
+ * 管理員直接更正某成員在「本組織」使用的 Email（不經驗證信）——用於修正打錯的字、
+ * 或成員無法收信自助改信箱時的補救。只改 OrganizationMember.email（該組織的聯絡 /
+ * 邀請信箱），不影響全域登入身分 User.email，也不影響此人在其他組織的信箱。
+ * 跟自助改信箱（server/actions/email-change.ts）是兩條獨立路徑，互不干擾。需 hr.manage_position。
+ */
+export async function setMemberEmailByAdmin(userId: string, email: string) {
+  const { org } = await requireOrgPermission("hr.manage_position");
+  const parsed = z.string().trim().toLowerCase().email("Email 格式不正確").safeParse(email);
+  if (!parsed.success) {
+    return { ok: false as const, error: parsed.error.issues[0]?.message ?? "Email 格式不正確" };
+  }
+  const next = parsed.data;
+  const dup = await db.organizationMember.findFirst({
+    where: { organizationId: org.id, email: next, userId: { not: userId } },
+    select: { id: true },
+  });
+  if (dup) {
+    return { ok: false as const, error: "此組織已有其他成員使用這個 Email。" };
+  }
+  const res = await db.organizationMember.updateMany({
+    where: { organizationId: org.id, userId },
+    data: { email: next },
+  });
+  if (res.count === 0) return { ok: false as const, error: "該成員不屬於目前組織。" };
+  revalidatePath("/hr");
+  revalidatePath("/team");
+  revalidatePath(`/me/${userId}`);
+  return { ok: true as const };
+}
+
 // ── 批次設定（團隊清單多選）：一次對多位成員套用同一設定。需擁有者 / 管理員。 ──
 const BulkIds = z
   .array(z.string().min(1))
@@ -512,14 +543,75 @@ export async function setMemberActive(id: string, active: boolean) {
 }
 
 /**
- * 從目前組織移除成員（不刪除全域 User）。先把該成員在「本組織」建立 / 負責的專案
- * 轉給操作者（避免必填外鍵 createdBy 的限制），解除其在本組織專案的任務負責人關聯 /
- * 出席 / 事件，最後刪除組織成員關係。不能移除自己。需擁有者 / 管理員。
+ * 這位成員在本組織「建立 / 負責」的專案數（刪除成員前用來判斷要不要問「轉給誰接手」），
+ * 以及可選的接手人選（本組織其他在職成員）。給刪除成員的確認對話框用。需 hr.manage_employment。
  */
-export async function deleteWorkspaceMember(id: string) {
+export async function getMemberProjectHandoffInfo(userId: string) {
+  const { org } = await requireOrgPermission("hr.manage_employment");
+  const [ownedCount, others] = await Promise.all([
+    db.project.count({
+      where: {
+        organizationId: org.id,
+        OR: [{ ownerId: userId }, { createdById: userId }],
+      },
+    }),
+    db.organizationMember.findMany({
+      where: { organizationId: org.id, userId: { not: userId }, active: true },
+      select: {
+        jobTitle: true,
+        user: {
+          select: { id: true, name: true, nickname: true, useNickname: true, email: true },
+        },
+      },
+      orderBy: [{ isBoss: "desc" }, { user: { name: "asc" } }],
+    }),
+  ]);
+  return {
+    ownedCount,
+    others: others.map((m) => ({
+      userId: m.user.id,
+      name: m.user.name,
+      nickname: m.user.nickname,
+      useNickname: m.user.useNickname,
+      email: m.user.email,
+      jobTitle: m.jobTitle,
+    })),
+  };
+}
+
+/**
+ * 從目前組織移除成員（不刪除全域 User）。他在「本組織」建立 / 負責的專案要轉給誰接手：
+ * 有專案時 reassignToId 必填（由呼叫端先用 getMemberProjectHandoffInfo 問過使用者要轉給誰，
+ * 不再預設悄悄轉給操作者本人）；沒有專案就不用指定。另外解除其在本組織專案的任務
+ * 負責人關聯 / 出席 / 事件，最後刪除組織成員關係。不能移除自己。需擁有者 / 管理員。
+ */
+export async function deleteWorkspaceMember(id: string, reassignToId?: string) {
   const { user: me, org } = await requireOrgPermission("hr.manage_employment");
   if (id === me.id) {
     return { ok: false as const, error: "不能移除自己。" };
+  }
+  const ownedCount = await db.project.count({
+    where: { organizationId: org.id, OR: [{ ownerId: id }, { createdById: id }] },
+  });
+  let targetUserId = me.id;
+  if (ownedCount > 0) {
+    if (!reassignToId) {
+      return {
+        ok: false as const,
+        error: "此成員有建立 / 負責中的專案，請先指定要轉給誰接手。",
+      };
+    }
+    if (reassignToId === id) {
+      return { ok: false as const, error: "接手的人不能是被刪除的成員本人。" };
+    }
+    const target = await db.organizationMember.findUnique({
+      where: { organizationId_userId: { organizationId: org.id, userId: reassignToId } },
+      select: { id: true },
+    });
+    if (!target) {
+      return { ok: false as const, error: "指定的接手成員不屬於目前組織。" };
+    }
+    targetUserId = reassignToId;
   }
   // 該成員的 membership id：用來把它從其他成員的「額外回報對象」陣列中移除（無 FK，需手動）。
   const membership = await db.organizationMember.findUnique({
@@ -551,11 +643,11 @@ export async function deleteWorkspaceMember(id: string) {
       : []),
     db.project.updateMany({
       where: { organizationId: org.id, createdById: id },
-      data: { createdById: me.id },
+      data: { createdById: targetUserId },
     }),
     db.project.updateMany({
       where: { organizationId: org.id, ownerId: id },
-      data: { ownerId: me.id },
+      data: { ownerId: targetUserId },
     }),
     // 任務負責人（Task.owners）是 m2m：移除該 User 時由 FK 自動解除關聯，毋須手動清。
     db.attendanceRecord.deleteMany({
