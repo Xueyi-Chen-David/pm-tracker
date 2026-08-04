@@ -57,6 +57,7 @@ export async function setAttendance(input: z.input<typeof SetInput>) {
       offsite: false,
       holiday: false,
       leave: false,
+      leaveHours: null,
       leaveTypeId: null,
       cleared: true,
       auto: false,
@@ -107,6 +108,9 @@ export async function setAttendance(input: z.input<typeof SetInput>) {
         offsite,
         holiday,
         leave,
+        // 人工改整天狀態時一併清掉時數請假殘值——leaveHours 只該由核准的時數
+        // 請假申請寫入（materializeApprovedLeave），手動改狀態視為重新登記整天。
+        leaveHours: null,
         leaveTypeId,
         cleared: false, // 重新登記狀態 → 解除先前的「清除」墓碑
         auto: false,
