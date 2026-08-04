@@ -9,10 +9,6 @@ import { requireActiveOrg } from "@/server/org";
 const NoteImageInput = z.object({
   id: z.string().min(1),
   url: z.string().regex(/^\/api\/report-image\/[\w-]+$/, "圖片來源不正確"),
-  xPct: z.number().min(0).max(100),
-  yPct: z.number().min(0).max(100),
-  wPct: z.number().min(1).max(100),
-  hPct: z.number().min(1).max(100),
 });
 
 /** noteImages 是隱藏欄位帶進來的 JSON 字串；壞資料就當沒有圖片，不擋整份表單送出。 */
