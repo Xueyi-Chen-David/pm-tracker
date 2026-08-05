@@ -19,6 +19,7 @@ import { AppContainer } from "@/components/app-container";
 import { ViewAsBanner } from "@/components/view-as-banner";
 import { WhatsNew } from "@/components/whats-new";
 import { PushManager } from "@/components/push-manager";
+import { NotificationPermissionBanner } from "@/components/notification-permission-banner";
 import {
   CheckInReminderProvider,
   CheckInReminderBar,
@@ -136,8 +137,10 @@ export default async function AppLayout({
         </main>
         {/* 「本週更新」彈窗：全 App 掛載一次，使用者下次開網頁時自動秀出新功能。 */}
         <WhatsNew />
-        {/* 桌面通知：登入後自動註冊 SW + 訂閱推播（預設開啟）。 */}
+        {/* 桌面通知：登入後註冊 SW，若權限已同意過就靜默補訂閱。 */}
         <PushManager />
+        {/* 要不要開啟桌面通知的小橫幅：只在權限未決定時問一次，關掉後不再出現。 */}
+        <NotificationPermissionBanner />
         {/* 站內即時彈窗：分頁開著時，新通知以 toast 跳出（Slack 式）。 */}
         <NotificationWatcher />
         {/* 全域番茄鐘浮動計時器（模組級 store，切頁 / 關網頁都持續倒數；進行中才顯示）。 */}

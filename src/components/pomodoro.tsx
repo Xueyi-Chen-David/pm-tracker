@@ -4,6 +4,7 @@ import { useSyncExternalStore } from "react";
 import Link from "next/link";
 import { Timer, Pause, Play, X } from "lucide-react";
 import { logPomodoro } from "@/server/actions/todo";
+import { useShowNotificationBanner } from "@/components/notification-permission-banner";
 import { cn } from "@/lib/utils";
 
 // ─────────────────────────────────────────────────────────────
@@ -328,10 +329,17 @@ export function fmtClock(sec: number): string {
 export function PomodoroIndicator() {
   const { active, running, remainingSec, todoTitle, toggle, reset } =
     usePomodoro();
+  // 全域桌面通知橫幅佔了畫面最下方時，膠囊往上讓開，避免疊在一起。
+  const bannerShowing = useShowNotificationBanner();
   if (!active) return null;
 
   return (
-    <div className="no-print bg-card/95 fixed right-4 bottom-4 z-40 flex items-center gap-2 rounded-full border py-1.5 pr-1.5 pl-3 shadow-lg backdrop-blur">
+    <div
+      className={cn(
+        "no-print bg-card/95 fixed right-4 z-40 flex items-center gap-2 rounded-full border py-1.5 pr-1.5 pl-3 shadow-lg backdrop-blur transition-[bottom]",
+        bannerShowing ? "bottom-16" : "bottom-4",
+      )}
+    >
       <Link
         href="/todo"
         className="flex items-center gap-2"

@@ -19,6 +19,7 @@ import { MemberName } from "@/components/member-name";
 import { AvatarUploader } from "@/components/avatar-uploader";
 import { MyProfileForm } from "@/components/my-profile-form";
 import { ChangeEmailCard } from "@/components/change-email-card";
+import { NotificationSettingsToggle } from "@/components/notification-settings-toggle";
 import { AssignedTasksCard } from "@/components/assigned-tasks-card";
 import { HealthDot, TypeBadge } from "@/components/badges";
 import { ProgressBar } from "@/components/progress-bar";
@@ -313,6 +314,7 @@ export default async function MemberProfilePage({
                       }
                     />
                   </div>
+                  <NotificationSettingsToggle />
                 </div>
               ) : (
                 <dl className="space-y-2.5 text-sm">
