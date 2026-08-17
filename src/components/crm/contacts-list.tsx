@@ -115,12 +115,23 @@ export function ContactsList({
   const [q, setQ] = useState("");
   const filtered = useMemo(() => {
     const kw = q.trim().toLowerCase();
-    if (!kw) return contacts;
-    return contacts.filter((c) =>
-      [c.name, c.company, c.title, c.email, c.phone]
-        .filter(Boolean)
-        .some((s) => String(s).toLowerCase().includes(kw)),
-    );
+    const base = !kw
+      ? contacts
+      : contacts.filter((c) =>
+          [c.name, c.company, c.title, c.email, c.phone]
+            .filter(Boolean)
+            .some((s) => String(s).toLowerCase().includes(kw)),
+        );
+    // 依公司排列（同公司的聯絡人相鄰，跟「依公司」視角看到的分組一致），沒填公司的排最後；
+    // 同公司內再依姓名排序，而不是預設的建立時間，不然同公司的人會散落在清單各處。
+    return [...base].sort((a, b) => {
+      const ca = a.company?.trim() || "";
+      const cb = b.company?.trim() || "";
+      if (!ca && cb) return 1;
+      if (ca && !cb) return -1;
+      if (ca !== cb) return ca.localeCompare(cb, "zh-Hant");
+      return (a.name || "").localeCompare(b.name || "", "zh-Hant");
+    });
   }, [contacts, q]);
 
   if (contacts.length === 0) {
