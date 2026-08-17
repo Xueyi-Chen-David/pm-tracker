@@ -11,8 +11,10 @@ import {
   getOrgMemberDirectory,
 } from "@/server/queries";
 import { parseMatchMode } from "@/lib/checkin";
-import { taipeiTodayUtc } from "@/lib/date";
+import { taipeiTodayUtc, fmtDate } from "@/lib/date";
 import { displayName } from "@/lib/display";
+import { LEAVE_EVENT_TYPES, NON_LEAVE_EVENT_TYPES } from "@/lib/constants";
+import { mergeTimeline } from "@/lib/leave-timeline";
 import {
   parseMonth,
   ym,
@@ -30,11 +32,12 @@ import { CheckInCorrections } from "@/components/checkin-corrections";
 import { CheckInWorkspace } from "@/components/checkin/checkin-workspace";
 import { LeaveRequestForm } from "@/components/leave/leave-request-form";
 import { LeaveEventsSection } from "@/components/leave/leave-events-section";
-import {
-  RequestCard,
-  CancelButton,
-  Empty,
-} from "@/components/leave/request-card";
+import { ApprovalTable } from "@/components/leave/approval-table";
+import { LeaveRequestTableRow } from "@/components/leave/leave-request-table-row";
+import { MemberEventTableRow } from "@/components/leave/member-event-table-row";
+import { DeleteEventButton } from "@/components/leave/delete-event-button";
+import { QuickEventForm } from "@/components/leave/quick-event-form";
+import { CancelButton, Empty } from "@/components/leave/request-card";
 
 export const metadata = { title: "打卡 / 請假 / 出差 · Project Pulse" };
 
@@ -146,17 +149,29 @@ export default async function CheckInPage({
       : d;
   });
 
+  // 「代他人登記」只列別人——自己的事件已併入下面的主時間軸，不需要在這裡重複出現。
   const eventMembers = canManageAttendance
-    ? (directory?.map((d) => ({
-        userId: d.id,
-        label: d.jobTitle
-          ? `${displayName(d)}（${d.jobTitle}）`
-          : displayName(d),
-      })) ?? [])
+    ? (directory
+        ?.filter((d) => d.id !== user.id)
+        .map((d) => ({
+          userId: d.id,
+          label: d.jobTitle ? `${displayName(d)}（${d.jobTitle}）` : displayName(d),
+        })) ?? [])
     : null;
 
-  // 分頁紅點：請假＝我還在跑簽核的；補打卡＝管理者看待審核，其他人看自己審核中的。
-  const leaveBadge = myRequests.filter((r) => r.status === "PENDING").length;
+  // 請假 / 出差合併時間軸：兩者都是「這段時間不在辦公室」的紀錄，同一頁一起看。
+  // 事件排除「請假」型別，避免和正式請假申請重複列出（見 lib/leave-timeline.ts）。
+  const myTimeline = mergeTimeline(
+    myRequests,
+    myEvents.filter((e) => !LEAVE_EVENT_TYPES.has(e.type)),
+  );
+
+  // 分頁紅點：請假 / 出差＝我還在跑簽核的（兩者都算，事件排除規則同 myTimeline）；
+  // 補打卡＝管理者看待審核，其他人看自己審核中的。
+  const leaveBadge =
+    myRequests.filter((r) => r.status === "PENDING").length +
+    myEvents.filter((e) => !LEAVE_EVENT_TYPES.has(e.type) && e.status === "PENDING")
+      .length;
   const correctionBadge = canReview
     ? (pendingCorrections?.length ?? 0)
     : myCorrections.filter((c) => c.status === "pending").length;
@@ -232,38 +247,50 @@ export default async function CheckInPage({
             <>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-muted-foreground text-xs">
-                  正式請假走簽核流程，核准後自動登記到出席月曆；輪到誰簽核時對方會收到通知。
+                  正式請假走簽核流程，核准後自動登記到出席月曆，輪到誰簽核時對方會收到通知；出差
+                  / 在家工作 / 外出等免簽核，用下面的表單直接登記，其中出差 /
+                  在家工作會即時反映到出席月曆。
                 </p>
                 <LeaveRequestForm leaveTypes={leaveTypes} />
               </div>
-              {myRequests.length === 0 ? (
-                <Empty text="你還沒有送出任何請假申請。點右上「申請請假」開始。" />
+
+              <QuickEventForm userId={user.id} types={NON_LEAVE_EVENT_TYPES} />
+
+              {myTimeline.length === 0 ? (
+                <Empty text="你還沒有任何請假申請或出差 / 事件登記。點右上「申請請假」或用上面的表單登記。" />
               ) : (
-                myRequests.map((r) => (
-                  <RequestCard
-                    key={r.id}
-                    req={r}
-                    footer={
-                      r.status === "PENDING" ? <CancelButton id={r.id} /> : null
-                    }
-                  />
-                ))
+                <ApprovalTable showRequester={false}>
+                  {myTimeline.map((entry) =>
+                    entry.kind === "leave" ? (
+                      <LeaveRequestTableRow
+                        key={`leave-${entry.data.id}`}
+                        req={entry.data}
+                        actions={
+                          entry.data.status === "PENDING" ? (
+                            <CancelButton id={entry.data.id} />
+                          ) : null
+                        }
+                      />
+                    ) : (
+                      <MemberEventTableRow
+                        key={`event-${entry.data.id}`}
+                        ev={entry.data}
+                        actions={
+                          <DeleteEventButton
+                            id={entry.data.id}
+                            userId={user.id}
+                            label={`${entry.data.type} ${fmtDate(entry.data.startDate)}`}
+                          />
+                        }
+                      />
+                    ),
+                  )}
+                </ApprovalTable>
               )}
-            </>
-          }
-          events={
-            <>
-              <p className="text-muted-foreground text-xs">
-                出差、在家工作、外出等免簽核事件直接登記；出差 /
-                在家工作會即時反映到出席月曆。
-              </p>
-              <LeaveEventsSection
-                myUserId={user.id}
-                myLabel={displayName(user)}
-                initialEvents={myEvents}
-                canManageAttendance={canManageAttendance}
-                members={eventMembers}
-              />
+
+              {canManageAttendance && eventMembers && eventMembers.length > 0 && (
+                <LeaveEventsSection members={eventMembers} />
+              )}
             </>
           }
           corrections={

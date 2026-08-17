@@ -2,9 +2,11 @@ import { redirect } from "next/navigation";
 import { requireManageContext } from "@/server/org";
 import {
   getPendingApprovalsForMember,
+  getPendingEventApprovalsForMember,
   isEligibleLeaveApprover,
   getAllLeaveRequests,
   getDeletedLeaveRequests,
+  getAllMemberEvents,
   getLeaveApprovalFlow,
   getOrgMemberDirectory,
   getLeaveQuotaOverview,
@@ -27,23 +29,37 @@ export default async function LeavePage() {
   const canManageLeave = can("leave.manage");
 
   const quotaYear = new Date().getFullYear();
-  const [pending, isEligibleApprover, allRequests, deletedRequests, flow, directory, quota] =
-    await Promise.all([
-      getPendingApprovalsForMember(org.id, membership.id),
-      isEligibleLeaveApprover(org.id, membership.id),
-      canManageLeave ? getAllLeaveRequests(org.id) : Promise.resolve(null),
-      canManageLeave ? getDeletedLeaveRequests(org.id) : Promise.resolve(null),
-      canManageLeave ? getLeaveApprovalFlow(org.id) : Promise.resolve(null),
-      canManageLeave ? getOrgMemberDirectory(org.id) : Promise.resolve(null),
-      canManageLeave
-        ? getLeaveQuotaOverview(org.id, quotaYear)
-        : Promise.resolve(null),
-    ]);
+  const [
+    pending,
+    pendingEvents,
+    isEligibleApprover,
+    allRequests,
+    deletedRequests,
+    allEvents,
+    flow,
+    directory,
+    quota,
+  ] = await Promise.all([
+    getPendingApprovalsForMember(org.id, membership.id),
+    getPendingEventApprovalsForMember(org.id, membership.id),
+    isEligibleLeaveApprover(org.id, membership.id),
+    canManageLeave ? getAllLeaveRequests(org.id) : Promise.resolve(null),
+    canManageLeave ? getDeletedLeaveRequests(org.id) : Promise.resolve(null),
+    canManageLeave ? getAllMemberEvents(org.id) : Promise.resolve(null),
+    canManageLeave ? getLeaveApprovalFlow(org.id) : Promise.resolve(null),
+    canManageLeave ? getOrgMemberDirectory(org.id) : Promise.resolve(null),
+    canManageLeave
+      ? getLeaveQuotaOverview(org.id, quotaYear)
+      : Promise.resolve(null),
+  ]);
 
   // 守門（本頁自理，見 layout.tsx 的說明）。條件與側欄的 showLeaveAsApprover 一致：
-  // pending.length > 0 保底＝流程設定改過、但手上還卡著舊分派的簽核仍要能處理；
-  // 預覽他人視角時不以簽核者身分放行，否則管理者切成員工視角會看到不該有的頁。
-  const isApprover = !previewing && (isEligibleApprover || pending.length > 0);
+  // pending / pendingEvents > 0 保底＝流程設定改過、但手上還卡著舊分派的簽核（請假或
+  // 出差 / 事件皆算）仍要能處理；預覽他人視角時不以簽核者身分放行，否則管理者切成員工
+  // 視角會看到不該有的頁。
+  const isApprover =
+    !previewing &&
+    (isEligibleApprover || pending.length > 0 || pendingEvents.length > 0);
   if (!isApprover && !canManageLeave) redirect("/checkin");
 
   const flowSteps =
@@ -65,15 +81,17 @@ export default async function LeavePage() {
         title="請假簽核"
         description={
           canManageLeave
-            ? "簽核送到你這關的請假，並檢視全體請假 / 特休額度與簽核流程。"
+            ? "簽核送到你這關的請假，並檢視全體請假 / 出差、特休額度與簽核流程。"
             : "簽核送到你這關的請假；輪到你時會收到通知。要請假請至「打卡 / 請假 / 出差」。"
         }
       />
       <LeaveWorkspace
         pending={pending}
+        pendingEvents={pendingEvents}
         isEligibleApprover={isEligibleApprover}
         allRequests={allRequests}
         deletedRequests={deletedRequests}
+        allEvents={allEvents}
         canManageLeave={canManageLeave}
         flowSteps={flowSteps}
         members={members}

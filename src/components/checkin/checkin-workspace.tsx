@@ -8,6 +8,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
  * 個人差勤的所有自助動作集中在這一頁：今日打卡、我的出勤月曆 / 打卡紀錄、
  * 請假申請、出差 / 事件登記、補打卡申請——不必再跳到別頁。
  *
+ * 請假與出差 / 事件合併成同一個「請假 / 出差」分頁（單一 slot）：兩者都是「這段時間
+ * 不在辦公室」的紀錄，只是請假多了簽核流程，分開兩個分頁反而要多點一次才看得到全貌。
+ *
  * 刻意只收 ReactNode slot 而不收資料：各區塊都是既有元件，資料抓取留在 server page，
  * 這裡只負責分頁與未處理事項的紅點，避免把一整組型別再搬一份過來。
  */
@@ -15,7 +18,6 @@ export function CheckInWorkspace({
   today,
   attendance,
   leave,
-  events,
   corrections,
   leaveBadge = 0,
   correctionBadge = 0,
@@ -23,8 +25,8 @@ export function CheckInWorkspace({
   /** 今日打卡卡片（企業未啟用打卡時為提示文字）。一律置頂：這是每天最常按的動作。 */
   today: React.ReactNode;
   attendance: React.ReactNode;
+  /** 請假 / 出差合併分頁：申請入口 + 合併時間軸 +（管理者）代他人登記。 */
   leave: React.ReactNode;
-  events: React.ReactNode;
   corrections: React.ReactNode;
   /** 我送出、還在跑簽核的請假筆數。 */
   leaveBadge?: number;
@@ -43,11 +45,8 @@ export function CheckInWorkspace({
             我的出勤
           </TabsTrigger>
           <TabsTrigger value="leave" className="px-3">
-            請假
+            請假 / 出差
             <Badge n={leaveBadge} />
-          </TabsTrigger>
-          <TabsTrigger value="events" className="px-3">
-            出差 / 事件
           </TabsTrigger>
           <TabsTrigger value="corrections" className="px-3">
             補打卡
@@ -66,12 +65,6 @@ export function CheckInWorkspace({
           className="space-y-3 lg:min-h-0 lg:overflow-y-auto"
         >
           {leave}
-        </TabsContent>
-        <TabsContent
-          value="events"
-          className="space-y-3 lg:min-h-0 lg:overflow-y-auto"
-        >
-          {events}
         </TabsContent>
         <TabsContent
           value="corrections"

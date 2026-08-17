@@ -6,7 +6,8 @@ import {
 
 // 成員事件 ↔ 出席月曆 的同步（純資料層，傳入 Prisma client 以便測試）。
 //   請假 → 缺席；出差 / 在家工作 → 在外工作（圈圈）；其餘不影響。
-// 一律以「目前所有成員事件」重算，只動自動（auto）紀錄，人工紀錄一律保留。
+// 一律以「目前所有『已核准』成員事件」重算，只動自動（auto）紀錄，人工紀錄一律保留。
+// 待簽核 / 已駁回的事件不算——核准前不該反映到出席月曆，見 server/actions/member-events.ts。
 
 const DAY_MS = 24 * 3600 * 1000;
 
@@ -64,7 +65,12 @@ export async function recomputeAttendance(
 
   const [events, existing] = await Promise.all([
     db.memberEvent.findMany({
-      where: { organizationId: orgId, userId, startDate: { lte: maxDate } },
+      where: {
+        organizationId: orgId,
+        userId,
+        status: "APPROVED",
+        startDate: { lte: maxDate },
+      },
       select: { type: true, startDate: true, endDate: true },
     }),
     db.attendanceRecord.findMany({

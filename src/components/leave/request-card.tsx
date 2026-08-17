@@ -30,15 +30,23 @@ export function Empty({ text }: { text: string }) {
   );
 }
 
-/** 一筆請假申請卡：狀態 + 假別 + 日期 + 事由 + 逐關簽核時間線 + 動作。 */
+/**
+ * 一筆請假申請卡：狀態 + 假別 + 日期 + 事由 + 逐關簽核時間線 + 動作。
+ *
+ * compact＝true 時不用寬 Card 包一圈（改由呼叫端包一個 divide-y 的清單容器），
+ * 縮減內距／列距，適合「全體請假」這種要一次瀏覽很多筆的總覽；
+ * 「待我簽核」「我的請假」筆數少、需要清楚聚焦單筆動作，維持原本的卡片樣式。
+ */
 export function RequestCard({
   req,
   showRequester,
   footer,
+  compact,
 }: {
   req: LeaveRequestRow;
   showRequester?: boolean;
   footer?: React.ReactNode;
+  compact?: boolean;
 }) {
   const status = leaveStatusMeta(req.status);
   const isHourly = !!(req.startTime && req.endTime);
@@ -47,8 +55,9 @@ export function RequestCard({
     ? `${fmtDate(req.startDate)} ${req.startTime}–${req.endTime}`
     : fmtDate(req.startDate) + (sameDay ? "" : ` – ${fmtDate(req.endDate)}`);
 
+  const Wrapper: React.ElementType = compact ? "div" : Card;
   return (
-    <Card className="space-y-3 p-4">
+    <Wrapper className={compact ? "space-y-2 px-3 py-2.5" : "space-y-3 p-4"}>
       <div className="flex flex-wrap items-center gap-2">
         <span
           className={cn(
@@ -92,7 +101,7 @@ export function RequestCard({
       <ApprovalTimeline req={req} />
 
       {footer && <div className="flex justify-end pt-1">{footer}</div>}
-    </Card>
+    </Wrapper>
   );
 }
 

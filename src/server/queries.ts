@@ -9,6 +9,7 @@ import {
 } from "@/lib/checkin-reminder";
 import { DEFAULT_DEAL_STAGES } from "@/lib/crm";
 import { specialLeaveDays } from "@/lib/leave-entitlement";
+import { LEAVE_EVENT_TYPES } from "@/lib/constants";
 
 // 註：所有查詢皆以「目前組織」(orgId) 收斂。Project 底下的子表（成員 / 週報 /
 // 里程碑 / 任務 / 活動）不帶 organizationId，改用關聯過濾 project.organizationId。
@@ -1118,24 +1119,34 @@ export async function getPendingApprovalsForMember(
 
 /**
  * 「手上是否還卡著待簽核」——只給側欄判斷要不要顯示「請假簽核」用（見 app/(app)/layout.tsx）。
+ * 請假申請 + 出差 / 事件登記都算（兩者共用同一組簽核流程，見 lib/leave-timeline.ts 註解）。
  *
- * 側欄在每一頁都會跑，不能為了一個布林值去撈 getPendingApprovalsForMember 的完整請假單
- * （含巢狀簽核關卡）。這裡刻意省略「這關正好輪到我」(sortOrder === currentStep) 的比對——
- * Prisma 無法直接比兩個欄位，得撈回來用 JS 過濾。因此本函式回的是**超集**：夠格顯示入口即可，
- * 精確的「輪到我」判斷仍由 /leave 頁自己做。
+ * 側欄在每一頁都會跑，不能為了一個布林值去撈完整的申請單（含巢狀簽核關卡）。這裡刻意省略
+ * 「這關正好輪到我」(sortOrder === currentStep) 的比對——Prisma 無法直接比兩個欄位，得撈回來用
+ * JS 過濾。因此本函式回的是**超集**：夠格顯示入口即可，精確的「輪到我」判斷仍由 /leave 頁自己做。
  */
 export async function countPendingApprovalsForMember(
   orgId: string,
   membershipId: string,
 ) {
-  return db.leaveRequest.count({
-    where: {
-      organizationId: orgId,
-      status: "PENDING",
-      deletedAt: null,
-      approvals: { some: { approverMemberId: membershipId, status: "PENDING" } },
-    },
-  });
+  const [leaves, events] = await Promise.all([
+    db.leaveRequest.count({
+      where: {
+        organizationId: orgId,
+        status: "PENDING",
+        deletedAt: null,
+        approvals: { some: { approverMemberId: membershipId, status: "PENDING" } },
+      },
+    }),
+    db.memberEvent.count({
+      where: {
+        organizationId: orgId,
+        status: "PENDING",
+        approvals: { some: { approverMemberId: membershipId, status: "PENDING" } },
+      },
+    }),
+  ]);
+  return leaves + events;
 }
 
 /**
@@ -1168,21 +1179,76 @@ export async function isEligibleLeaveApprover(
   return managedCount > 0;
 }
 
-/** 某成員的請假 / 出差 / 事件登記（原個人資料頁的區塊，現移到請假簽核頁）。 */
+/**
+ * 出差 / 事件登記（含逐關簽核紀錄 + 登記人 / 各關簽核人身分）的共用 select。
+ * 結構刻意對齊 leaveRequestSelect，讓「請假 / 出差」合併時間軸能共用同一套渲染邏輯
+ * （見 lib/leave-timeline.ts、components/leave/member-event-row.tsx）。
+ */
+const memberEventSelect = {
+  id: true,
+  type: true,
+  startDate: true,
+  endDate: true,
+  note: true,
+  attachment: true,
+  attachmentName: true,
+  status: true,
+  currentStep: true,
+  createdAt: true,
+  decidedAt: true,
+  user: { select: userIdentitySelect },
+  approvals: {
+    orderBy: { sortOrder: "asc" },
+    select: {
+      id: true,
+      sortOrder: true,
+      status: true,
+      comment: true,
+      decidedAt: true,
+      approverMemberId: true,
+      approverMember: {
+        select: { id: true, user: { select: userIdentitySelect } },
+      },
+    },
+  },
+} as const;
+
+/** 某成員的請假 / 出差 / 事件登記（最新在前）。 */
 export async function getMemberEventsForUser(orgId: string, userId: string) {
   return db.memberEvent.findMany({
     where: { organizationId: orgId, userId },
     orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
     take: 50,
-    select: {
-      id: true,
-      type: true,
-      startDate: true,
-      endDate: true,
-      note: true,
-      attachment: true,
-      attachmentName: true,
+    select: memberEventSelect,
+  });
+}
+
+export type MemberEventRow = Awaited<
+  ReturnType<typeof getMemberEventsForUser>
+>[number];
+
+/**
+ * 「待我簽核」：目前這一關正是我、且尚待簽核的出差 / 事件登記（邏輯同
+ * getPendingApprovalsForMember，只是換一張表）。
+ */
+export async function getPendingEventApprovalsForMember(
+  orgId: string,
+  membershipId: string,
+) {
+  const events = await db.memberEvent.findMany({
+    where: {
+      organizationId: orgId,
+      status: "PENDING",
+      approvals: { some: { approverMemberId: membershipId, status: "PENDING" } },
     },
+    orderBy: { createdAt: "asc" },
+    select: memberEventSelect,
+  });
+  return events.filter((e) => {
+    const current = e.approvals.find((a) => a.sortOrder === e.currentStep);
+    return (
+      current?.approverMemberId === membershipId && current.status === "PENDING"
+    );
   });
 }
 
@@ -1205,6 +1271,28 @@ export async function getDeletedLeaveRequests(orgId: string, take = 100) {
     select: leaveRequestSelect,
   });
 }
+
+/**
+ * 全體出差 / 事件（HR / 管理者總覽）——與「全體請假」合併成同一條時間軸顯示
+ * （見 lib/leave-timeline.ts），讓出差 / 在家工作 / 外出等免簽核登記也有個統一能查看
+ * 全體的地方，不必逐一切換成員。排除「請假」類型：正式請假走簽核流程，已經在
+ * LeaveRequest 看得到，這裡重複列出只會混淆。createdAt 供合併排序 tie-break 用。
+ */
+export async function getAllMemberEvents(orgId: string, take = 100) {
+  return db.memberEvent.findMany({
+    where: {
+      organizationId: orgId,
+      type: { notIn: Array.from(LEAVE_EVENT_TYPES) },
+    },
+    orderBy: [{ startDate: "desc" }, { createdAt: "desc" }],
+    take,
+    select: memberEventSelect,
+  });
+}
+
+export type AllMemberEventRow = Awaited<
+  ReturnType<typeof getAllMemberEvents>
+>[number];
 
 /**
  * 薪資頁總覽：本組織在職成員 + 其薪資設定 + 指定月份的薪資單（若已產生）。

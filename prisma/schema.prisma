@@ -245,6 +245,8 @@ model OrganizationMember {
   leaveStepApprovals LeaveApprovalStep[] @relation("LeaveStepApprover")
   leaveRequests      LeaveRequest[]      @relation("LeaveRequestMember")
   leaveApprovals     LeaveApproval[]     @relation("LeaveApprovalApprover")
+  // 出差 / 事件簽核：沿用同一組簽核關卡設定，作為某事件某關的實際簽核人。
+  memberEventApprovals MemberEventApproval[] @relation("MemberEventApprovalApprover")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -586,6 +588,9 @@ model AttendanceRecord {
 }
 
 /// 成員事件（請假 / 出差 / 在家工作 等），記在個人 profile。
+/// 出差 / 事件登記。送出時把組織的簽核關卡（與請假共用同一組）解析成一串
+/// MemberEventApproval，依序簽核；核准後才落地到出席月曆（見 lib/attendance-sync.ts）。
+/// 例外：出勤管理權限者代他人登記一律直接 APPROVED，免簽核——見 server/actions/member-events.ts 註解。
 model MemberEvent {
   id          String    @id @default(cuid())
   userId      String
@@ -599,11 +604,37 @@ model MemberEvent {
   createdById String?
   createdAt   DateTime  @default(now())
 
+  // PENDING（待簽核）| APPROVED（已核准）| REJECTED（已駁回）——語意與 LeaveRequest.status 相同。
+  status      String    @default("PENDING")
+  currentStep Int       @default(0) // 目前待簽核的關卡索引（0-based）
+  decidedAt   DateTime? // 最終定案（核准 / 駁回）時間；免簽核則等於 createdAt
+
+  approvals MemberEventApproval[]
+
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@index([organizationId])
+  @@index([organizationId, status])
   @@index([userId, startDate])
+}
+
+/// 單一事件登記的其中一關簽核，結構與 LeaveApproval 相同（沿用同一組「簽核流程」設定）。
+model MemberEventApproval {
+  id               String             @id @default(cuid())
+  eventId          String
+  event            MemberEvent        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  sortOrder        Int                @default(0) // 這關在本次登記中的順序（0-based）
+  approverMemberId String
+  approverMember   OrganizationMember @relation("MemberEventApprovalApprover", fields: [approverMemberId], references: [id], onDelete: Cascade)
+  // PENDING（待簽）| APPROVED（已核准）| REJECTED（已駁回）
+  status           String             @default("PENDING")
+  comment          String?            @db.Text
+  decidedAt        DateTime?
+  createdAt        DateTime           @default(now())
+
+  @@index([eventId, sortOrder])
+  @@index([approverMemberId, status])
 }
 
 // ─────────────────────────────────────────────
