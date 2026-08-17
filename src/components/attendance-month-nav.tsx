@@ -29,11 +29,15 @@ export function AttendanceMonthNav({
 
   return (
     <div className="flex items-center gap-1.5">
+      {/* suppressHydrationWarning：瀏覽器擴充套件（常見如 LastPass）會在 hydrate 前
+          替表單旁的按鈕插入 fdprocessedid 屬性，造成 SSR/CSR 屬性不符的假警告——
+          跟這兩顆按鈕本身無關（純靜態、無動態內容），故就地壓下即可，不宜整站關閉。 */}
       <Button
         variant="outline"
         size="icon"
         onClick={() => shift(-1)}
         title="上個月"
+        suppressHydrationWarning
       >
         <ChevronLeft className="h-4 w-4" />
       </Button>
@@ -51,6 +55,7 @@ export function AttendanceMonthNav({
         size="icon"
         onClick={() => shift(1)}
         title="下個月"
+        suppressHydrationWarning
       >
         <ChevronRight className="h-4 w-4" />
       </Button>
