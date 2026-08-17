@@ -22,9 +22,7 @@ import {
   AttachmentField,
   type AttachmentValue,
 } from "@/components/attachment-field";
-
-const inputCls =
-  "border-input bg-transparent dark:bg-input/30 h-9 w-full rounded-md border px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]";
+import { inputCls, DateField } from "@/components/leave/form-field";
 
 /**
  * 出差 / 事件的新增表單（免簽核，送出即登記，即時反映到出席月曆）。
@@ -108,27 +106,14 @@ export function QuickEventForm({
               ))}
             </datalist>
           </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="qe-start">起</Label>
-            <input
-              id="qe-start"
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className={inputCls}
-            />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="qe-end">迄（選填）</Label>
-            <input
-              id="qe-end"
-              type="date"
-              value={endDate}
-              min={startDate}
-              onChange={(e) => setEndDate(e.target.value)}
-              className={inputCls}
-            />
-          </div>
+          <DateField id="qe-start" label="起" value={startDate} onChange={setStartDate} />
+          <DateField
+            id="qe-end"
+            label="迄（選填）"
+            value={endDate}
+            min={startDate}
+            onChange={setEndDate}
+          />
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="qe-note">備註（選填）</Label>

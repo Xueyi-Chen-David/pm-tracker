@@ -22,11 +22,9 @@ import {
   DialogFooter,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { inputCls, DateField } from "@/components/leave/form-field";
 
 type LeaveTypeOption = { id: string; name: string; color: string | null };
-
-const inputCls =
-  "border-input bg-transparent dark:bg-input/30 h-9 w-full rounded-md border px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]";
 
 /** "HH:mm" 字串相減的小時數（結束早於或等於開始回 0）。 */
 function diffHours(startTime: string, endTime: string): number {
@@ -184,64 +182,46 @@ export function LeaveRequestForm({
           </div>
           {mode === "day" ? (
             <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-1.5">
-                <Label htmlFor="lr-start">開始日期</Label>
-                <input
-                  id="lr-start"
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => {
-                    setStartDate(e.target.value);
-                    if (endDate < e.target.value) setEndDate(e.target.value);
-                  }}
-                  className={inputCls}
-                />
-              </div>
-              <div className="grid gap-1.5">
-                <Label htmlFor="lr-end">結束日期</Label>
-                <input
-                  id="lr-end"
-                  type="date"
-                  value={endDate}
-                  min={startDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className={inputCls}
-                />
-              </div>
+              <DateField
+                id="lr-start"
+                label="開始日期"
+                value={startDate}
+                onChange={(v) => {
+                  setStartDate(v);
+                  if (endDate < v) setEndDate(v);
+                }}
+              />
+              <DateField
+                id="lr-end"
+                label="結束日期"
+                value={endDate}
+                min={startDate}
+                onChange={setEndDate}
+              />
             </div>
           ) : (
             <div className="space-y-1.5">
-              <div className="grid gap-1.5">
-                <Label htmlFor="lr-hourly-date">日期</Label>
-                <input
-                  id="lr-hourly-date"
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className={inputCls}
-                />
-              </div>
+              <DateField
+                id="lr-hourly-date"
+                label="日期"
+                value={startDate}
+                onChange={setStartDate}
+              />
               <div className="grid grid-cols-2 gap-3">
-                <div className="grid gap-1.5">
-                  <Label htmlFor="lr-start-time">開始時間</Label>
-                  <input
-                    id="lr-start-time"
-                    type="time"
-                    value={startTime}
-                    onChange={(e) => setStartTime(e.target.value)}
-                    className={inputCls}
-                  />
-                </div>
-                <div className="grid gap-1.5">
-                  <Label htmlFor="lr-end-time">結束時間</Label>
-                  <input
-                    id="lr-end-time"
-                    type="time"
-                    value={endTime}
-                    onChange={(e) => setEndTime(e.target.value)}
-                    className={inputCls}
-                  />
-                </div>
+                <DateField
+                  id="lr-start-time"
+                  label="開始時間"
+                  type="time"
+                  value={startTime}
+                  onChange={setStartTime}
+                />
+                <DateField
+                  id="lr-end-time"
+                  label="結束時間"
+                  type="time"
+                  value={endTime}
+                  onChange={setEndTime}
+                />
               </div>
               <div className="text-muted-foreground text-xs">
                 {hours > 0 ? `共 ${hours} 小時` : "結束時間必須晚於開始時間"}
