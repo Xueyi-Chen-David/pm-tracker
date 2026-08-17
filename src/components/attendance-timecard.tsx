@@ -128,7 +128,7 @@ export function AttendanceTimecard({
       ) : (
         <div className="max-h-[28rem] overflow-auto">
           <table className="w-full min-w-[420px] text-sm">
-            <thead className="bg-muted/40 text-muted-foreground sticky top-0 text-[11px]">
+            <thead className="bg-muted text-muted-foreground sticky top-0 z-10 text-[11px]">
               <tr>
                 <th className="px-3 py-1.5 text-left font-medium">日期</th>
                 <th className="px-3 py-1.5 text-left font-medium">上班</th>
