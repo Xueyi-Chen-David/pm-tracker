@@ -7,21 +7,32 @@ import { Plus } from "lucide-react";
 import { createMemberEvent } from "@/server/actions/member-events";
 import { MEMBER_EVENT_TYPES } from "@/lib/constants";
 import { toDateInput } from "@/lib/date";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+} from "@/components/ui/card";
 import {
   AttachmentField,
   type AttachmentValue,
 } from "@/components/attachment-field";
 
 const inputCls =
-  "border-input bg-transparent dark:bg-input/30 h-9 rounded-md border px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]";
+  "border-input bg-transparent dark:bg-input/30 h-9 w-full rounded-md border px-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]";
 
 /**
  * 出差 / 事件的新增表單（免簽核，送出即登記，即時反映到出席月曆）。
  * userId＝登記給誰——自己或（有出勤管理權限時）代他人登記，由呼叫端決定。
  * 與事件清單（member-event-row.tsx）共用同一份資料模型，本元件只管新增。
+ *
+ * 版面刻意比照 LeaveRequestForm 內部欄位樣式（Label + 對齊的 grid），不是另一套風格；
+ * 兩個表單並排在同一頁，樣式不一致反而更顯眼。
  */
 export function QuickEventForm({
   userId,
@@ -61,7 +72,9 @@ export function QuickEventForm({
         setNote("");
         setStartDate(toDateInput(new Date()));
         setAttachment(null);
-        toast.success("已登記");
+        toast.success(
+          res.autoApproved ? "已登記" : "已送出，等待簽核",
+        );
         router.refresh();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "登記失敗");
@@ -70,59 +83,78 @@ export function QuickEventForm({
   }
 
   return (
-    <div className="space-y-2 rounded-lg border border-dashed p-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          list="member-event-types"
-          value={type}
-          onChange={(e) => setType(e.target.value)}
-          placeholder="類型（例：出差）"
-          className={cn(inputCls, "w-28")}
-        />
-        <datalist id="member-event-types">
-          {types.map((t) => (
-            <option key={t} value={t} />
-          ))}
-        </datalist>
-        <label className="text-muted-foreground flex items-center gap-1 text-xs">
-          起
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className={inputCls}
+    <Card size="sm">
+      <CardHeader>
+        <CardTitle>登記出差 / 事件</CardTitle>
+        <CardDescription>
+          出差 / 在家工作會即時反映到出席月曆；外出、其他等不影響出勤紀錄。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-1.5">
+            <Label htmlFor="qe-type">類型</Label>
+            <input
+              id="qe-type"
+              list="member-event-types"
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+              placeholder="例：出差"
+              className={inputCls}
+            />
+            <datalist id="member-event-types">
+              {types.map((t) => (
+                <option key={t} value={t} />
+              ))}
+            </datalist>
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="qe-start">起</Label>
+            <input
+              id="qe-start"
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              className={inputCls}
+            />
+          </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="qe-end">迄（選填）</Label>
+            <input
+              id="qe-end"
+              type="date"
+              value={endDate}
+              min={startDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className={inputCls}
+            />
+          </div>
+        </div>
+        <div className="grid gap-1.5">
+          <Label htmlFor="qe-note">備註（選填）</Label>
+          <Input
+            id="qe-note"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="例：家庭事由 / 客戶拜訪地點"
           />
-        </label>
-        <label className="text-muted-foreground flex items-center gap-1 text-xs">
-          迄
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            className={inputCls}
-          />
-        </label>
-      </div>
-      <div className="flex items-center gap-2">
-        <Input
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="備註（選填，例：家庭事由 / 客戶拜訪地點）"
-          className="h-9 flex-1"
+        </div>
+        <AttachmentField
+          value={attachment}
+          onChange={setAttachment}
+          label="證明附件（選填，如出差單 / 診斷證明）"
         />
+      </CardContent>
+      <CardFooter className="justify-end">
         <Button
           size="sm"
           disabled={!type.trim() || !startDate || pending}
           onClick={add}
+          className="gap-1.5"
         >
           <Plus className="h-4 w-4" /> 登記
         </Button>
-      </div>
-      <AttachmentField
-        value={attachment}
-        onChange={setAttachment}
-        label="證明附件（選填，如出差單 / 診斷證明）"
-      />
-    </div>
+      </CardFooter>
+    </Card>
   );
 }

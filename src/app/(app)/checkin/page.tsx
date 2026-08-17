@@ -247,15 +247,14 @@ export default async function CheckInPage({
             <>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-muted-foreground text-xs">
-                  正式請假走簽核流程，核准後自動登記到出席月曆，輪到誰簽核時對方會收到通知；出差
-                  / 在家工作 / 外出等免簽核，用下面的表單直接登記，其中出差 /
-                  在家工作會即時反映到出席月曆。
+                  正式請假走簽核流程，核准後自動登記到出席月曆；出差等免簽核事件用下方表單登記。
                 </p>
                 <LeaveRequestForm leaveTypes={leaveTypes} />
               </div>
 
               <QuickEventForm userId={user.id} types={NON_LEAVE_EVENT_TYPES} />
 
+              <h3 className="text-sm font-semibold">我的紀錄</h3>
               {myTimeline.length === 0 ? (
                 <Empty text="你還沒有任何請假申請或出差 / 事件登記。點右上「申請請假」或用上面的表單登記。" />
               ) : (
