@@ -233,7 +233,7 @@ export function DealDialog({
             <DialogTitle>{editing ? "編輯商機" : "新增商機"}</DialogTitle>
           </DialogHeader>
 
-          <div className={cn("grid gap-4", editing && "lg:grid-cols-[1fr_300px]")}>
+          <div className={cn("grid gap-4", editing && "lg:grid-cols-[1fr_360px]")}>
             <form id={FORM_ID} onSubmit={handleSubmit} className="min-w-0 space-y-3">
               <div className="space-y-1.5">
                 <Label htmlFor="d-title">
@@ -583,7 +583,12 @@ function ClosedReasonDialog({
   );
 }
 
-/** 逐關詳細歷程（何時從 A 搬到 B、誰、為什麼）：階段步驟條下方的補充明細。 */
+/**
+ * 逐關詳細歷程（何時從 A 搬到 B、誰、為什麼）：階段步驟條下方的補充明細。
+ * 只列真正的「搬過」（fromStage 有值）——建立商機時系統會順手記一筆
+ * fromStage=null 的起點紀錄，那不是異動，商機從沒換過階段時只顯示這一筆
+ * 會變成一個沒頭沒尾的「潛在」標籤，看不出任何歷程，不如不顯示。
+ */
 function StageTimeline({
   changes,
   stageMap,
@@ -591,10 +596,11 @@ function StageTimeline({
   changes: StageChange[];
   stageMap: Map<string, StageView>;
 }) {
-  if (changes.length === 0) return null;
+  const moves = changes.filter((c) => c.fromStage !== null);
+  if (moves.length === 0) return null;
   return (
     <ol className="border-muted relative ml-1 max-h-40 space-y-3 overflow-y-auto border-l pt-0.5 pl-4">
-      {changes.map((c) => {
+      {moves.map((c) => {
         const st = stageMap.get(c.toStage);
         const col = stageColor(st?.color);
         const from = c.fromStage ? stageMap.get(c.fromStage) : null;
@@ -719,7 +725,9 @@ function ActivitySection({
         </p>
       </div>
       <form onSubmit={submit} className="space-y-2">
-        {/* 類型：分段按鈕，取代原生 select——同一頁的「請假方式」切換已經是這個樣式，沿用即可。 */}
+        {/* 類型：分段按鈕，取代原生 select——同一頁的「請假方式」切換已經是這個樣式，沿用即可。
+            標籤一律不換行（whitespace-nowrap）；原本用 sm: 隱藏文字是拿視窗寬度判斷，這裡
+            實際擠壓來源是右欄本身的寬度，兩者無關，視窗夠寬時文字照樣會被擠到換行。 */}
         <div className="bg-muted grid grid-cols-5 gap-1 rounded-md p-1">
           {CRM_ACTIVITY_TYPES.map((t) => (
             <button
@@ -728,20 +736,21 @@ function ActivitySection({
               onClick={() => setType(t.value)}
               title={t.label}
               className={cn(
-                "rounded px-1 py-1 text-xs font-medium transition-colors",
+                "flex items-center justify-center gap-1 overflow-hidden rounded px-1 py-1 text-xs font-medium whitespace-nowrap transition-colors",
                 type === t.value
                   ? "bg-background shadow-sm"
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
               <span aria-hidden>{t.icon}</span>
-              <span className="ml-1 hidden sm:inline">{t.label}</span>
+              <span className="truncate">{t.label}</span>
             </button>
           ))}
         </div>
         <div className="flex gap-2">
           <input
             name="body"
+            autoComplete="off"
             placeholder="紀錄一則跟進 / 備註…"
             className="border-input h-9 flex-1 rounded-md border bg-transparent px-2 text-sm outline-none focus:border-ring"
           />
