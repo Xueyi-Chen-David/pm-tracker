@@ -2008,6 +2008,58 @@ export async function getCrmFollowUps(orgId: string) {
 }
 export type CrmFollowUpRow = Awaited<ReturnType<typeof getCrmFollowUps>>[number];
 
+/**
+ * 全部商機的「活動 / 跟進」紀錄（CrmActivity，不限類型、不限完成狀態），依時間新到舊排序，
+ * 含負責人（是誰）。跟 getCrmFollowUps 的差異：那個只挑「未完成的待辦」給人去處理；這個是
+ * 完整歷史紀錄，給「銷售管道發生過什麼事」這種總覽用途，見 CRM 頁的「跟進紀錄」分頁。
+ * limit 防呆（紀錄會一直長，不用一次全撈）。
+ */
+export async function getCrmActivityLog(orgId: string, limit = 300) {
+  const rows = await db.crmActivity.findMany({
+    where: { deal: { organizationId: orgId } },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+    select: {
+      id: true,
+      type: true,
+      body: true,
+      dueDate: true,
+      done: true,
+      createdById: true,
+      createdAt: true,
+      deal: {
+        select: {
+          id: true,
+          title: true,
+          contact: { select: { id: true, name: true, company: true } },
+        },
+      },
+    },
+  });
+  const authorIds = [
+    ...new Set(rows.map((r) => r.createdById).filter((v): v is string => !!v)),
+  ];
+  const authors = authorIds.length
+    ? await db.user.findMany({
+        where: { id: { in: authorIds } },
+        select: {
+          id: true,
+          name: true,
+          nickname: true,
+          useNickname: true,
+          email: true,
+          image: true,
+        },
+      })
+    : [];
+  const authorById = new Map(authors.map((u) => [u.id, u]));
+  return rows.map((r) => ({
+    ...r,
+    author: r.createdById ? (authorById.get(r.createdById) ?? null) : null,
+  }));
+}
+export type CrmActivityLogRow = Awaited<ReturnType<typeof getCrmActivityLog>>[number];
+
 export type CompanyRow = {
   company: string;
   contactCount: number;
@@ -2026,10 +2078,16 @@ export type CompanyRow = {
  * / 已成交商機數與金額、備註則數與最新一則預覽。供依公司視角的總覽列表使用。
  */
 export async function getCrmCompanies(orgId: string): Promise<CompanyRow[]> {
-  const contacts = await db.crmContact.findMany({
-    where: { organizationId: orgId, NOT: { company: null } },
-    select: { id: true, company: true, name: true, decisionRole: true },
-  });
+  const [contacts, profileCompanies] = await Promise.all([
+    db.crmContact.findMany({
+      where: { organizationId: orgId, NOT: { company: null } },
+      select: { id: true, company: true, name: true, decisionRole: true },
+    }),
+    db.crmCompanyProfile.findMany({
+      where: { organizationId: orgId },
+      select: { company: true },
+    }),
+  ]);
 
   const byCompany = new Map<
     string,
@@ -2042,6 +2100,13 @@ export async function getCrmCompanies(orgId: string): Promise<CompanyRow[]> {
     g.contactIds.push(c.id);
     if (c.decisionRole === "決策者") g.decisionMakers.push(c.name);
     byCompany.set(key, g);
+  }
+  // 用「新增公司」手動建檔、還沒掛任何聯絡人的公司，也要出現在列表裡（不然剛建完
+  // 馬上就找不到剛剛新增的那家公司）。
+  for (const p of profileCompanies) {
+    const key = p.company.trim();
+    if (!key || byCompany.has(key)) continue;
+    byCompany.set(key, { contactIds: [], decisionMakers: [] });
   }
   if (byCompany.size === 0) return [];
 
@@ -2112,3 +2177,24 @@ export async function getCrmCompanies(orgId: string): Promise<CompanyRow[]> {
     })
     .sort((a, b) => a.company.localeCompare(b.company, "ja"));
 }
+
+/** 「統計」分頁用：撈某組織下所有企業基本檔案的原始欄位，分組/分桶邏輯交給 crm-company-stats.ts。 */
+export async function getCrmCompanyProfiles(orgId: string) {
+  return db.crmCompanyProfile.findMany({
+    where: { organizationId: orgId },
+    select: {
+      company: true,
+      industry: true,
+      headcount: true,
+      capital: true,
+      location: true,
+      productCategory: true,
+      hasEcommerce: true,
+      ecommercePlatform: true,
+    },
+    orderBy: { company: "asc" },
+  });
+}
+export type CrmCompanyProfileRow = Awaited<
+  ReturnType<typeof getCrmCompanyProfiles>
+>[number];

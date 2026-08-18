@@ -7,7 +7,9 @@ import {
   getDealStages,
   getCrmEvents,
   getCrmFollowUps,
+  getCrmActivityLog,
   getCrmCompanies,
+  getCrmCompanyProfiles,
   getOrgMemberUsers,
 } from "@/server/queries";
 import { fmtMoney, effectiveProbability } from "@/lib/crm";
@@ -30,7 +32,10 @@ import { type ContactRow } from "@/components/crm/contacts-list";
 import { ContactsSection } from "@/components/crm/contacts-section";
 import { FunnelView, type FunnelStage } from "@/components/crm/funnel-view";
 import { FollowUpsList } from "@/components/crm/followups-list";
-import type { EventView, FollowUpView } from "@/components/crm/types";
+import { ActivityLogList } from "@/components/crm/activity-log-list";
+import { AddCompanyDialog } from "@/components/crm/company-profile-card";
+import { CompanyStatsPanel } from "@/components/crm/company-stats-panel";
+import type { EventView, FollowUpView, ActivityLogView } from "@/components/crm/types";
 
 export const metadata = { title: "CRM · Project Pulse" };
 
@@ -55,7 +60,11 @@ export default async function CrmPage({
           ? "events"
           : tabParam === "followups"
             ? "followups"
-            : "pipeline";
+            : tabParam === "activityLog"
+              ? "activityLog"
+              : tabParam === "companyStats"
+                ? "companyStats"
+                : "pipeline";
 
   const [
     dealRows,
@@ -64,7 +73,9 @@ export default async function CrmPage({
     stageRows,
     eventRows,
     followUpRows,
+    activityLogRows,
     companies,
+    companyProfiles,
   ] = await Promise.all([
     getCrmDeals(org.id),
     getCrmContacts(org.id),
@@ -72,7 +83,9 @@ export default async function CrmPage({
     getDealStages(org.id),
     getCrmEvents(org.id),
     getCrmFollowUps(org.id),
+    getCrmActivityLog(org.id),
     getCrmCompanies(org.id),
+    getCrmCompanyProfiles(org.id),
   ]);
 
   const events: EventView[] = eventRows.map((e) => ({
@@ -142,6 +155,27 @@ export default async function CrmPage({
     },
   }));
 
+  const activityLogs: ActivityLogView[] = activityLogRows.map((a) => ({
+    id: a.id,
+    type: a.type,
+    body: a.body,
+    dueDate: ymd(a.dueDate),
+    done: a.done,
+    createdAt: a.createdAt.toISOString(),
+    author: a.author,
+    deal: {
+      id: a.deal.id,
+      title: a.deal.title,
+      contact: a.deal.contact
+        ? {
+            id: a.deal.contact.id,
+            name: a.deal.contact.name,
+            company: a.deal.contact.company,
+          }
+        : null,
+    },
+  }));
+
   // 漏斗：依階段順序統計所有商機的數量與金額。
   const funnelStages: FunnelStage[] = stages.map((s) => {
     const ds = deals.filter((d) => d.stage === s.key);
@@ -183,6 +217,13 @@ export default async function CrmPage({
         title="CRM"
         description={`銷售管線 · ${openDeals.length} 個進行中商機 · ${contactRows.length} 位聯絡人`}
       >
+        <AddCompanyDialog
+          trigger={
+            <Button variant="outline" className="gap-1.5">
+              <Plus className="h-4 w-4" /> 新增公司
+            </Button>
+          }
+        />
         <ContactDialog
           members={members}
           aiEnabled={aiEnabled}
@@ -204,30 +245,31 @@ export default async function CrmPage({
         />
       </PageHeader>
 
-      {/* 摘要 */}
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      {/* 摘要：矮視窗（筆電）容易被這一列擠壓到看板可用高度，故盡量壓扁——單行、
+          value/label 同排、icon 縮小；sm 以上就固定 4 欄，不讓它疊成兩行佔更多高度。 */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <StatTile
-          icon={<TrendingUp className="h-4 w-4" />}
+          icon={<TrendingUp className="h-3.5 w-3.5" />}
           label="進行中商機"
           value={openDeals.length}
           tone="sky"
         />
         <StatTile
-          icon={<Wallet className="h-4 w-4" />}
+          icon={<Wallet className="h-3.5 w-3.5" />}
           label="管線金額"
           value={fmtMoney(pipelineValue)}
           sub={`加權 ${fmtMoney(weightedPipelineValue)}`}
           tone="violet"
         />
         <StatTile
-          icon={<Trophy className="h-4 w-4" />}
+          icon={<Trophy className="h-3.5 w-3.5" />}
           label="已成交"
           value={won.length}
           sub={fmtMoney(wonValue)}
           tone="emerald"
         />
         <StatTile
-          icon={<Target className="h-4 w-4" />}
+          icon={<Target className="h-3.5 w-3.5" />}
           label="成交率"
           value={`${winRate}%`}
           sub={`${won.length} 勝 / ${lost.length} 敗`}
@@ -241,16 +283,22 @@ export default async function CrmPage({
           待跟進 · {followUps.length}
         </TabLink>
         <TabLink href="/crm?tab=pipeline" active={tab === "pipeline"}>
-          銷售管線
+          銷售管線 · {openDeals.length}
         </TabLink>
         <TabLink href="/crm?tab=funnel" active={tab === "funnel"}>
           漏斗
+        </TabLink>
+        <TabLink href="/crm?tab=activityLog" active={tab === "activityLog"}>
+          跟進紀錄 · {activityLogs.length}
         </TabLink>
         <TabLink href="/crm?tab=events" active={tab === "events"}>
           活動 · {events.length}
         </TabLink>
         <TabLink href="/crm?tab=contacts" active={tab === "contacts"}>
           聯絡人 · {contactRows.length}
+        </TabLink>
+        <TabLink href="/crm?tab=companyStats" active={tab === "companyStats"}>
+          統計 · {companyProfiles.length}
         </TabLink>
       </div>
 
@@ -276,15 +324,30 @@ export default async function CrmPage({
           <div className="h-full overflow-y-auto pb-2">
             <FunnelView stages={funnelStages} />
           </div>
+        ) : tab === "activityLog" ? (
+          <div className="h-full overflow-y-auto pb-2">
+            <ActivityLogList
+              logs={activityLogs}
+              deals={deals}
+              members={members}
+              contacts={contacts}
+              stages={stages}
+            />
+          </div>
         ) : tab === "events" ? (
           <div className="h-full overflow-y-auto pb-2">
             <EventsSection events={events} contacts={contacts} />
+          </div>
+        ) : tab === "companyStats" ? (
+          <div className="h-full overflow-y-auto pb-2">
+            <CompanyStatsPanel profiles={companyProfiles} />
           </div>
         ) : (
           <div className="h-full overflow-y-auto pb-2">
             <ContactsSection
               contacts={contactRowsView}
               companies={companies}
+              companyProfiles={companyProfiles}
               members={members}
               aiEnabled={aiEnabled}
             />
@@ -316,25 +379,31 @@ function StatTile({
   tone: keyof typeof TONE;
 }) {
   return (
-    // size="sm" 縮小 Card 自己的外距；CardContent 不再另外疊一層 p-4——原本兩層垂直
-    // padding 疊加（Card 自己的 py-4 + CardContent 又一次 p-4），扁不下來的主因其實
-    // 是這裡，不是圖示或字級。
-    <Card size="sm">
-      <CardContent className="flex items-center gap-2.5">
+    // 比 size="sm" 更進一步壓扁：py-1.5／px-2.5 直接覆蓋掉 --card-spacing；value 跟
+    // label 同一行（不再上下疊兩行），把可省的高度都省掉，小螢幕筆電才不會被這排卡片
+    // 擠掉看板的可用高度。sub（加權金額／勝敗）保留但縮到最小字級。
+    <Card size="sm" className="py-1.5">
+      <CardContent className="flex items-center gap-2 px-2.5">
         <div
           className={cn(
-            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+            "flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
             TONE[tone],
           )}
         >
           {icon}
         </div>
-        <div className="min-w-0">
-          <div className="truncate text-lg leading-none font-bold tabular-nums">
-            {value}
+        <div className="min-w-0 flex-1">
+          <div className="flex items-baseline gap-1.5">
+            <span className="text-sm leading-none font-bold tabular-nums">{value}</span>
+            <span className="text-muted-foreground truncate text-[11px] leading-none">
+              {label}
+            </span>
           </div>
-          <div className="text-muted-foreground mt-1 text-xs">{label}</div>
-          {sub && <div className="text-muted-foreground/80 text-[11px]">{sub}</div>}
+          {sub && (
+            <div className="text-muted-foreground/80 mt-0.5 truncate text-[10px] leading-none">
+              {sub}
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>

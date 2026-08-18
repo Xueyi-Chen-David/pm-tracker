@@ -181,6 +181,7 @@ model Organization {
   dealStageChanges    DealStageChange[]
   crmEvents           CrmEvent[]
   crmCompanyNotes     CrmCompanyNote[]
+  crmCompanyProfiles  CrmCompanyProfile[]
   todoItems           TodoItem[]
   pomodoroSessions    PomodoroSession[]
   // 人資：自訂角色 / 假別 / 薪資設定 / 薪資單。
@@ -1248,6 +1249,60 @@ model CrmCompanyNote {
 
   @@index([organizationId, company])
   @@index([parentId])
+}
+
+/// 企業（廠商／潛在客戶）基本檔案（2026-08 新增；依 CrmContact.company 字串分組，
+/// 同名視為同一企業，跟 CrmCompanyNote／企業時間軸同一套分組邏輯——目前「企業」沒有
+/// 獨立主表，這張表補的是「這家公司本身是誰」，不是互動紀錄）。同一企業一筆。
+/// 常見來源：業務開發名單匯入（廠商查證資料）、後續手動補充/編輯。
+model CrmCompanyProfile {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  company String
+
+  /// 產業類別（自由文字，例如「食品・銘菓」「陶磁器・工芸」「調味料・発酵」）。
+  industry String?
+  /// 地點（自由文字，可比單純縣市更細，例如「福岡・新宮町」）。
+  location String?
+  /// 公司人數／員工數（自由文字——來源口徑常不一致，如「役員3・正社員13・従業員50、計66名」，
+  /// 保留原始描述比硬塞成單一數字更不失真）。
+  headcount String?
+  /// 資本額（自由文字，例如「資本金1000万円」——原始揭露格式不一定是乾淨數字，比照 headcount）。
+  capital String?
+  /// 創業／設立年份或沿革（自由文字，例如「1976年創業」「2000年創業、2008年11月法人化」）。
+  founded String?
+  website String?
+  /// 代表人／負責人姓名。
+  representativeName String?
+  /// 販賣的產品／主要業務內容（自由文字敘述，代表性列幾種即可）。
+  products String? @db.Text
+  /// 產品類型（封閉選項，供統計分頁分組用；見 src/lib/crm-company-stats.ts 的
+  /// PRODUCT_CATEGORY_OPTIONS——跟 industry 的差異是這個是給機器分組用的粗分類，
+  /// industry 是給人看的自由描述）。
+  productCategory String?
+  /// 公司介紹（背景、特色、沿革等敘述）。
+  companyIntro String? @db.Text
+  /// 切入點（業務開發用：這家公司值得從哪個角度接觸、鉤子是什麼）。
+  entryHook String? @db.Text
+  /// 是否有直營店面；null＝未查證/不確定。
+  hasPhysicalStore Boolean?
+  /// 是否有電商；null＝未查證/不確定。跟 ecommercePlatform 分開存——「有沒有」跟「用哪個平台」
+  /// 是兩個問題，先確定有沒有電商，平台是進一步的細節（可能查得到有電商但查不到用哪個平台）。
+  hasEcommerce Boolean?
+  /// 電商平台（自由文字，如 Shopify／カラーミーショップ／MakeShop／futureshop／楽天／自社サイト）。
+  ecommercePlatform String?
+  /// 優先級（自由文字，如業務開發名單常見的 A/B/C 分級）；不是系統定義的 enum，供各組織自訂用法。
+  grade String?
+  /// 備註（其他不適合放進上面欄位的補充資訊）。
+  note String? @db.Text
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([organizationId, company])
 }
 
 // ─────────────────────────────────────────────

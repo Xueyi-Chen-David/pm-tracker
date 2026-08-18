@@ -165,7 +165,6 @@ export function PipelineBoard({
                       members={members}
                       contacts={contacts}
                       stages={stages}
-                      onMove={(toKey) => requestMove(d.id, toKey)}
                     />
                   </div>
                 ))}

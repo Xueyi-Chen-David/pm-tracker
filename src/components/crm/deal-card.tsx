@@ -21,14 +21,11 @@ export function DealCard({
   members,
   contacts,
   stages,
-  onMove,
 }: {
   deal: DealView;
   members: OwnerLite[];
   contacts: ContactLite[];
   stages: StageView[];
-  /** 換階段（會由看板開啟原因視窗後才真正移動）。 */
-  onMove: (toKey: string) => void;
 }) {
   const overdue = !!deal.expectedCloseDate && deal.expectedCloseDate < todayStr();
 
@@ -84,22 +81,6 @@ export function DealCard({
           </button>
         }
       />
-
-      {/* 快速移動階段（也可直接拖曳卡片） */}
-      <div className="mt-2 border-t pt-1.5">
-        <select
-          value={deal.stage}
-          onChange={(e) => onMove(e.target.value)}
-          className="text-muted-foreground hover:bg-muted h-6 w-full rounded border-none bg-transparent text-[11px] outline-none"
-          title="移動到其他階段"
-        >
-          {stages.map((s) => (
-            <option key={s.key} value={s.key}>
-              {s.key === deal.stage ? s.label : `移到：${s.label}`}
-            </option>
-          ))}
-        </select>
-      </div>
     </div>
   );
 }

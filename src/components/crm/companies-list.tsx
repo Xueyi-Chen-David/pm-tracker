@@ -1,10 +1,17 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Search, Building2, ChevronRight, MessageSquare } from "lucide-react";
+import { Building2, ChevronRight, MessageSquare } from "lucide-react";
 import { ContactRowItem, type ContactRow } from "@/components/crm/contacts-list";
 import { CompanyNotesFeed } from "@/components/crm/company-notes-feed";
-import { fmtMoneyShort } from "@/lib/crm";
+import { CompanyProfileCard } from "@/components/crm/company-profile-card";
+import {
+  EMPTY_COMPANY_PROFILE_FILTER,
+  fmtMoneyShort,
+  matchesCompanyProfileFilter,
+  type CompanyProfileFilter,
+  type CompanyProfileLite,
+} from "@/lib/crm";
 import { cn } from "@/lib/utils";
 import type { OwnerLite } from "@/components/okr/key-result-row";
 import type { CompanyRow } from "@/server/queries";
@@ -18,20 +25,28 @@ export function CompaniesList({
   contacts,
   members,
   aiEnabled = false,
+  query = "",
+  profileByCompany,
+  profileFilter = EMPTY_COMPANY_PROFILE_FILTER,
 }: {
   companies: CompanyRow[];
   contacts: ContactRow[];
   members: OwnerLite[];
   aiEnabled?: boolean;
+  /** 搜尋字串——現在由 ContactsSection 統一管理（跟依聯絡人／依公司切換鈕、搜尋框
+   * 一起 freeze 在頂端），這裡不再自己管理，純粹依 prop 過濾。 */
+  query?: string;
+  /** company 字串 → 公司基本檔案，用來判斷這家公司符不符合 profileFilter。 */
+  profileByCompany?: Map<string, CompanyProfileLite>;
+  profileFilter?: CompanyProfileFilter;
 }) {
-  const [q, setQ] = useState("");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const filtered = useMemo(() => {
-    const kw = q.trim().toLowerCase();
-    if (!kw) return companies;
-    return companies.filter((c) => c.company.toLowerCase().includes(kw));
-  }, [companies, q]);
+    const kw = query.trim().toLowerCase();
+    const base = !kw ? companies : companies.filter((c) => c.company.toLowerCase().includes(kw));
+    return base.filter((c) => matchesCompanyProfileFilter(profileByCompany?.get(c.company), profileFilter));
+  }, [companies, query, profileByCompany, profileFilter]);
 
   function toggle(company: string) {
     setExpanded((prev) => {
@@ -52,16 +67,6 @@ export function CompaniesList({
 
   return (
     <div className="space-y-2">
-      <div className="relative max-w-xs">
-        <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2" />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="搜尋公司…"
-          className="border-input h-9 w-full rounded-md border bg-transparent pr-3 pl-8 text-sm outline-none focus:border-ring"
-        />
-      </div>
-
       <div className="bg-card overflow-x-auto rounded-xl border">
         <div className="min-w-[720px]">
           <div className="text-muted-foreground bg-muted/50 flex items-center gap-3 border-b px-3 py-2 text-xs font-medium">
@@ -133,25 +138,30 @@ export function CompaniesList({
                     </div>
                   </div>
                   {isOpen && (
-                    <div className="bg-muted/20 flex flex-col gap-3 border-t p-3 lg:flex-row">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-muted-foreground mb-1.5 px-1 text-xs font-medium">
-                          聯絡人
-                        </div>
-                        <div className="bg-card divide-y rounded-md border">
-                          {companyContacts.map((ct) => (
-                            <ContactRowItem
-                              key={ct.id}
-                              contact={ct}
-                              members={members}
-                              aiEnabled={aiEnabled}
-                              showCompany={false}
-                            />
-                          ))}
-                        </div>
+                    <div className="bg-muted/20 flex flex-col gap-3 border-t p-3">
+                      <div className="h-64">
+                        <CompanyProfileCard company={c.company} />
                       </div>
-                      <div className="h-80 lg:w-96 lg:shrink-0">
-                        <CompanyNotesFeed company={c.company} />
+                      <div className="flex flex-col gap-3 lg:flex-row">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-muted-foreground mb-1.5 px-1 text-xs font-medium">
+                            聯絡人
+                          </div>
+                          <div className="bg-card divide-y rounded-md border">
+                            {companyContacts.map((ct) => (
+                              <ContactRowItem
+                                key={ct.id}
+                                contact={ct}
+                                members={members}
+                                aiEnabled={aiEnabled}
+                                showCompany={false}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                        <div className="h-80 lg:w-96 lg:shrink-0">
+                          <CompanyNotesFeed company={c.company} />
+                        </div>
                       </div>
                     </div>
                   )}

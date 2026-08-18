@@ -45,6 +45,22 @@ const ContactInput = z.object({
   businessCardImage: z.string().nullable().optional(),
 });
 
+/**
+ * 聯絡人填了「公司」欄位時，順手建一筆空白的企業基本檔案（如果這個公司字串還沒建過）。
+ * 用 upsert + update:{} 確保已存在的檔案（可能已填了很多資料）不會被這裡蓋成空的；
+ * 純粹是讓「依公司」列表 / 公司資料卡不會因為使用者只加了聯絡人、還沒手動建過檔案，
+ * 而完全看不到這家公司或要點「新增資料」才看得到編輯入口。
+ */
+async function ensureCompanyProfile(orgId: string, company: string, userId: string) {
+  const name = company.trim();
+  if (!name) return;
+  await db.crmCompanyProfile.upsert({
+    where: { organizationId_company: { organizationId: orgId, company: name } },
+    create: { organizationId: orgId, company: name, createdById: userId },
+    update: {},
+  });
+}
+
 export async function createContact(input: z.input<typeof ContactInput>) {
   const { user, org } = await requireActiveOrg();
   const d = ContactInput.parse(input);
@@ -67,6 +83,7 @@ export async function createContact(input: z.input<typeof ContactInput>) {
     },
     select: { id: true },
   });
+  if (d.company) await ensureCompanyProfile(org.id, d.company, user.id);
   revalidate();
   return { ok: true as const, ...contact };
 }
@@ -75,7 +92,7 @@ export async function updateContact(
   id: string,
   input: z.input<typeof ContactInput>,
 ) {
-  const { org } = await requireActiveOrg();
+  const { user, org } = await requireActiveOrg();
   const d = ContactInput.parse(input);
   if (d.businessCardImage) {
     const v = validateCardDataUrl(d.businessCardImage);
@@ -95,6 +112,7 @@ export async function updateContact(
     },
   });
   if (res.count === 0) return { ok: false as const, error: "找不到聯絡人" };
+  if (d.company) await ensureCompanyProfile(org.id, d.company, user.id);
   revalidate();
   return { ok: true as const };
 }
@@ -955,6 +973,93 @@ export async function updateCompanyNote(id: string, body: string) {
     data: { body: b },
   });
   if (res.count === 0) return { ok: false as const, error: "找不到備註" };
+  revalidate();
+  return { ok: true as const };
+}
+
+// ── 企業基本檔案（依公司字串，同一企業一筆；業務開發用：這家公司是誰、切入點是什麼）───
+
+const CompanyProfileInput = z.object({
+  company: z.string().trim().min(1),
+  industry: z.string().trim().max(120).optional(),
+  location: z.string().trim().max(200).optional(),
+  headcount: z.string().trim().max(200).optional(),
+  capital: z.string().trim().max(200).optional(),
+  founded: z.string().trim().max(200).optional(),
+  website: z.string().trim().max(300).optional(),
+  representativeName: z.string().trim().max(120).optional(),
+  products: z.string().trim().max(4000).optional(),
+  productCategory: z.string().trim().max(60).optional(),
+  companyIntro: z.string().trim().max(4000).optional(),
+  entryHook: z.string().trim().max(4000).optional(),
+  hasPhysicalStore: z.boolean().nullable().optional(),
+  hasEcommerce: z.boolean().nullable().optional(),
+  ecommercePlatform: z.string().trim().max(120).optional(),
+  grade: z.string().trim().max(40).optional(),
+  note: z.string().trim().max(4000).optional(),
+});
+
+/** 「代表人」下拉建議：同組織裡所有企業檔案已經填過的代表人姓名（去重排序），
+ *  同一人身兼多家關係企業代表時可以直接選、不用重打一次，也少一點打字誤差。 */
+export async function getRepresentativeNameSuggestions(): Promise<string[]> {
+  const { org } = await requireActiveOrg();
+  const rows = await db.crmCompanyProfile.findMany({
+    where: { organizationId: org.id, NOT: { representativeName: null } },
+    select: { representativeName: true },
+    distinct: ["representativeName"],
+  });
+  return rows
+    .map((r) => r.representativeName?.trim())
+    .filter((v): v is string => !!v)
+    .sort((a, b) => a.localeCompare(b, "ja"));
+}
+
+/** 讀某企業的基本檔案；沒建立過就回 null（前端據此顯示「新增資料」或現有內容）。 */
+export async function getCompanyProfile(company: string) {
+  const { org } = await requireActiveOrg();
+  const name = company.trim();
+  if (!name) return null;
+  return db.crmCompanyProfile.findUnique({
+    where: { organizationId_company: { organizationId: org.id, company: name } },
+  });
+}
+
+/** 新增或更新某企業的基本檔案（同一企業一筆，upsert）。 */
+export async function upsertCompanyProfile(
+  input: z.input<typeof CompanyProfileInput>,
+) {
+  const { user, org } = await requireActiveOrg();
+  const d = CompanyProfileInput.parse(input);
+  const data = {
+    industry: d.industry || null,
+    location: d.location || null,
+    headcount: d.headcount || null,
+    capital: d.capital || null,
+    founded: d.founded || null,
+    website: d.website || null,
+    representativeName: d.representativeName || null,
+    products: d.products || null,
+    productCategory: d.productCategory || null,
+    companyIntro: d.companyIntro || null,
+    entryHook: d.entryHook || null,
+    hasPhysicalStore: d.hasPhysicalStore ?? null,
+    hasEcommerce: d.hasEcommerce ?? null,
+    ecommercePlatform: d.ecommercePlatform || null,
+    grade: d.grade || null,
+    note: d.note || null,
+  };
+  await db.crmCompanyProfile.upsert({
+    where: {
+      organizationId_company: { organizationId: org.id, company: d.company },
+    },
+    create: {
+      organizationId: org.id,
+      company: d.company,
+      createdById: user.id,
+      ...data,
+    },
+    update: data,
+  });
   revalidate();
   return { ok: true as const };
 }

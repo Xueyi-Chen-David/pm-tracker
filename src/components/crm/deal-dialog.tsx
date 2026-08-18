@@ -4,6 +4,7 @@ import {
   cloneElement,
   isValidElement,
   useEffect,
+  useRef,
   useState,
   useTransition,
 } from "react";
@@ -114,6 +115,9 @@ export function DealDialog({
   const [stageKey, setStageKey] = useState(deal?.stage ?? firstStage);
   // 備註：控制項狀態，右下角字數統計要即時更新。
   const [note, setNote] = useState(deal?.note ?? "");
+  // 預計成交日：維持非受控（跟其他原生欄位一樣靠 FormData 讀），但原生 date input 的
+  // 內建清除鈕不夠明顯／有些瀏覽器沒有，另外補一顆「清除」直接操作 DOM value。
+  const closeDateRef = useRef<HTMLInputElement>(null);
 
   // 開啟編輯時載入活動時間軸 + 階段歷程 + 完整的聯絡人 / 負責人名單。
   // 新增（無 deal）時的清空改放在 openDialog（事件處理常式，不是 effect）——避免在 effect
@@ -333,9 +337,21 @@ export function DealDialog({
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
-                  <Label htmlFor="d-close">預計成交日</Label>
+                  <div className="flex items-baseline justify-between">
+                    <Label htmlFor="d-close">預計成交日</Label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (closeDateRef.current) closeDateRef.current.value = "";
+                      }}
+                      className="text-muted-foreground hover:text-foreground text-xs"
+                    >
+                      清除
+                    </button>
+                  </div>
                   <Input
                     id="d-close"
+                    ref={closeDateRef}
                     name="expectedCloseDate"
                     type="date"
                     defaultValue={deal?.expectedCloseDate ?? ""}

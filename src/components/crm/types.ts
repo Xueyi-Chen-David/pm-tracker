@@ -48,3 +48,15 @@ export type FollowUpView = {
   dueDate: string | null; // yyyy-mm-dd
   deal: { id: string; title: string; contact: ContactLite | null };
 };
+
+/** 跟 FollowUpView 的差異：不限類型／不限完成狀態，是完整歷史（見 getCrmActivityLog）。 */
+export type ActivityLogView = {
+  id: string;
+  type: string;
+  body: string;
+  dueDate: string | null; // yyyy-mm-dd
+  done: boolean;
+  createdAt: string; // ISO
+  author: OwnerLite | null;
+  deal: { id: string; title: string; contact: ContactLite | null };
+};

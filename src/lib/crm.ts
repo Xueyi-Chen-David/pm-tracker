@@ -125,6 +125,52 @@ export function decisionRoleBadge(role: string | null | undefined): string {
   return (role && DECISION_ROLE_BADGE[role]) || "bg-zinc-100 text-zinc-700";
 }
 
+// ── 依公司基本檔案篩選（聯絡人／公司清單共用；見 contacts-section.tsx）────
+
+export type CompanyProfileLite = {
+  location: string | null;
+  industry: string | null;
+  productCategory: string | null;
+  hasEcommerce: boolean | null;
+};
+
+export type CompanyProfileFilter = {
+  location: string; // "" = 不限
+  industry: string; // "" = 不限
+  productCategory: string; // "" = 不限
+  hasEcommerce: "" | "true" | "false"; // "" = 不限
+};
+
+export const EMPTY_COMPANY_PROFILE_FILTER: CompanyProfileFilter = {
+  location: "",
+  industry: "",
+  productCategory: "",
+  hasEcommerce: "",
+};
+
+export function companyProfileFilterActiveCount(f: CompanyProfileFilter): number {
+  return [f.location, f.industry, f.productCategory, f.hasEcommerce].filter(Boolean).length;
+}
+
+/**
+ * 依公司基本檔案篩選（地區／產業類別／產品類型／是否有電商）。沒有任何條件啟用時一律通過；
+ * 一旦啟用，沒有基本檔案的公司（profile undefined）就直接排除——沒資料沒辦法判斷符不符合，
+ * 寧可篩掉也不要誤判成「符合」。
+ */
+export function matchesCompanyProfileFilter(
+  profile: CompanyProfileLite | undefined,
+  filter: CompanyProfileFilter,
+): boolean {
+  if (companyProfileFilterActiveCount(filter) === 0) return true;
+  if (!profile) return false;
+  if (filter.location && profile.location !== filter.location) return false;
+  if (filter.industry && profile.industry !== filter.industry) return false;
+  if (filter.productCategory && profile.productCategory !== filter.productCategory) return false;
+  if (filter.hasEcommerce === "true" && profile.hasEcommerce !== true) return false;
+  if (filter.hasEcommerce === "false" && profile.hasEcommerce !== false) return false;
+  return true;
+}
+
 /** 精簡金額（大額縮寫，卡片用）：¥1.2M / ¥350K / ¥900。 */
 export function fmtMoneyShort(v: number): string {
   const n = Math.round(v || 0);

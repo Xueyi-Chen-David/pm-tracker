@@ -1,7 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { Pencil, Search, Building2, History, Mail, Phone } from "lucide-react";
+import { useMemo } from "react";
+import { Pencil, Building2, History, Mail, Phone } from "lucide-react";
+import {
+  EMPTY_COMPANY_PROFILE_FILTER,
+  matchesCompanyProfileFilter,
+  type CompanyProfileFilter,
+  type CompanyProfileLite,
+} from "@/lib/crm";
 import { ContactDialog, type ContactView } from "@/components/crm/contact-dialog";
 import { CompanyTimelineDialog } from "@/components/crm/company-timeline-dialog";
 import { CopyTextButton } from "@/components/crm/copy-text-button";
@@ -107,21 +113,35 @@ export function ContactsList({
   contacts,
   members,
   aiEnabled = false,
+  query = "",
+  profileByCompany,
+  profileFilter = EMPTY_COMPANY_PROFILE_FILTER,
 }: {
   contacts: ContactRow[];
   members: OwnerLite[];
   aiEnabled?: boolean;
+  /** 搜尋字串——現在由 ContactsSection 統一管理（跟依聯絡人／依公司切換鈕、搜尋框
+   * 一起 freeze 在頂端），這裡不再自己管理，純粹依 prop 過濾。 */
+  query?: string;
+  /** company 字串 → 公司基本檔案，用來反查聯絡人所屬公司符不符合 profileFilter。 */
+  profileByCompany?: Map<string, CompanyProfileLite>;
+  profileFilter?: CompanyProfileFilter;
 }) {
-  const [q, setQ] = useState("");
   const filtered = useMemo(() => {
-    const kw = q.trim().toLowerCase();
-    const base = !kw
+    const kw = query.trim().toLowerCase();
+    let base = !kw
       ? contacts
       : contacts.filter((c) =>
           [c.name, c.company, c.title, c.email, c.phone]
             .filter(Boolean)
             .some((s) => String(s).toLowerCase().includes(kw)),
         );
+    base = base.filter((c) =>
+      matchesCompanyProfileFilter(
+        c.company ? profileByCompany?.get(c.company) : undefined,
+        profileFilter,
+      ),
+    );
     // 依公司排列（同公司的聯絡人相鄰，跟「依公司」視角看到的分組一致），沒填公司的排最後；
     // 同公司內再依姓名排序，而不是預設的建立時間，不然同公司的人會散落在清單各處。
     return [...base].sort((a, b) => {
@@ -132,7 +152,7 @@ export function ContactsList({
       if (ca !== cb) return ca.localeCompare(cb, "zh-Hant");
       return (a.name || "").localeCompare(b.name || "", "zh-Hant");
     });
-  }, [contacts, q]);
+  }, [contacts, query, profileByCompany, profileFilter]);
 
   if (contacts.length === 0) {
     return (
@@ -144,16 +164,6 @@ export function ContactsList({
 
   return (
     <div className="space-y-2">
-      <div className="relative max-w-xs">
-        <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2" />
-        <input
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="搜尋公司 / 姓名 / Email / 電話…"
-          className="border-input h-9 w-full rounded-md border bg-transparent pr-3 pl-8 text-sm outline-none focus:border-ring"
-        />
-      </div>
-
       <div className="bg-card overflow-x-auto rounded-xl border">
         <div className="min-w-[720px]">
           <div className="text-muted-foreground bg-muted/50 flex items-center gap-3 border-b px-3 py-2 text-xs font-medium">
