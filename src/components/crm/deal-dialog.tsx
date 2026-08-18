@@ -66,9 +66,6 @@ const NOTE_MAX = 4000;
 // 備註的框跟「活動 / 跟進」清單的框共用同一個高度上限，兩邊都不會無限長高，視覺也一致。
 const ACTIVITY_LIST_MAX_H = "max-h-96";
 
-const inputCls =
-  "border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm outline-none focus:border-ring";
-
 type Activity = {
   id: string;
   type: string;
@@ -272,10 +269,14 @@ export function DealDialog({
                   <Label htmlFor="d-stage">
                     階段 <span className="text-destructive">*</span>
                   </Label>
-                  <div className="relative">
+                  {/* 色點是真正的 flex 手足，不是疊在 select padding 上的絕對定位裝飾——
+                      後者在視窗變窄、select 本身被壓縮時，padding 沒能保留出足夠空間，
+                      色點會跟文字重疊。改成兩者一起放進同一個假裝是輸入框的容器，
+                      select 本身無邊框、透明背景，色點自然排在文字前面，不會重疊。 */}
+                  <div className="border-input bg-transparent dark:bg-input/30 flex h-9 items-center gap-2 rounded-md border px-2">
                     <span
                       className={cn(
-                        "pointer-events-none absolute top-1/2 left-2.5 h-2 w-2 -translate-y-1/2 rounded-full",
+                        "h-2 w-2 shrink-0 rounded-full",
                         stageColor(stageMap.get(stageKey)?.color).dot,
                       )}
                     />
@@ -284,7 +285,7 @@ export function DealDialog({
                       name="stage"
                       value={stageKey}
                       onChange={(e) => setStageKey(e.target.value)}
-                      className={cn(inputCls, "pl-6")}
+                      className="h-full min-w-0 flex-1 border-0 bg-transparent text-sm outline-none"
                     >
                       {stages.map((s) => (
                         <option key={s.key} value={s.key}>
