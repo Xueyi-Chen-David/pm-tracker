@@ -21,7 +21,9 @@ import {
   deleteActivity,
   listDealActivities,
   listDealStageChanges,
+  getDealTeam,
 } from "@/server/actions/crm";
+import { MultiSelectField } from "@/components/crm/multi-select-field";
 import {
   CRM_ACTIVITY_TYPES,
   CRM_ACTIVITY_ICON,
@@ -95,11 +97,19 @@ export function DealDialog({
   const [activities, setActivities] = useState<Activity[]>([]);
   const [changes, setChanges] = useState<StageChange[]>([]);
   const [closeAction, setCloseAction] = useState<"WON" | "LOST" | null>(null);
+  // 聯絡人 / 負責人：多選 + 其中一位為主要（見 MultiSelectField）。控制項狀態，
+  // 不透過 FormData 讀——原生 <select> 那套讀法沒辦法表達「多選 + 誰是主要」。
+  const [contactIds, setContactIds] = useState<string[]>([]);
+  const [primaryContactId, setPrimaryContactId] = useState<string | null>(null);
+  const [ownerIds, setOwnerIds] = useState<string[]>([]);
+  const [primaryOwnerId, setPrimaryOwnerId] = useState<string | null>(null);
   const editing = !!deal;
   const firstStage = defaultStage ?? stages[0]?.key ?? "LEAD";
   const stageMap = new Map(stages.map((s) => [s.key, s]));
 
-  // 開啟編輯時載入活動時間軸 + 階段歷程。
+  // 開啟編輯時載入活動時間軸 + 階段歷程 + 完整的聯絡人 / 負責人名單。
+  // 新增（無 deal）時的清空改放在 openDialog（事件處理常式，不是 effect）——避免在 effect
+  // 內同步 setState 觸發連鎖重render，也讓「取消後重開新增視窗」不會殘留上次選取。
   useEffect(() => {
     if (open && deal) {
       listDealActivities(deal.id)
@@ -108,6 +118,14 @@ export function DealDialog({
       listDealStageChanges(deal.id)
         .then(setChanges)
         .catch(() => setChanges([]));
+      getDealTeam(deal.id)
+        .then((team) => {
+          setContactIds(team.contactIds);
+          setPrimaryContactId(team.primaryContactId);
+          setOwnerIds(team.ownerIds);
+          setPrimaryOwnerId(team.primaryOwnerId);
+        })
+        .catch(() => {});
     }
   }, [open, deal]);
 
@@ -122,8 +140,10 @@ export function DealDialog({
       title: String(fd.get("title") ?? "").trim(),
       value: Number(fd.get("value") ?? 0) || 0,
       stage: String(fd.get("stage") ?? firstStage),
-      contactId: String(fd.get("contactId") ?? "") || null,
-      ownerId: String(fd.get("ownerId") ?? "") || null,
+      contactIds,
+      primaryContactId,
+      ownerIds,
+      primaryOwnerId,
       expectedCloseDate: String(fd.get("expectedCloseDate") ?? "") || null,
       probability: (() => {
         const raw = String(fd.get("probability") ?? "").trim();
@@ -168,6 +188,14 @@ export function DealDialog({
 
   const openDialog = () => {
     setError(null);
+    // 新增商機：清掉上次（若曾開過又取消）殘留的聯絡人 / 負責人選取。編輯時交給上面
+    // 的 effect 從 getDealTeam 重新載入，這裡不用管。
+    if (!editing) {
+      setContactIds([]);
+      setPrimaryContactId(null);
+      setOwnerIds([]);
+      setPrimaryOwnerId(null);
+    }
     setOpen(true);
   };
 
@@ -233,38 +261,35 @@ export function DealDialog({
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="d-contact">聯絡人 / 客戶</Label>
-                <select
-                  id="d-contact"
-                  name="contactId"
-                  defaultValue={deal?.contact?.id ?? ""}
-                  className={inputCls}
-                >
-                  <option value="">—</option>
-                  {contacts.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.company ? `${c.name}（${c.company}）` : c.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="d-owner">負責人</Label>
-                <select
-                  id="d-owner"
-                  name="ownerId"
-                  defaultValue={deal?.owner?.id ?? ""}
-                  className={inputCls}
-                >
-                  <option value="">—</option>
-                  {members.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name || m.email}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <MultiSelectField
+                label="聯絡人 / 客戶"
+                options={contacts.map((c) => ({
+                  id: c.id,
+                  label: c.company ? `${c.name}（${c.company}）` : c.name,
+                }))}
+                selectedIds={contactIds}
+                primaryId={primaryContactId}
+                onChange={(ids, primary) => {
+                  setContactIds(ids);
+                  setPrimaryContactId(primary);
+                }}
+                placeholder="尚未關聯聯絡人"
+                emptyHint="還沒有任何聯絡人，先到「聯絡人」分頁新增"
+              />
+              <MultiSelectField
+                label="負責人"
+                options={members.map((m) => ({
+                  id: m.id,
+                  label: m.name || m.email || "—",
+                }))}
+                selectedIds={ownerIds}
+                primaryId={primaryOwnerId}
+                onChange={(ids, primary) => {
+                  setOwnerIds(ids);
+                  setPrimaryOwnerId(primary);
+                }}
+                placeholder="尚未指派負責人"
+              />
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">

@@ -129,12 +129,81 @@ export async function deleteContact(id: string) {
 
 const PROBABILITY = z.coerce.number().int().min(0).max(100).nullable();
 
+/**
+ * 商機的聯絡人 / 負責人現在可多選；「主要」那位鏡射到 CrmDeal.contactId / ownerId
+ * （見 schema.prisma 的 CrmDealContact / CrmDealOwner 註解）。若前端沒指定 primary*Id，
+ * 或指定的不在選取清單裡，退回清單第一位；清單空了就是 null。
+ */
+function resolvePrimary(ids: string[], primaryId?: string | null): string | null {
+  if (primaryId && ids.includes(primaryId)) return primaryId;
+  return ids[0] ?? null;
+}
+
+/** 依「多選清單 + 主要」重寫一筆商機的完整聯絡人 / 負責人關聯（先清空再整批建立）。 */
+async function syncDealTeam(
+  dealId: string,
+  contactIds: string[],
+  primaryContactId: string | null,
+  ownerIds: string[],
+  primaryOwnerId: string | null,
+) {
+  await db.$transaction([
+    db.crmDealContact.deleteMany({ where: { dealId } }),
+    db.crmDealOwner.deleteMany({ where: { dealId } }),
+    ...(contactIds.length
+      ? [
+          db.crmDealContact.createMany({
+            data: contactIds.map((contactId) => ({
+              dealId,
+              contactId,
+              isPrimary: contactId === primaryContactId,
+            })),
+          }),
+        ]
+      : []),
+    ...(ownerIds.length
+      ? [
+          db.crmDealOwner.createMany({
+            data: ownerIds.map((userId) => ({
+              dealId,
+              userId,
+              isPrimary: userId === primaryOwnerId,
+            })),
+          }),
+        ]
+      : []),
+  ]);
+}
+
+/** 「新增 / 編輯商機」視窗開啟時查：目前完整的聯絡人 / 負責人名單（含主要標記）。 */
+export async function getDealTeam(dealId: string) {
+  const { org } = await requireActiveOrg();
+  const deal = await db.crmDeal.findFirst({
+    where: { id: dealId, organizationId: org.id },
+    select: {
+      contactLinks: { select: { contactId: true, isPrimary: true } },
+      ownerLinks: { select: { userId: true, isPrimary: true } },
+    },
+  });
+  if (!deal) {
+    return { contactIds: [], primaryContactId: null, ownerIds: [], primaryOwnerId: null };
+  }
+  return {
+    contactIds: deal.contactLinks.map((c) => c.contactId),
+    primaryContactId: deal.contactLinks.find((c) => c.isPrimary)?.contactId ?? null,
+    ownerIds: deal.ownerLinks.map((o) => o.userId),
+    primaryOwnerId: deal.ownerLinks.find((o) => o.isPrimary)?.userId ?? null,
+  };
+}
+
 const DealInput = z.object({
   title: z.string().trim().min(1, "請輸入商機名稱").max(200),
   value: z.coerce.number().int().min(0).max(1_000_000_000_000).default(0),
   stage: STAGE.default("LEAD"),
-  contactId: z.string().nullable().optional(),
-  ownerId: z.string().nullable().optional(),
+  contactIds: z.array(z.string()).default([]),
+  primaryContactId: z.string().nullable().optional(),
+  ownerIds: z.array(z.string()).default([]),
+  primaryOwnerId: z.string().nullable().optional(),
   expectedCloseDate: z.string().nullable().optional(),
   probability: PROBABILITY.optional(),
   note: z.string().trim().max(4000).nullable().optional(),
@@ -143,13 +212,15 @@ const DealInput = z.object({
 export async function createDeal(input: z.input<typeof DealInput>) {
   const { user, org } = await requireActiveOrg();
   const d = DealInput.parse(input);
-  if (d.contactId) {
-    const c = await db.crmContact.findFirst({
-      where: { id: d.contactId, organizationId: org.id },
-      select: { id: true },
+  if (d.contactIds.length) {
+    const count = await db.crmContact.count({
+      where: { id: { in: d.contactIds }, organizationId: org.id },
     });
-    if (!c) return { ok: false as const, error: "找不到聯絡人" };
+    if (count !== d.contactIds.length) return { ok: false as const, error: "找不到聯絡人" };
   }
+  const primaryContactId = resolvePrimary(d.contactIds, d.primaryContactId);
+  const primaryOwnerId = resolvePrimary(d.ownerIds, d.primaryOwnerId);
+
   const max = await db.crmDeal.aggregate({
     where: { organizationId: org.id, stage: d.stage, status: "OPEN" },
     _max: { sortOrder: true },
@@ -160,8 +231,8 @@ export async function createDeal(input: z.input<typeof DealInput>) {
       title: d.title,
       value: d.value ?? 0,
       stage: d.stage,
-      contactId: d.contactId || null,
-      ownerId: d.ownerId || null,
+      contactId: primaryContactId,
+      ownerId: primaryOwnerId,
       expectedCloseDate: toUtcDate(d.expectedCloseDate),
       probability: d.probability ?? null,
       note: d.note || null,
@@ -170,6 +241,7 @@ export async function createDeal(input: z.input<typeof DealInput>) {
     },
     select: { id: true },
   });
+  await syncDealTeam(deal.id, d.contactIds, primaryContactId, d.ownerIds, primaryOwnerId);
   // 時間線起點：建立於哪個階段。
   await db.dealStageChange.create({
     data: {
@@ -188,8 +260,10 @@ const DealPatch = z.object({
   title: z.string().trim().min(1).max(200).optional(),
   value: z.coerce.number().int().min(0).max(1_000_000_000_000).optional(),
   stage: STAGE.optional(),
-  contactId: z.string().nullable().optional(),
-  ownerId: z.string().nullable().optional(),
+  contactIds: z.array(z.string()).default([]),
+  primaryContactId: z.string().nullable().optional(),
+  ownerIds: z.array(z.string()).default([]),
+  primaryOwnerId: z.string().nullable().optional(),
   expectedCloseDate: z.string().nullable().optional(),
   probability: PROBABILITY.optional(),
   note: z.string().trim().max(4000).nullable().optional(),
@@ -203,13 +277,15 @@ export async function updateDeal(id: string, patch: z.input<typeof DealPatch>) {
     select: { id: true, stage: true },
   });
   if (!deal) return { ok: false as const, error: "找不到商機" };
-  if (p.contactId) {
-    const c = await db.crmContact.findFirst({
-      where: { id: p.contactId, organizationId: org.id },
-      select: { id: true },
+  if (p.contactIds.length) {
+    const count = await db.crmContact.count({
+      where: { id: { in: p.contactIds }, organizationId: org.id },
     });
-    if (!c) return { ok: false as const, error: "找不到聯絡人" };
+    if (count !== p.contactIds.length) return { ok: false as const, error: "找不到聯絡人" };
   }
+  const primaryContactId = resolvePrimary(p.contactIds, p.primaryContactId);
+  const primaryOwnerId = resolvePrimary(p.ownerIds, p.primaryOwnerId);
+
   const stageChanged = p.stage !== undefined && p.stage !== deal.stage;
   await db.crmDeal.update({
     where: { id },
@@ -217,8 +293,8 @@ export async function updateDeal(id: string, patch: z.input<typeof DealPatch>) {
       ...(p.title !== undefined ? { title: p.title } : {}),
       ...(p.value !== undefined ? { value: p.value } : {}),
       ...(p.stage !== undefined ? { stage: p.stage } : {}),
-      ...(p.contactId !== undefined ? { contactId: p.contactId || null } : {}),
-      ...(p.ownerId !== undefined ? { ownerId: p.ownerId || null } : {}),
+      contactId: primaryContactId,
+      ownerId: primaryOwnerId,
       ...(p.expectedCloseDate !== undefined
         ? { expectedCloseDate: toUtcDate(p.expectedCloseDate) }
         : {}),
@@ -226,6 +302,7 @@ export async function updateDeal(id: string, patch: z.input<typeof DealPatch>) {
       ...(p.note !== undefined ? { note: p.note || null } : {}),
     },
   });
+  await syncDealTeam(id, p.contactIds, primaryContactId, p.ownerIds, primaryOwnerId);
   // 在編輯視窗改階段也記入時間線（無原因）。
   if (stageChanged) {
     await db.dealStageChange.create({

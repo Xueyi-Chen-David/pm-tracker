@@ -52,6 +52,7 @@ model User {
   trainingAssignments  TrainingAssignment[]
   crmContactsOwned     CrmContact[]          @relation("CrmContactOwner")
   crmDealsOwned        CrmDeal[]             @relation("CrmDealOwner")
+  crmDealOwnerships    CrmDealOwner[]        @relation("CrmDealOwnerMember")
   todoItems            TodoItem[]
   pomodoroSessions     PomodoroSession[]
   leaveRequests        LeaveRequest[]
@@ -1056,8 +1057,9 @@ model CrmContact {
   owner       User?   @relation("CrmContactOwner", fields: [ownerId], references: [id])
   createdById String?
 
-  deals  CrmDeal[]
-  events CrmEvent[]
+  deals     CrmDeal[]
+  dealLinks CrmDealContact[]
+  events    CrmEvent[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1077,6 +1079,10 @@ model CrmDeal {
   stage  String        @default("LEAD") // DealStage.key（每組織可自訂階段）
   status CrmDealStatus @default(OPEN)
 
+  // 主要聯絡人 / 主要負責人——鏡射自下方 CrmDealContact / CrmDealOwner 裡 isPrimary=true
+  // 的那筆。看板卡片、跟進清單、儀表板統計、通知這些「只在乎一個人」的地方繼續讀這兩欄，
+  // 不用全部改成陣列；完整名單（含協同負責人 / 其他關聯聯絡人）才去查 contactLinks / ownerLinks。
+  // 由 syncDealTeam()（server/actions/crm.ts）在建立 / 編輯商機時一併寫入，維持兩邊同步。
   contactId String?
   contact   CrmContact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
 
@@ -1093,6 +1099,8 @@ model CrmDeal {
 
   activities   CrmActivity[]
   stageChanges DealStageChange[]
+  contactLinks CrmDealContact[]
+  ownerLinks   CrmDealOwner[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1100,6 +1108,37 @@ model CrmDeal {
   @@index([organizationId, status])
   @@index([contactId])
   @@index([organizationId, stage])
+}
+
+/// 商機關聯的聯絡人（多對多）；恰好一筆 isPrimary=true 為主要窗口，鏡射到 CrmDeal.contactId。
+model CrmDealContact {
+  id        String     @id @default(cuid())
+  dealId    String
+  deal      CrmDeal    @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  contactId String
+  contact   CrmContact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  isPrimary Boolean    @default(false)
+  createdAt DateTime   @default(now())
+
+  @@unique([dealId, contactId])
+  @@index([dealId])
+  @@index([contactId])
+}
+
+/// 商機的負責人（多對多）；恰好一筆 isPrimary=true 為主要負責人，其餘為協同負責人，
+/// 主要負責人鏡射到 CrmDeal.ownerId。
+model CrmDealOwner {
+  id        String   @id @default(cuid())
+  dealId    String
+  deal      CrmDeal  @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("CrmDealOwnerMember", fields: [userId], references: [id], onDelete: Cascade)
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([dealId, userId])
+  @@index([dealId])
+  @@index([userId])
 }
 
 /// 每組織可自訂的銷售管線階段（看板欄位）。key 為穩定鍵，CrmDeal.stage 存 key。
