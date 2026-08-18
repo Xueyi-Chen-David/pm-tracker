@@ -12,6 +12,10 @@ import {
  * 站內即時彈窗（Slack 式）：輪詢「掛載後新建的未讀通知」，逐則以 toast 跳出。
  * 桌面推播（PushManager）在分頁沒開時跳；這個在分頁開著時補上即時彈窗，兩者互補。
  * 點「查看」→ 標為已讀並前往連結。
+ *
+ * 有新通知就順手 router.refresh() 目前這頁（不等使用者點 toast）：有人送出打卡補登 /
+ * 請假 / 出差事件時，簽核者 / 管理者如果剛好開著相關頁面，資料會在下一次輪詢
+ * （最多 25 秒，或切回分頁時立即）自動變新，不用自己手動重新整理才看得到。
  */
 export function NotificationWatcher() {
   const router = useRouter();
@@ -37,7 +41,6 @@ export function NotificationWatcher() {
                   onClick: () => {
                     void markNotificationRead(n.id);
                     router.push(n.link as string);
-                    router.refresh();
                   },
                 }
               : undefined,
@@ -45,6 +48,8 @@ export function NotificationWatcher() {
         }
         const last = rows[rows.length - 1];
         if (last) since.current = last.createdAt;
+        // 不管有沒有點 toast 都刷新——見檔頭註解。
+        router.refresh();
       } catch {
         // 靜默：輪詢失敗不打擾使用者。
       }
