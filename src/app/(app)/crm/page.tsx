@@ -207,27 +207,27 @@ export default async function CrmPage({
       {/* 摘要 */}
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatTile
-          icon={<TrendingUp className="h-5 w-5" />}
+          icon={<TrendingUp className="h-4 w-4" />}
           label="進行中商機"
           value={openDeals.length}
           tone="sky"
         />
         <StatTile
-          icon={<Wallet className="h-5 w-5" />}
+          icon={<Wallet className="h-4 w-4" />}
           label="管線金額"
           value={fmtMoney(pipelineValue)}
           sub={`加權 ${fmtMoney(weightedPipelineValue)}`}
           tone="violet"
         />
         <StatTile
-          icon={<Trophy className="h-5 w-5" />}
+          icon={<Trophy className="h-4 w-4" />}
           label="已成交"
           value={won.length}
           sub={fmtMoney(wonValue)}
           tone="emerald"
         />
         <StatTile
-          icon={<Target className="h-5 w-5" />}
+          icon={<Target className="h-4 w-4" />}
           label="成交率"
           value={`${winRate}%`}
           sub={`${won.length} 勝 / ${lost.length} 敗`}
@@ -316,18 +316,21 @@ function StatTile({
   tone: keyof typeof TONE;
 }) {
   return (
-    <Card>
-      <CardContent className="flex items-center gap-3 p-4">
+    // size="sm" 縮小 Card 自己的外距；CardContent 不再另外疊一層 p-4——原本兩層垂直
+    // padding 疊加（Card 自己的 py-4 + CardContent 又一次 p-4），扁不下來的主因其實
+    // 是這裡，不是圖示或字級。
+    <Card size="sm">
+      <CardContent className="flex items-center gap-2.5">
         <div
           className={cn(
-            "flex h-10 w-10 items-center justify-center rounded-lg",
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
             TONE[tone],
           )}
         >
           {icon}
         </div>
         <div className="min-w-0">
-          <div className="truncate text-xl leading-none font-bold tabular-nums">
+          <div className="truncate text-lg leading-none font-bold tabular-nums">
             {value}
           </div>
           <div className="text-muted-foreground mt-1 text-xs">{label}</div>
