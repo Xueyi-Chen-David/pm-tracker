@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Trash2, Check } from "lucide-react";
+import { Trash2, Check, User, Users } from "lucide-react";
 import {
   createDeal,
   updateDeal,
@@ -24,6 +24,7 @@ import {
   getDealTeam,
 } from "@/server/actions/crm";
 import { MultiSelectField } from "@/components/crm/multi-select-field";
+import { StageStepper } from "@/components/crm/stage-stepper";
 import {
   CRM_ACTIVITY_TYPES,
   CRM_ACTIVITY_ICON,
@@ -61,6 +62,8 @@ type StageChange = {
   changedBy: NameSource | null;
 };
 
+const NOTE_MAX = 4000;
+
 const inputCls =
   "border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm outline-none focus:border-ring";
 
@@ -74,6 +77,8 @@ type Activity = {
   updatedAt: Date | string;
   author: OwnerLite | null;
 };
+
+const FORM_ID = "deal-form";
 
 export function DealDialog({
   trigger,
@@ -106,6 +111,10 @@ export function DealDialog({
   const editing = !!deal;
   const firstStage = defaultStage ?? stages[0]?.key ?? "LEAD";
   const stageMap = new Map(stages.map((s) => [s.key, s]));
+  // 階段：也是控制項狀態（原生 select 疊一顆色點在觸發鈕上，得知道目前選了誰才能上色）。
+  const [stageKey, setStageKey] = useState(deal?.stage ?? firstStage);
+  // 備註：控制項狀態，右下角字數統計要即時更新。
+  const [note, setNote] = useState(deal?.note ?? "");
 
   // 開啟編輯時載入活動時間軸 + 階段歷程 + 完整的聯絡人 / 負責人名單。
   // 新增（無 deal）時的清空改放在 openDialog（事件處理常式，不是 effect）——避免在 effect
@@ -139,7 +148,7 @@ export function DealDialog({
     const input = {
       title: String(fd.get("title") ?? "").trim(),
       value: Number(fd.get("value") ?? 0) || 0,
-      stage: String(fd.get("stage") ?? firstStage),
+      stage: stageKey,
       contactIds,
       primaryContactId,
       ownerIds,
@@ -149,7 +158,7 @@ export function DealDialog({
         const raw = String(fd.get("probability") ?? "").trim();
         return raw === "" ? null : Number(raw);
       })(),
-      note: String(fd.get("note") ?? "").trim() || null,
+      note: note.trim() || null,
     };
     if (!input.title) return setError("請輸入商機名稱");
     start(async () => {
@@ -188,6 +197,8 @@ export function DealDialog({
 
   const openDialog = () => {
     setError(null);
+    setStageKey(deal?.stage ?? firstStage);
+    setNote(deal?.note ?? "");
     // 新增商機：清掉上次（若曾開過又取消）殘留的聯絡人 / 負責人選取。編輯時交給上面
     // 的 effect 從 getDealTeam 重新載入，這裡不用管。
     if (!editing) {
@@ -206,6 +217,9 @@ export function DealDialog({
     run(() => setDealStatus(deal.id, status, reason));
   }
 
+  // 「更新時間」：最近一次階段異動的時間（每筆商機建立時就會記一筆，正常一定有）。
+  const lastChangedAt = changes.length > 0 ? changes[changes.length - 1]!.changedAt : null;
+
   return (
     <>
       {isValidElement(trigger)
@@ -214,205 +228,217 @@ export function DealDialog({
           })
         : trigger}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className={cn(editing ? "sm:max-w-4xl" : "sm:max-w-lg")}>
           <DialogHeader>
             <DialogTitle>{editing ? "編輯商機" : "新增商機"}</DialogTitle>
           </DialogHeader>
 
-          <form onSubmit={handleSubmit} className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="d-title">商機名稱</Label>
-              <Input
-                id="d-title"
-                name="title"
-                required
-                defaultValue={deal?.title ?? ""}
-                placeholder="例：井上酒造 導入 AI 客服"
-              />
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
+          <div className={cn("grid gap-4", editing && "lg:grid-cols-[1fr_300px]")}>
+            <form id={FORM_ID} onSubmit={handleSubmit} className="min-w-0 space-y-3">
               <div className="space-y-1.5">
-                <Label htmlFor="d-value">金額（¥）</Label>
+                <Label htmlFor="d-title">
+                  商機名稱 <span className="text-destructive">*</span>
+                </Label>
                 <Input
-                  id="d-value"
-                  name="value"
-                  type="number"
-                  min={0}
-                  step={1000}
-                  defaultValue={deal?.value ?? 0}
+                  id="d-title"
+                  name="title"
+                  required
+                  defaultValue={deal?.title ?? ""}
+                  placeholder="例：井上酒造 導入 AI 客服"
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="d-stage">階段</Label>
-                <select
-                  id="d-stage"
-                  name="stage"
-                  defaultValue={deal?.stage ?? firstStage}
-                  className={inputCls}
-                >
-                  {stages.map((s) => (
-                    <option key={s.key} value={s.key}>
-                      {s.label}
-                    </option>
-                  ))}
-                </select>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="d-value">金額（¥）</Label>
+                  <div className="relative">
+                    <span className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm">
+                      ¥
+                    </span>
+                    <Input
+                      id="d-value"
+                      name="value"
+                      type="number"
+                      min={0}
+                      step={1000}
+                      defaultValue={deal?.value ?? 0}
+                      className="pl-6"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="d-stage">
+                    階段 <span className="text-destructive">*</span>
+                  </Label>
+                  <div className="relative">
+                    <span
+                      className={cn(
+                        "pointer-events-none absolute top-1/2 left-2.5 h-2 w-2 -translate-y-1/2 rounded-full",
+                        stageColor(stageMap.get(stageKey)?.color).dot,
+                      )}
+                    />
+                    <select
+                      id="d-stage"
+                      name="stage"
+                      value={stageKey}
+                      onChange={(e) => setStageKey(e.target.value)}
+                      className={cn(inputCls, "pl-6")}
+                    >
+                      {stages.map((s) => (
+                        <option key={s.key} value={s.key}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
-            </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <MultiSelectField
-                label="聯絡人 / 客戶"
-                options={contacts.map((c) => ({
-                  id: c.id,
-                  label: c.company ? `${c.name}（${c.company}）` : c.name,
-                }))}
-                selectedIds={contactIds}
-                primaryId={primaryContactId}
-                onChange={(ids, primary) => {
-                  setContactIds(ids);
-                  setPrimaryContactId(primary);
-                }}
-                placeholder="尚未關聯聯絡人"
-                emptyHint="還沒有任何聯絡人，先到「聯絡人」分頁新增"
-              />
-              <MultiSelectField
-                label="負責人"
-                options={members.map((m) => ({
-                  id: m.id,
-                  label: m.name || m.email || "—",
-                }))}
-                selectedIds={ownerIds}
-                primaryId={primaryOwnerId}
-                onChange={(ids, primary) => {
-                  setOwnerIds(ids);
-                  setPrimaryOwnerId(primary);
-                }}
-                placeholder="尚未指派負責人"
-              />
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="d-close">預計成交日</Label>
-                <Input
-                  id="d-close"
-                  name="expectedCloseDate"
-                  type="date"
-                  defaultValue={deal?.expectedCloseDate ?? ""}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="d-prob">成交機率 %（選填，覆寫階段預設）</Label>
-                <Input
-                  id="d-prob"
-                  name="probability"
-                  type="number"
-                  min={0}
-                  max={100}
-                  placeholder={
-                    stageMap.get(deal?.stage ?? firstStage)?.defaultProbability != null
-                      ? `階段預設 ${stageMap.get(deal?.stage ?? firstStage)!.defaultProbability}`
-                      : "未設定"
-                  }
-                  defaultValue={deal?.probability ?? ""}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="d-note">備註</Label>
-              <Textarea
-                id="d-note"
-                name="note"
-                rows={2}
-                defaultValue={deal?.note ?? ""}
-              />
-            </div>
-
-            {error && (
-              <p className="bg-destructive/10 text-destructive rounded-md px-3 py-2 text-sm">
-                {error}
-              </p>
-            )}
-
-            <DialogFooter className="gap-2">
-              {editing && (
-                <button
-                  type="button"
-                  disabled={pending}
-                  onClick={() => {
-                    if (confirm(`刪除商機「${deal.title}」？`))
-                      run(() => deleteDeal(deal.id), () => setOpen(false));
+              <div className="grid gap-3 sm:grid-cols-2">
+                <MultiSelectField
+                  label="聯絡人 / 客戶"
+                  icon={<User className="text-muted-foreground h-4 w-4 shrink-0" />}
+                  options={contacts.map((c) => ({
+                    id: c.id,
+                    label: c.company ? `${c.name}（${c.company}）` : c.name,
+                  }))}
+                  selectedIds={contactIds}
+                  primaryId={primaryContactId}
+                  onChange={(ids, primary) => {
+                    setContactIds(ids);
+                    setPrimaryContactId(primary);
                   }}
-                  className="text-destructive hover:bg-destructive/10 mr-auto inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-sm"
-                >
-                  <Trash2 className="h-4 w-4" /> 刪除
-                </button>
-              )}
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setOpen(false)}
-                disabled={pending}
-              >
-                取消
-              </Button>
-              <Button type="submit" disabled={pending}>
-                {pending ? "儲存中…" : editing ? "儲存" : "新增"}
-              </Button>
-            </DialogFooter>
-          </form>
-
-          {/* 成交 / 流失 + 活動時間軸（僅編輯） */}
-          {editing && (
-            <div className="space-y-3 border-t pt-3">
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground text-xs">結果：</span>
-                <StatusButton
-                  active={deal.status === "WON"}
-                  cls="border-emerald-300 text-emerald-700 data-[on=true]:bg-emerald-600"
-                  onClick={() => setCloseAction("WON")}
-                  disabled={pending}
-                >
-                  成交
-                </StatusButton>
-                <StatusButton
-                  active={deal.status === "LOST"}
-                  cls="border-rose-300 text-rose-700 data-[on=true]:bg-rose-600"
-                  onClick={() => setCloseAction("LOST")}
-                  disabled={pending}
-                >
-                  流失
-                </StatusButton>
-                {deal.status !== "OPEN" && (
-                  <button
-                    type="button"
-                    disabled={pending}
-                    onClick={() => run(() => setDealStatus(deal.id, "OPEN"))}
-                    className="text-muted-foreground hover:bg-muted rounded-md border px-2 py-1 text-xs"
-                  >
-                    重新開啟
-                  </button>
-                )}
+                  placeholder="尚未關聯聯絡人"
+                  emptyHint="還沒有任何聯絡人，先到「聯絡人」分頁新增"
+                />
+                <MultiSelectField
+                  label="負責人"
+                  icon={<Users className="text-muted-foreground h-4 w-4 shrink-0" />}
+                  options={members.map((m) => ({
+                    id: m.id,
+                    label: m.name || m.email || "—",
+                  }))}
+                  selectedIds={ownerIds}
+                  primaryId={primaryOwnerId}
+                  onChange={(ids, primary) => {
+                    setOwnerIds(ids);
+                    setPrimaryOwnerId(primary);
+                  }}
+                  placeholder="尚未指派負責人"
+                />
               </div>
-              {deal.status !== "OPEN" && deal.closedReason && (
-                <p className="text-muted-foreground -mt-1.5 text-xs break-words whitespace-pre-wrap">
-                  原因：{deal.closedReason}
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label htmlFor="d-close">預計成交日</Label>
+                  <Input
+                    id="d-close"
+                    name="expectedCloseDate"
+                    type="date"
+                    defaultValue={deal?.expectedCloseDate ?? ""}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="d-prob">成交機率 %（選填，覆寫階段預設）</Label>
+                  <Input
+                    id="d-prob"
+                    name="probability"
+                    type="number"
+                    min={0}
+                    max={100}
+                    placeholder={
+                      stageMap.get(stageKey)?.defaultProbability != null
+                        ? `階段預設 ${stageMap.get(stageKey)!.defaultProbability}`
+                        : "未設定"
+                    }
+                    defaultValue={deal?.probability ?? ""}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <div className="flex items-baseline justify-between">
+                  <Label htmlFor="d-note">備註</Label>
+                  <span className="text-muted-foreground text-xs tabular-nums">
+                    {note.length} / {NOTE_MAX}
+                  </span>
+                </div>
+                <Textarea
+                  id="d-note"
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                  maxLength={NOTE_MAX}
+                  rows={editing ? 3 : 2}
+                  placeholder="輸入備註…"
+                />
+              </div>
+
+              {error && (
+                <p className="bg-destructive/10 text-destructive rounded-md px-3 py-2 text-sm">
+                  {error}
                 </p>
               )}
+            </form>
 
-              <StageTimeline changes={changes} stageMap={stageMap} />
+            {/* 目前階段 / 階段歷程 / 活動跟進（僅編輯——新增商機還沒有這些歷史可看）。 */}
+            {editing && (
+              <div className="min-w-0 space-y-3">
+                <CurrentStageCard
+                  stage={stageMap.get(deal.stage)}
+                  lastChangedAt={lastChangedAt}
+                  status={deal.status}
+                  closedReason={deal.closedReason}
+                  pending={pending}
+                  onWon={() => setCloseAction("WON")}
+                  onLost={() => setCloseAction("LOST")}
+                  onReopen={() => run(() => setDealStatus(deal.id, "OPEN"))}
+                />
 
-              <ActivitySection
-                dealId={deal.id}
-                activities={activities}
-                pending={pending}
-                onChanged={refreshActivities}
-                run={run}
-              />
-            </div>
-          )}
+                <div className="bg-card space-y-2.5 rounded-lg border p-3">
+                  <div className="text-muted-foreground text-xs font-medium">
+                    階段歷程
+                  </div>
+                  <StageStepper stages={stages} currentStage={deal.stage} />
+                  <StageTimeline changes={changes} stageMap={stageMap} />
+                </div>
+
+                <ActivitySection
+                  dealId={deal.id}
+                  activities={activities}
+                  pending={pending}
+                  onChanged={refreshActivities}
+                  run={run}
+                />
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2">
+            {editing && (
+              <button
+                type="button"
+                disabled={pending}
+                onClick={() => {
+                  if (confirm(`刪除商機「${deal.title}」？`))
+                    run(() => deleteDeal(deal.id), () => setOpen(false));
+                }}
+                className="text-destructive hover:bg-destructive/10 mr-auto inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-sm"
+              >
+                <Trash2 className="h-4 w-4" /> 刪除
+              </button>
+            )}
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setOpen(false)}
+              disabled={pending}
+            >
+              取消
+            </Button>
+            <Button type="submit" form={FORM_ID} disabled={pending}>
+              {pending ? "儲存中…" : editing ? "儲存" : "新增"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
@@ -427,6 +453,77 @@ export function DealDialog({
         />
       )}
     </>
+  );
+}
+
+/** 「目前階段」摘要卡：階段色點 + 名稱 + 最近異動時間，以及成交 / 流失 / 重新開啟。 */
+function CurrentStageCard({
+  stage,
+  lastChangedAt,
+  status,
+  closedReason,
+  pending,
+  onWon,
+  onLost,
+  onReopen,
+}: {
+  stage: StageView | undefined;
+  lastChangedAt: Date | string | null;
+  status: "OPEN" | "WON" | "LOST";
+  closedReason: string | null;
+  pending: boolean;
+  onWon: () => void;
+  onLost: () => void;
+  onReopen: () => void;
+}) {
+  const col = stageColor(stage?.color);
+  return (
+    <div className="bg-card space-y-2.5 rounded-lg border p-3">
+      <div className="text-muted-foreground text-xs font-medium">目前階段</div>
+      <div className="flex items-center gap-1.5">
+        <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", col.dot)} />
+        <span className="text-sm font-medium">{stage?.label ?? "—"}</span>
+      </div>
+      {lastChangedAt && (
+        <div className="text-muted-foreground text-xs">
+          更新時間：{fmtDate(lastChangedAt)}
+        </div>
+      )}
+      <div className="flex flex-wrap items-center gap-1.5 border-t pt-2.5">
+        <span className="text-muted-foreground text-xs">結果</span>
+        <StatusButton
+          active={status === "WON"}
+          cls="border-emerald-300 text-emerald-700 data-[on=true]:bg-emerald-600"
+          onClick={onWon}
+          disabled={pending}
+        >
+          成交
+        </StatusButton>
+        <StatusButton
+          active={status === "LOST"}
+          cls="border-rose-300 text-rose-700 data-[on=true]:bg-rose-600"
+          onClick={onLost}
+          disabled={pending}
+        >
+          流失
+        </StatusButton>
+        {status !== "OPEN" && (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={onReopen}
+            className="text-muted-foreground hover:bg-muted rounded-md border px-2 py-1 text-xs"
+          >
+            重新開啟
+          </button>
+        )}
+      </div>
+      {status !== "OPEN" && closedReason && (
+        <p className="text-muted-foreground text-xs break-words whitespace-pre-wrap">
+          原因：{closedReason}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -486,7 +583,7 @@ function ClosedReasonDialog({
   );
 }
 
-/** 階段歷程時間線：一目了然看客戶從哪個階段走到哪個階段、何時、原因。 */
+/** 逐關詳細歷程（何時從 A 搬到 B、誰、為什麼）：階段步驟條下方的補充明細。 */
 function StageTimeline({
   changes,
   stageMap,
@@ -496,50 +593,47 @@ function StageTimeline({
 }) {
   if (changes.length === 0) return null;
   return (
-    <div className="space-y-2">
-      <div className="text-sm font-medium">階段歷程</div>
-      <ol className="border-muted relative ml-1 max-h-40 space-y-3 overflow-y-auto border-l pt-0.5 pl-4">
-        {changes.map((c) => {
-          const st = stageMap.get(c.toStage);
-          const col = stageColor(st?.color);
-          const from = c.fromStage ? stageMap.get(c.fromStage) : null;
-          return (
-            <li key={c.id} className="relative">
+    <ol className="border-muted relative ml-1 max-h-40 space-y-3 overflow-y-auto border-l pt-0.5 pl-4">
+      {changes.map((c) => {
+        const st = stageMap.get(c.toStage);
+        const col = stageColor(st?.color);
+        const from = c.fromStage ? stageMap.get(c.fromStage) : null;
+        return (
+          <li key={c.id} className="relative">
+            <span
+              className={cn(
+                "ring-background absolute top-1 -left-[1.35rem] h-2.5 w-2.5 rounded-full ring-2",
+                col.dot,
+              )}
+            />
+            <div className="flex flex-wrap items-center gap-1.5">
               <span
                 className={cn(
-                  "ring-background absolute top-1 -left-[1.35rem] h-2.5 w-2.5 rounded-full ring-2",
-                  col.dot,
+                  "rounded px-1.5 py-0.5 text-xs font-medium",
+                  col.chip,
                 )}
-              />
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span
-                  className={cn(
-                    "rounded px-1.5 py-0.5 text-xs font-medium",
-                    col.chip,
-                  )}
-                >
-                  {st?.label ?? c.toStage}
+              >
+                {st?.label ?? c.toStage}
+              </span>
+              {from && (
+                <span className="text-muted-foreground text-[11px]">
+                  ← {from.label}
                 </span>
-                {from && (
-                  <span className="text-muted-foreground text-[11px]">
-                    ← {from.label}
-                  </span>
-                )}
-                <span className="text-muted-foreground ml-auto text-[11px]">
-                  {fmtDate(new Date(c.changedAt))}
-                  {c.changedBy ? ` · ${primaryName(c.changedBy)}` : ""}
-                </span>
-              </div>
-              {c.reason && (
-                <p className="text-muted-foreground mt-0.5 text-xs break-words whitespace-pre-wrap">
-                  {c.reason}
-                </p>
               )}
-            </li>
-          );
-        })}
-      </ol>
-    </div>
+              <span className="text-muted-foreground ml-auto text-[11px]">
+                {fmtDate(new Date(c.changedAt))}
+                {c.changedBy ? ` · ${primaryName(c.changedBy)}` : ""}
+              </span>
+            </div>
+            {c.reason && (
+              <p className="text-muted-foreground mt-0.5 text-xs break-words whitespace-pre-wrap">
+                {c.reason}
+              </p>
+            )}
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 
@@ -615,45 +709,54 @@ function ActivitySection({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="bg-card space-y-2.5 rounded-lg border p-3">
       <div>
-        <div className="text-sm font-medium">活動 / 跟進</div>
-        <p className="text-muted-foreground text-xs">
+        <div className="text-muted-foreground text-xs font-medium">
+          活動 / 跟進
+        </div>
+        <p className="text-muted-foreground mt-0.5 text-xs">
           只記跟這筆商機有關的紀錄；跟這間公司整體的關係追蹤，請到「公司」總覽裡留進度備註。
         </p>
       </div>
       <form onSubmit={submit} className="space-y-2">
+        {/* 類型：分段按鈕，取代原生 select——同一頁的「請假方式」切換已經是這個樣式，沿用即可。 */}
+        <div className="bg-muted grid grid-cols-5 gap-1 rounded-md p-1">
+          {CRM_ACTIVITY_TYPES.map((t) => (
+            <button
+              key={t.value}
+              type="button"
+              onClick={() => setType(t.value)}
+              title={t.label}
+              className={cn(
+                "rounded px-1 py-1 text-xs font-medium transition-colors",
+                type === t.value
+                  ? "bg-background shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <span aria-hidden>{t.icon}</span>
+              <span className="ml-1 hidden sm:inline">{t.label}</span>
+            </button>
+          ))}
+        </div>
         <div className="flex gap-2">
-          <select
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-            className="border-input h-9 w-24 shrink-0 rounded-md border bg-transparent px-2 text-sm"
-          >
-            {CRM_ACTIVITY_TYPES.map((t) => (
-              <option key={t.value} value={t.value}>
-                {t.icon} {t.label}
-              </option>
-            ))}
-          </select>
           <input
             name="body"
             placeholder="紀錄一則跟進 / 備註…"
             className="border-input h-9 flex-1 rounded-md border bg-transparent px-2 text-sm outline-none focus:border-ring"
           />
-        </div>
-        <div className="flex items-center gap-2">
-          {type === "task" && (
-            <input
-              name="dueDate"
-              type="date"
-              title="待辦到期日"
-              className="border-input h-8 rounded-md border bg-transparent px-2 text-xs"
-            />
-          )}
-          <Button type="submit" size="sm" disabled={pending} className="ml-auto">
+          <Button type="submit" size="sm" disabled={pending}>
             新增
           </Button>
         </div>
+        {type === "task" && (
+          <input
+            name="dueDate"
+            type="date"
+            title="待辦到期日"
+            className="border-input h-8 rounded-md border bg-transparent px-2 text-xs"
+          />
+        )}
       </form>
 
       <div className="max-h-72 space-y-2 overflow-y-auto pr-1">

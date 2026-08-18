@@ -20,6 +20,7 @@ export type MultiSelectOption = { id: string; label: string };
  */
 export function MultiSelectField({
   label,
+  icon,
   options,
   selectedIds,
   primaryId,
@@ -28,6 +29,8 @@ export function MultiSelectField({
   emptyHint = "沒有可選項目",
 }: {
   label: string;
+  /** 觸發鈕內文字左邊的小圖示（選填，如聯絡人 / 負責人各自的識別圖示）。 */
+  icon?: React.ReactNode;
   options: MultiSelectOption[];
   selectedIds: string[];
   primaryId: string | null;
@@ -53,10 +56,11 @@ export function MultiSelectField({
     <div className="space-y-1.5">
       <Label>{label}</Label>
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger className="border-input bg-transparent dark:bg-input/30 focus-visible:border-ring flex h-9 w-full items-center justify-between rounded-md border px-2 text-sm outline-none">
+        <PopoverTrigger className="border-input bg-transparent dark:bg-input/30 focus-visible:border-ring flex h-9 w-full items-center gap-1.5 rounded-md border px-2 text-sm outline-none">
+          {icon}
           <span
             className={cn(
-              "truncate text-left",
+              "min-w-0 flex-1 truncate text-left",
               selected.length === 0 && "text-muted-foreground",
             )}
           >
