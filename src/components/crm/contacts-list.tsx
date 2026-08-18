@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { Pencil, Search, Building2, History, Mail, Phone } from "lucide-react";
 import { ContactDialog, type ContactView } from "@/components/crm/contact-dialog";
 import { CompanyTimelineDialog } from "@/components/crm/company-timeline-dialog";
+import { CopyTextButton } from "@/components/crm/copy-text-button";
 import type { OwnerLite } from "@/components/okr/key-result-row";
 
 export type ContactRow = ContactView & {
@@ -51,12 +52,11 @@ export function ContactRowItem({
       </div>
       <div className="text-muted-foreground flex-1 space-y-0.5 text-xs">
         {c.email && (
-          <a
-            href={`mailto:${c.email}`}
-            className="flex items-center gap-1 truncate hover:underline"
-          >
-            <Mail className="h-3 w-3 shrink-0" /> {c.email}
-          </a>
+          <div className="flex min-w-0 items-center gap-1">
+            <Mail className="h-3 w-3 shrink-0" />
+            <span className="min-w-0 truncate">{c.email}</span>
+            <CopyTextButton text={c.email} label="複製 Email" />
+          </div>
         )}
         {c.phone && (
           <div className="flex items-center gap-1 truncate">
