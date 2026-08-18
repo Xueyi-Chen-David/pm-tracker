@@ -63,6 +63,8 @@ type StageChange = {
 };
 
 const NOTE_MAX = 4000;
+// 備註的框跟「活動 / 跟進」清單的框共用同一個高度上限，兩邊都不會無限長高，視覺也一致。
+const ACTIVITY_LIST_MAX_H = "max-h-96";
 
 const inputCls =
   "border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm outline-none focus:border-ring";
@@ -370,6 +372,9 @@ export function DealDialog({
                   maxLength={NOTE_MAX}
                   rows={editing ? 3 : 2}
                   placeholder="輸入備註…"
+                  // Textarea 預設 field-sizing-content 會無限跟著內容長高；限跟「活動 / 跟進」
+                  // 清單那顆框（ACTIVITY_LIST_MAX_H）同一個上限，超過就內部捲動，視覺一致。
+                  className={cn(ACTIVITY_LIST_MAX_H, "overflow-y-auto")}
                 />
               </div>
 
@@ -716,14 +721,7 @@ function ActivitySection({
 
   return (
     <div className="bg-card space-y-2.5 rounded-lg border p-3">
-      <div>
-        <div className="text-muted-foreground text-xs font-medium">
-          活動 / 跟進
-        </div>
-        <p className="text-muted-foreground mt-0.5 text-xs">
-          只記跟這筆商機有關的紀錄；跟這間公司整體的關係追蹤，請到「公司」總覽裡留進度備註。
-        </p>
-      </div>
+      <div className="text-muted-foreground text-xs font-medium">活動 / 跟進</div>
       <form onSubmit={submit} className="space-y-2">
         {/* 類型：分段按鈕，取代原生 select——同一頁的「請假方式」切換已經是這個樣式，沿用即可。
             標籤一律不換行（whitespace-nowrap）；原本用 sm: 隱藏文字是拿視窗寬度判斷，這裡
@@ -768,7 +766,7 @@ function ActivitySection({
         )}
       </form>
 
-      <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+      <div className={cn(ACTIVITY_LIST_MAX_H, "space-y-2 overflow-y-auto pr-1")}>
         {activities.length === 0 ? (
           <p className="text-muted-foreground text-xs">尚無活動紀錄。</p>
         ) : (
