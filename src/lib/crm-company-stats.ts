@@ -88,8 +88,56 @@ export function productCategoryStats(rows: CrmCompanyProfileRow[]): Bucket[] {
   return tally(rows.map((r) => r.productCategory));
 }
 
+/**
+ * 47 都道府県。location 是自由文字（常見寫法：只填縣名／縣+市／完整地址），沒有先
+ * 收斂到都道府県層級就直接分組，桶會依打了多細而爆炸（「福岡県」「福岡県福岡市」
+ * 「福岡県福岡市博多区XX」各自算一桶）。抽出都道府県當統計層級，原始地點文字留給
+ * 「點進某縣看細節」用（見 groupByPrefecture）。
+ */
+const PREFECTURES = [
+  "北海道",
+  "青森県", "岩手県", "宮城県", "秋田県", "山形県", "福島県",
+  "茨城県", "栃木県", "群馬県", "埼玉県", "千葉県", "東京都", "神奈川県",
+  "新潟県", "富山県", "石川県", "福井県", "山梨県", "長野県",
+  "岐阜県", "静岡県", "愛知県", "三重県",
+  "滋賀県", "京都府", "大阪府", "兵庫県", "奈良県", "和歌山県",
+  "鳥取県", "島根県", "岡山県", "広島県", "山口県",
+  "徳島県", "香川県", "愛媛県", "高知県",
+  "福岡県", "佐賀県", "長崎県", "熊本県", "大分県", "宮崎県", "鹿児島県", "沖縄県",
+] as const;
+
+/**
+ * 從地點自由文字擷取都道府県層級。完整寫法（含 都/道/府/県 字尾，可以出現在文字任何
+ * 位置，涵蓋「福岡県福岡市...」這種完整地址）優先比對；抓不到才試簡稱（打「福岡」
+ * 沒加「県」）。兩種都沒對到就整段原文當自己的桶——可能是海外地址或特殊寫法，不硬塞。
+ */
+export function extractPrefecture(raw: string): string {
+  const trimmed = raw.trim();
+  for (const pref of PREFECTURES) {
+    if (trimmed.includes(pref)) return pref;
+  }
+  for (const pref of PREFECTURES) {
+    if (trimmed.startsWith(pref.slice(0, -1))) return pref;
+  }
+  return trimmed;
+}
+
 export function locationStats(rows: CrmCompanyProfileRow[]): Bucket[] {
-  return tally(rows.map((r) => r.location));
+  return tally(rows.map((r) => (r.location?.trim() ? extractPrefecture(r.location) : null)));
+}
+
+/** 依都道府県分組公司（含原始 location 文字），供「點某縣展開看底下哪些公司／地點」用。 */
+export function groupByPrefecture(
+  rows: CrmCompanyProfileRow[],
+): Map<string, CrmCompanyProfileRow[]> {
+  const map = new Map<string, CrmCompanyProfileRow[]>();
+  for (const r of rows) {
+    const key = r.location?.trim() ? extractPrefecture(r.location) : "不明";
+    const arr = map.get(key) ?? [];
+    arr.push(r);
+    map.set(key, arr);
+  }
+  return map;
 }
 
 const HEADCOUNT_BUCKETS = [

@@ -1,15 +1,18 @@
 "use client";
 
+import { useState } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
-import { Building2 } from "lucide-react";
+import { Building2, ChevronRight } from "lucide-react";
 import {
   ecommerceStats,
   productCategoryStats,
   locationStats,
+  groupByPrefecture,
   headcountStats,
   capitalStats,
   type Bucket,
 } from "@/lib/crm-company-stats";
+import { cn } from "@/lib/utils";
 import type { CrmCompanyProfileRow } from "@/server/queries";
 
 /** 跟 progress-chart.tsx／daily-report-trend.tsx 同一套色票風格（固定 hex，不是 CSS 變數——
@@ -52,8 +55,47 @@ export function CompanyStatsPanel({ profiles }: { profiles: CrmCompanyProfileRow
         <DonutStatCard title="電商使用情況" buckets={ecommerceStats(profiles)} total={total} />
         <DonutStatCard title="人數規模" buckets={headcountStats(profiles)} total={total} />
         <DonutStatCard title="產品類型" buckets={productCategoryStats(profiles)} total={total} />
-        <DonutStatCard title="地點分析" buckets={locationStats(profiles)} total={total} />
+        <LocationStatCard profiles={profiles} total={total} />
         <DonutStatCard title="資本額" buckets={capitalStats(profiles)} total={total} />
+      </div>
+    </div>
+  );
+}
+
+/** 甜甜圈本體（圖 + 中心總數），DonutStatCard／LocationStatCard 共用，只有旁邊的圖例不同。 */
+function Donut({
+  data,
+  total,
+}: {
+  data: { name: string; value: number; color: string }[];
+  total: number;
+}) {
+  return (
+    <div className="relative h-28 w-28 shrink-0">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie
+            data={data}
+            dataKey="value"
+            nameKey="name"
+            innerRadius={30}
+            outerRadius={54}
+            paddingAngle={data.length > 1 ? 2 : 0}
+            stroke="none"
+          >
+            {data.map((d) => (
+              <Cell key={d.name} fill={d.color} />
+            ))}
+          </Pie>
+          <Tooltip
+            formatter={(value, name) => [`${value} 家`, name]}
+            contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }}
+          />
+        </PieChart>
+      </ResponsiveContainer>
+      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-sm leading-none font-bold tabular-nums">{total}</span>
+        <span className="text-muted-foreground text-[10px] leading-none">家</span>
       </div>
     </div>
   );
@@ -73,33 +115,7 @@ function DonutStatCard({ title, buckets, total }: { title: string; buckets: Buck
         {title}
       </div>
       <div className="flex items-center gap-3">
-        <div className="relative h-28 w-28 shrink-0">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={data}
-                dataKey="value"
-                nameKey="name"
-                innerRadius={30}
-                outerRadius={54}
-                paddingAngle={data.length > 1 ? 2 : 0}
-                stroke="none"
-              >
-                {data.map((d) => (
-                  <Cell key={d.name} fill={d.color} />
-                ))}
-              </Pie>
-              <Tooltip
-                formatter={(value, name) => [`${value} 家`, name]}
-                contentStyle={{ borderRadius: 8, border: "1px solid #e5e7eb", fontSize: 12 }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-sm leading-none font-bold tabular-nums">{total}</span>
-            <span className="text-muted-foreground text-[10px] leading-none">家</span>
-          </div>
-        </div>
+        <Donut data={data} total={total} />
         <div className="min-w-0 flex-1 space-y-1">
           {buckets.map((b, i) => (
             <div key={b.label} className="flex items-center gap-1.5 text-xs">
@@ -115,6 +131,81 @@ function DonutStatCard({ title, buckets, total }: { title: string; buckets: Buck
               </span>
             </div>
           ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 地點分析：跟 DonutStatCard 同一套甜甜圖，只是分組層級收斂到都道府県（見
+ * lib/crm-company-stats.ts 的 extractPrefecture），且圖例可以點——點某縣展開，
+ * 底下列出這個縣目前有哪些公司、原始填的地點文字是什麼（可能比「XX県」更細）。
+ */
+function LocationStatCard({ profiles, total }: { profiles: CrmCompanyProfileRow[]; total: number }) {
+  const buckets = locationStats(profiles);
+  const byPrefecture = groupByPrefecture(profiles);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const data = buckets.map((b, i) => ({
+    name: b.label,
+    value: b.count,
+    color: PALETTE[i % PALETTE.length],
+  }));
+
+  return (
+    <div className="bg-card flex flex-col gap-3 rounded-xl border p-3">
+      <div className="text-muted-foreground flex items-center gap-1.5 text-xs font-medium">
+        <Building2 className="h-3.5 w-3.5" />
+        地點分析
+      </div>
+      <div className="flex items-center gap-3">
+        <Donut data={data} total={total} />
+        <div className="min-w-0 flex-1 space-y-1">
+          {buckets.map((b, i) => {
+            const companies = byPrefecture.get(b.label) ?? [];
+            const isOpen = expanded === b.label;
+            return (
+              <div key={b.label}>
+                <button
+                  type="button"
+                  onClick={() => setExpanded(isOpen ? null : b.label)}
+                  className="hover:bg-muted/60 -mx-1 flex w-full items-center gap-1.5 rounded px-1 py-0.5 text-xs"
+                  aria-expanded={isOpen}
+                >
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ background: PALETTE[i % PALETTE.length] }}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-left" title={b.label}>
+                    {b.label}
+                  </span>
+                  <span className="text-muted-foreground shrink-0 tabular-nums">
+                    {b.count} · {Math.round((b.count / total) * 100)}%
+                  </span>
+                  <ChevronRight
+                    className={cn(
+                      "text-muted-foreground h-3 w-3 shrink-0 transition-transform",
+                      isOpen && "rotate-90",
+                    )}
+                  />
+                </button>
+                {isOpen && (
+                  <ul className="border-muted mt-0.5 mb-1 ml-3.5 space-y-0.5 border-l pl-2">
+                    {companies.map((c) => (
+                      <li key={c.company} className="truncate text-[11px]">
+                        <span className="font-medium">{c.company}</span>
+                        {c.location?.trim() && c.location.trim() !== b.label && (
+                          <span className="text-muted-foreground ml-1">
+                            · {c.location.trim()}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>
