@@ -249,27 +249,27 @@ export default async function CrmPage({
           value/label 同排、icon 縮小；sm 以上就固定 4 欄，不讓它疊成兩行佔更多高度。 */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <StatTile
-          icon={<TrendingUp className="h-3.5 w-3.5" />}
+          icon={<TrendingUp className="h-3.5 w-3.5 sm:h-4 sm:w-4 lg:h-5 lg:w-5" />}
           label="進行中商機"
           value={openDeals.length}
           tone="sky"
         />
         <StatTile
-          icon={<Wallet className="h-3.5 w-3.5" />}
+          icon={<Wallet className="h-3.5 w-3.5 sm:h-4 sm:w-4 lg:h-5 lg:w-5" />}
           label="管線金額"
           value={fmtMoney(pipelineValue)}
           sub={`加權 ${fmtMoney(weightedPipelineValue)}`}
           tone="violet"
         />
         <StatTile
-          icon={<Trophy className="h-3.5 w-3.5" />}
+          icon={<Trophy className="h-3.5 w-3.5 sm:h-4 sm:w-4 lg:h-5 lg:w-5" />}
           label="已成交"
           value={won.length}
           sub={fmtMoney(wonValue)}
           tone="emerald"
         />
         <StatTile
-          icon={<Target className="h-3.5 w-3.5" />}
+          icon={<Target className="h-3.5 w-3.5 sm:h-4 sm:w-4 lg:h-5 lg:w-5" />}
           label="成交率"
           value={`${winRate}%`}
           sub={`${won.length} 勝 / ${lost.length} 敗`}
@@ -379,14 +379,14 @@ function StatTile({
   tone: keyof typeof TONE;
 }) {
   return (
-    // 比 size="sm" 更進一步壓扁：py-1.5／px-2.5 直接覆蓋掉 --card-spacing；value 跟
-    // label 同一行（不再上下疊兩行），把可省的高度都省掉，小螢幕筆電才不會被這排卡片
-    // 擠掉看板的可用高度。sub（加權金額／勝敗）保留但縮到最小字級。
-    <Card size="sm" className="py-1.5">
-      <CardContent className="flex items-center gap-2 px-2.5">
+    // 窄視窗（筆電）維持壓扁——這排卡片不能擠掉看板的可用高度；寬視窗有空間就沒必要
+    // 一樣扁，跟著 sm/lg 斷點放大。value 跟 label 同一行（不再上下疊兩行）在所有尺寸
+    // 都保留，省下的高度比字級大小更值得。sub（加權金額／勝敗）縮到最小字級。
+    <Card size="sm" className="py-1.5 sm:py-2 lg:py-3">
+      <CardContent className="flex items-center gap-2 px-2.5 sm:gap-2.5 sm:px-3 lg:gap-3 lg:px-3.5">
         <div
           className={cn(
-            "flex h-6 w-6 shrink-0 items-center justify-center rounded-md",
+            "flex h-6 w-6 shrink-0 items-center justify-center rounded-md sm:h-8 sm:w-8 lg:h-9 lg:w-9",
             TONE[tone],
           )}
         >
@@ -394,13 +394,15 @@ function StatTile({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-1.5">
-            <span className="text-sm leading-none font-bold tabular-nums">{value}</span>
-            <span className="text-muted-foreground truncate text-[11px] leading-none">
+            <span className="text-sm leading-none font-bold tabular-nums sm:text-base lg:text-lg">
+              {value}
+            </span>
+            <span className="text-muted-foreground truncate text-[11px] leading-none sm:text-xs lg:text-sm">
               {label}
             </span>
           </div>
           {sub && (
-            <div className="text-muted-foreground/80 mt-0.5 truncate text-[10px] leading-none">
+            <div className="text-muted-foreground/80 mt-0.5 truncate text-[10px] leading-none sm:text-[11px] lg:text-xs">
               {sub}
             </div>
           )}
