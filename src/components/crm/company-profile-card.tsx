@@ -560,8 +560,15 @@ function CompanyProfileEditDialog({
                     </datalist>
                   </div>
                   <div className="grid gap-1.5">
-                    <Label htmlFor={`${idPrefix}-grade`}>優先級（自訂，如 A／B／C）</Label>
-                    <Input id={`${idPrefix}-grade`} ref={gradeRef} defaultValue={profile?.grade ?? ""} />
+                    <Label htmlFor={`${idPrefix}-grade`} className="whitespace-nowrap">
+                      優先級
+                    </Label>
+                    <Input
+                      id={`${idPrefix}-grade`}
+                      ref={gradeRef}
+                      defaultValue={profile?.grade ?? ""}
+                      placeholder="例：A／B／C"
+                    />
                   </div>
                 </div>
               </div>
@@ -619,6 +626,7 @@ export function AddCompanyDialog({ trigger }: { trigger: React.ReactElement }) {
   const [pending, start] = useTransition();
   const [hasPhysicalStore, setHasPhysicalStore] = useState<boolean | null>(null);
   const [hasEcommerce, setHasEcommerce] = useState<boolean | null>(null);
+  const repNames = useRepresentativeNameSuggestions();
 
   const companyRef = useRef<HTMLInputElement>(null);
   const industryRef = useRef<HTMLInputElement>(null);
@@ -699,7 +707,7 @@ export function AddCompanyDialog({ trigger }: { trigger: React.ReactElement }) {
           })
         : trigger}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[85vh] max-w-2xl overflow-y-auto">
+        <DialogContent className="max-h-[85vh] max-w-4xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>新增公司</DialogTitle>
           </DialogHeader>
@@ -709,142 +717,185 @@ export function AddCompanyDialog({ trigger }: { trigger: React.ReactElement }) {
               e.preventDefault();
               submit();
             }}
-            className="grid gap-4"
+            className="grid gap-5"
           >
-            <div className="grid gap-1">
-              <Label htmlFor={`${idPrefix}-name`}>公司名稱</Label>
-              <Input id={`${idPrefix}-name`} ref={companyRef} placeholder="例：井上酒造" autoFocus />
-            </div>
+            {/* 雙欄版面跟 CompanyProfileEditDialog（編輯用那顆）同一份設計：左邊是結構化
+                欄位（基本資料／店面與電商），右邊是長文字說明——兩顆對話框沒辦法共用
+                JSX（見檔頭關於 ref-in-render 規則的說明），但版面要保持一致，改一邊
+                另一邊沒跟著改，兩顆對話框就會長得不一樣。 */}
+            <div className="grid gap-6 md:grid-cols-2">
+              <div className="space-y-5">
+                <div className="space-y-3">
+                  <SectionHeading icon={<Building2 className="h-3.5 w-3.5" />}>基本資料</SectionHeading>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                    <div className="grid gap-1.5 col-span-2">
+                      <Label htmlFor={`${idPrefix}-name`}>公司名稱</Label>
+                      <Input id={`${idPrefix}-name`} ref={companyRef} placeholder="例：井上酒造" autoFocus />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor={`${idPrefix}-industry`}>產業類別</Label>
+                      <Input
+                        id={`${idPrefix}-industry`}
+                        ref={industryRef}
+                        list={`${idPrefix}-industry-suggestions`}
+                        placeholder="例：食品・銘菓"
+                      />
+                      <datalist id={`${idPrefix}-industry-suggestions`}>
+                        {INDUSTRY_SUGGESTIONS.map((p) => (
+                          <option key={p} value={p} />
+                        ))}
+                      </datalist>
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor={`${idPrefix}-category`}>產品類型</Label>
+                      <select
+                        id={`${idPrefix}-category`}
+                        ref={productCategoryRef}
+                        defaultValue=""
+                        className="border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm"
+                      >
+                        <option value="">—</option>
+                        {PRODUCT_CATEGORY_OPTIONS.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor={`${idPrefix}-location`}>地點</Label>
+                      <Input
+                        id={`${idPrefix}-location`}
+                        ref={locationRef}
+                        list={`${idPrefix}-location-suggestions`}
+                        placeholder="例：福岡・新宮町"
+                      />
+                      <datalist id={`${idPrefix}-location-suggestions`}>
+                        {LOCATION_SUGGESTIONS.map((p) => (
+                          <option key={p} value={p} />
+                        ))}
+                      </datalist>
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor={`${idPrefix}-headcount`}>公司人數</Label>
+                      <Input id={`${idPrefix}-headcount`} ref={headcountRef} placeholder="例：計 66 名" />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor={`${idPrefix}-capital`}>資本額</Label>
+                      <Input id={`${idPrefix}-capital`} ref={capitalRef} placeholder="例：資本金1000万円" />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor={`${idPrefix}-founded`}>創業／設立</Label>
+                      <Input id={`${idPrefix}-founded`} ref={foundedRef} placeholder="例：1976年創業" />
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor={`${idPrefix}-rep`}>代表人</Label>
+                      <Input
+                        id={`${idPrefix}-rep`}
+                        ref={representativeRef}
+                        list={`${idPrefix}-rep-suggestions`}
+                      />
+                      <datalist id={`${idPrefix}-rep-suggestions`}>
+                        {repNames.map((p) => (
+                          <option key={p} value={p} />
+                        ))}
+                      </datalist>
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor={`${idPrefix}-website`}>官網</Label>
+                      <Input id={`${idPrefix}-website`} ref={websiteRef} placeholder="example.co.jp" />
+                    </div>
+                  </div>
+                </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-1">
-                <Label htmlFor={`${idPrefix}-industry`}>產業類別</Label>
-                <Input id={`${idPrefix}-industry`} ref={industryRef} placeholder="例：食品・銘菓" />
-              </div>
-              <div className="grid gap-1">
-                <Label htmlFor={`${idPrefix}-category`}>產品類型</Label>
-                <select
-                  id={`${idPrefix}-category`}
-                  ref={productCategoryRef}
-                  defaultValue=""
-                  className="border-input h-9 w-full rounded-md border bg-transparent px-2 text-sm"
-                >
-                  <option value="">—</option>
-                  {PRODUCT_CATEGORY_OPTIONS.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid gap-1">
-                <Label htmlFor={`${idPrefix}-location`}>地點</Label>
-                <Input id={`${idPrefix}-location`} ref={locationRef} placeholder="例：福岡・新宮町" />
-              </div>
-              <div className="grid gap-1">
-                <Label htmlFor={`${idPrefix}-headcount`}>公司人數</Label>
-                <Input id={`${idPrefix}-headcount`} ref={headcountRef} placeholder="例：計 66 名" />
-              </div>
-              <div className="grid gap-1">
-                <Label htmlFor={`${idPrefix}-capital`}>資本額</Label>
-                <Input id={`${idPrefix}-capital`} ref={capitalRef} placeholder="例：資本金1000万円" />
-              </div>
-              <div className="grid gap-1">
-                <Label htmlFor={`${idPrefix}-founded`}>創業／設立</Label>
-                <Input id={`${idPrefix}-founded`} ref={foundedRef} placeholder="例：1976年創業" />
-              </div>
-              <div className="grid gap-1">
-                <Label htmlFor={`${idPrefix}-rep`}>代表人</Label>
-                <Input id={`${idPrefix}-rep`} ref={representativeRef} />
-              </div>
-              <div className="grid gap-1">
-                <Label htmlFor={`${idPrefix}-website`}>官網</Label>
-                <Input id={`${idPrefix}-website`} ref={websiteRef} placeholder="example.co.jp" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-1">
-                <Label>是否有直營店面</Label>
-                <div className="flex gap-1.5">
-                  {TRI_STATE.map((t) => (
-                    <button
-                      key={String(t.v)}
-                      type="button"
-                      onClick={() => setHasPhysicalStore(t.v)}
-                      className={cn(
-                        "border-input rounded-md border px-3 py-1.5 text-xs",
-                        hasPhysicalStore === t.v
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "hover:bg-muted",
-                      )}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
+                <div className="space-y-3 border-t pt-5">
+                  <SectionHeading icon={<Store className="h-3.5 w-3.5" />}>店面與電商</SectionHeading>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                    <div className="grid gap-1.5">
+                      <Label>是否有直營店面</Label>
+                      <div className="flex gap-1.5">
+                        {TRI_STATE.map((t) => (
+                          <button
+                            key={String(t.v)}
+                            type="button"
+                            onClick={() => setHasPhysicalStore(t.v)}
+                            className={cn(
+                              "border-input rounded-md border px-3 py-1.5 text-xs",
+                              hasPhysicalStore === t.v
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "hover:bg-muted",
+                            )}
+                          >
+                            {t.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label>是否有電商</Label>
+                      <div className="flex gap-1.5">
+                        {TRI_STATE.map((t) => (
+                          <button
+                            key={String(t.v)}
+                            type="button"
+                            onClick={() => setHasEcommerce(t.v)}
+                            className={cn(
+                              "border-input rounded-md border px-3 py-1.5 text-xs",
+                              hasEcommerce === t.v
+                                ? "bg-primary text-primary-foreground border-primary"
+                                : "hover:bg-muted",
+                            )}
+                          >
+                            {t.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor={`${idPrefix}-ec`}>電商平台（若有）</Label>
+                      <Input
+                        id={`${idPrefix}-ec`}
+                        ref={ecommerceRef}
+                        list={`${idPrefix}-ec-suggestions`}
+                        placeholder="例：Shopify"
+                      />
+                      <datalist id={`${idPrefix}-ec-suggestions`}>
+                        {EC_PLATFORM_NAMES.map((p) => (
+                          <option key={p} value={p} />
+                        ))}
+                      </datalist>
+                    </div>
+                    <div className="grid gap-1.5">
+                      <Label htmlFor={`${idPrefix}-grade`} className="whitespace-nowrap">
+                        優先級
+                      </Label>
+                      <Input id={`${idPrefix}-grade`} ref={gradeRef} placeholder="例：A／B／C" />
+                    </div>
+                  </div>
                 </div>
               </div>
-              <div className="grid gap-1">
-                <Label>是否有電商</Label>
-                <div className="flex gap-1.5">
-                  {TRI_STATE.map((t) => (
-                    <button
-                      key={String(t.v)}
-                      type="button"
-                      onClick={() => setHasEcommerce(t.v)}
-                      className={cn(
-                        "border-input rounded-md border px-3 py-1.5 text-xs",
-                        hasEcommerce === t.v
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "hover:bg-muted",
-                      )}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
+
+              <div className="space-y-3 md:border-l md:pl-6">
+                <SectionHeading icon={<FileText className="h-3.5 w-3.5" />}>詳細說明</SectionHeading>
+                <div className="grid gap-3">
+                  <div className="grid gap-1.5">
+                    <Label htmlFor={`${idPrefix}-products`}>販賣的產品（代表性列幾種就好）</Label>
+                    <Textarea id={`${idPrefix}-products`} ref={productsRef} rows={3} />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor={`${idPrefix}-intro`}>公司介紹</Label>
+                    <Textarea id={`${idPrefix}-intro`} ref={introRef} rows={4} />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor={`${idPrefix}-hook`}>切入點</Label>
+                    <Textarea id={`${idPrefix}-hook`} ref={hookRef} rows={4} />
+                  </div>
+                  <div className="grid gap-1.5">
+                    <Label htmlFor={`${idPrefix}-note`}>備註</Label>
+                    <Textarea id={`${idPrefix}-note`} ref={noteRef} rows={3} />
+                  </div>
                 </div>
               </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-1">
-                <Label htmlFor={`${idPrefix}-ec`}>電商平台（若有）</Label>
-                <Input
-                  id={`${idPrefix}-ec`}
-                  ref={ecommerceRef}
-                  list={`${idPrefix}-ec-suggestions`}
-                  placeholder="例：Shopify"
-                />
-                <datalist id={`${idPrefix}-ec-suggestions`}>
-                  {EC_PLATFORM_NAMES.map((p) => (
-                    <option key={p} value={p} />
-                  ))}
-                </datalist>
-              </div>
-              <div className="grid gap-1">
-                <Label htmlFor={`${idPrefix}-grade`}>優先級（自訂，如 A／B／C）</Label>
-                <Input id={`${idPrefix}-grade`} ref={gradeRef} />
-              </div>
-            </div>
-
-            <div className="grid gap-1">
-              <Label htmlFor={`${idPrefix}-products`}>販賣的產品（代表性列幾種就好）</Label>
-              <Textarea id={`${idPrefix}-products`} ref={productsRef} rows={2} />
-            </div>
-
-            <div className="grid gap-1">
-              <Label htmlFor={`${idPrefix}-intro`}>公司介紹</Label>
-              <Textarea id={`${idPrefix}-intro`} ref={introRef} rows={3} />
-            </div>
-
-            <div className="grid gap-1">
-              <Label htmlFor={`${idPrefix}-hook`}>切入點</Label>
-              <Textarea id={`${idPrefix}-hook`} ref={hookRef} rows={3} />
-            </div>
-
-            <div className="grid gap-1">
-              <Label htmlFor={`${idPrefix}-note`}>備註</Label>
-              <Textarea id={`${idPrefix}-note`} ref={noteRef} rows={2} />
             </div>
 
             {error && (
