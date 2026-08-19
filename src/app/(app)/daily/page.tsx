@@ -136,41 +136,43 @@ export default async function DailyPage() {
   }));
 
   // 「我的今日」卡片（今日報告表單）。打卡已移至個人的「打卡 / 出勤」頁。
+  // flex h-full flex-col：跟右邊「我的近期報告」並排在同一個 grid 列，兩張卡預設
+  // 高度不一樣高（表單通常比報告清單矮）；grid 本來就會把兩欄拉齊到列高，但沒有這行
+  // 的話只有外層容器被拉高，Card 本身還是维持內容原本的高度，框線在矮的那張會停在
+  // 表單底下，看起來像少一截、沒對齊。CardContent 加 flex-1 讓卡片內部也跟著撐開。
   const myTodayCards = (
-    <>
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-1.5">
-            <ClipboardList className="h-4 w-4" /> 今日報告
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <DailyReportForm
-            initial={
-              todayReport
-                ? {
-                    note: todayReport.note ?? "",
-                    items: todayReport.items.map((it) => ({
-                      title: it.title,
-                      actual: it.actual,
-                    })),
-                  }
-                : null
-            }
-          />
-        </CardContent>
-      </Card>
-    </>
+    <Card className="flex h-full flex-col">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-1.5">
+          <ClipboardList className="h-4 w-4" /> 今日報告
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="flex-1">
+        <DailyReportForm
+          initial={
+            todayReport
+              ? {
+                  note: todayReport.note ?? "",
+                  items: todayReport.items.map((it) => ({
+                    title: it.title,
+                    actual: it.actual,
+                  })),
+                }
+              : null
+          }
+        />
+      </CardContent>
+    </Card>
   );
 
   const myRecentCard = (
-    <Card>
+    <Card className="flex h-full flex-col">
       <CardHeader>
         <CardTitle className="flex items-center gap-1.5">
           <History className="h-4 w-4" /> 我的近期報告
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex-1">
         {myReports.length > 0 ? (
           <div className="max-h-[28rem] space-y-2 overflow-y-auto pr-1 pb-1">
             {myReports.map((r) => (
@@ -192,10 +194,10 @@ export default async function DailyPage() {
     </Card>
   );
 
-  // 「我的日報」分頁：今日打卡 / 報告表單 + 近期報告。
+  // 「我的日報」分頁：今日打卡 / 報告表單 + 近期報告，兩張卡等高並排。
   const mine = (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <div className="space-y-4">{myTodayCards}</div>
+    <div className="grid items-stretch gap-4 lg:grid-cols-2">
+      {myTodayCards}
       {myRecentCard}
     </div>
   );
