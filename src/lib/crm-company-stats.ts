@@ -21,6 +21,39 @@ export const PRODUCT_CATEGORY_OPTIONS = [
 
 export type Bucket = { label: string; count: number };
 
+/**
+ * 電商平台的正式寫法 + 常見別名。ecommercePlatform 是自由文字欄位（打法不一：大小寫、
+ * 全半形、簡稱、附加說明…），沒有先歸一化就直接照字串分組，「同一個平台」會被拆成
+ * 好幾個桶（BASE / base / Base 各自算一筆，統計看起來又多又重複）。EC_PLATFORM_NAMES
+ * 也是編輯表單 datalist 建議清單的資料來源（見 company-profile-card.tsx），單一真相。
+ */
+const EC_PLATFORMS: { canonical: string; aliases: string[] }[] = [
+  { canonical: "Shopify", aliases: ["shopify"] },
+  { canonical: "カラーミーショップ", aliases: ["カラーミー", "colorme", "color me"] },
+  { canonical: "MakeShop", aliases: ["makeshop", "メイクショップ"] },
+  { canonical: "futureshop", aliases: ["futureshop", "フューチャーショップ"] },
+  { canonical: "BASE", aliases: ["base", "ベイス"] },
+  { canonical: "楽天市場", aliases: ["楽天"] },
+  { canonical: "自社サイト", aliases: ["自社"] },
+];
+
+export const EC_PLATFORM_NAMES = EC_PLATFORMS.map((p) => p.canonical);
+
+/**
+ * 把自由輸入的電商平台名稱對應回正式寫法；沒對到任何已知別名的自訂平台，保留原始輸入
+ * （trim 後）當自己的桶，不硬塞進不相干的類別——這種名單本來就會有長尾的少見平台。
+ */
+export function normalizeEcPlatform(raw: string): string {
+  const trimmed = raw.trim();
+  const key = trimmed.toLowerCase();
+  for (const { canonical, aliases } of EC_PLATFORMS) {
+    if (key === canonical.toLowerCase() || aliases.some((a) => key.includes(a))) {
+      return canonical;
+    }
+  }
+  return trimmed;
+}
+
 function tally(labels: (string | null)[], fallback = "不明"): Bucket[] {
   const counts = new Map<string, number>();
   for (const raw of labels) {
@@ -32,13 +65,20 @@ function tally(labels: (string | null)[], fallback = "不明"): Bucket[] {
     .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "ja"));
 }
 
-/** 電商：hasEcommerce===false 或沒填就是「無」；true 才依 ecommercePlatform 分組（沒填平台就是「有電商・平台不明」）。 */
+/**
+ * 電商：hasEcommerce===false 或沒填就是「無」；true 才依 ecommercePlatform 分組
+ * （沒填平台就是「有電商・平台不明」）。平台名稱分組前先過 normalizeEcPlatform，
+ * 同一個平台的不同打法才會併成同一桶，不是每種寫法各自算一桶。
+ */
 export function ecommerceStats(rows: CrmCompanyProfileRow[]): Bucket[] {
   return tally(
     rows.map((r) => {
+      const platform = r.ecommercePlatform?.trim()
+        ? normalizeEcPlatform(r.ecommercePlatform)
+        : null;
       if (r.hasEcommerce === false) return "無";
-      if (r.hasEcommerce === true) return r.ecommercePlatform?.trim() || "有電商・平台不明";
-      return r.ecommercePlatform?.trim() ? r.ecommercePlatform.trim() : null; // 沒填是否有電商，但填了平台，仍算數
+      if (r.hasEcommerce === true) return platform || "有電商・平台不明";
+      return platform; // 沒填是否有電商，但填了平台，仍算數
     }),
     "不明",
   );

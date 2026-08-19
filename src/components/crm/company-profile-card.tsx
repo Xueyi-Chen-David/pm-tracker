@@ -9,7 +9,7 @@ import {
   getRepresentativeNameSuggestions,
   upsertCompanyProfile,
 } from "@/server/actions/crm";
-import { PRODUCT_CATEGORY_OPTIONS } from "@/lib/crm-company-stats";
+import { PRODUCT_CATEGORY_OPTIONS, EC_PLATFORM_NAMES } from "@/lib/crm-company-stats";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -41,16 +41,6 @@ type ProfileView = {
   grade: string | null;
   note: string | null;
 };
-
-const EC_PLATFORM_SUGGESTIONS = [
-  "Shopify",
-  "カラーミーショップ",
-  "MakeShop",
-  "futureshop",
-  "BASE",
-  "楽天市場",
-  "自社サイト",
-];
 
 /** 產業類別下拉建議——跟 productCategory 不同，這裡不是封閉選項（沒有對應的統計分頁），
  * 純粹是常見值的建議清單，欄位本身還是自由文字，打別的值也可以。 */
@@ -564,7 +554,7 @@ function CompanyProfileEditDialog({
                       placeholder="例：Shopify"
                     />
                     <datalist id={`${idPrefix}-ec-suggestions`}>
-                      {EC_PLATFORM_SUGGESTIONS.map((p) => (
+                      {EC_PLATFORM_NAMES.map((p) => (
                         <option key={p} value={p} />
                       ))}
                     </datalist>
@@ -826,7 +816,7 @@ export function AddCompanyDialog({ trigger }: { trigger: React.ReactElement }) {
                   placeholder="例：Shopify"
                 />
                 <datalist id={`${idPrefix}-ec-suggestions`}>
-                  {EC_PLATFORM_SUGGESTIONS.map((p) => (
+                  {EC_PLATFORM_NAMES.map((p) => (
                     <option key={p} value={p} />
                   ))}
                 </datalist>
