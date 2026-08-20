@@ -39,6 +39,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Dialog,
   DialogContent,
@@ -351,12 +352,11 @@ export function DealDialog({
                       <X className="h-3 w-3" /> 清除
                     </button>
                   </div>
-                  <Input
+                  <DatePicker
                     id="d-close"
-                    name="expectedCloseDate"
-                    type="date"
                     value={closeDate}
-                    onChange={(e) => setCloseDate(e.target.value)}
+                    onChange={setCloseDate}
+                    placeholder="尚未設定"
                   />
                 </div>
                 <div className="space-y-1.5">
