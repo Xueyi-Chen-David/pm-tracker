@@ -301,7 +301,7 @@ export function DealDialog({
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid items-start gap-3 sm:grid-cols-2">
                 <MultiSelectField
                   label="聯絡人 / 客戶"
                   icon={<User className="text-muted-foreground h-4 w-4 shrink-0" />}

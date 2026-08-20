@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronDown, Star, X } from "lucide-react";
+import { ChevronDown, Search, Star, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Label } from "@/components/ui/label";
 import {
@@ -39,10 +39,18 @@ export function MultiSelectField({
   emptyHint?: string;
 }) {
   const [open, setOpen] = useState(false);
+  // 搜尋關鍵字：只在下拉清單裡篩選，不影響已選項目；關閉下拉時清空，避免下次打開時
+  // 殘留上次的篩選條件把整份清單先擋掉。
+  const [query, setQuery] = useState("");
   const byId = new Map(options.map((o) => [o.id, o]));
   const selected = selectedIds
     .map((id) => byId.get(id))
     .filter((o): o is MultiSelectOption => !!o);
+  const filtered = query.trim()
+    ? options.filter((o) =>
+        o.label.toLowerCase().includes(query.trim().toLowerCase()),
+      )
+    : options;
 
   function toggle(id: string) {
     const isOn = selectedIds.includes(id);
@@ -55,7 +63,13 @@ export function MultiSelectField({
   return (
     <div className="space-y-1.5">
       <Label>{label}</Label>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover
+        open={open}
+        onOpenChange={(o) => {
+          setOpen(o);
+          if (!o) setQuery("");
+        }}
+      >
         <PopoverTrigger className="border-input bg-transparent dark:bg-input/30 focus-visible:border-ring flex h-9 w-full items-center gap-1.5 rounded-md border px-2 text-sm outline-none">
           {icon}
           <span
@@ -71,13 +85,29 @@ export function MultiSelectField({
           <ChevronDown className="text-muted-foreground h-4 w-4 shrink-0" />
         </PopoverTrigger>
         <PopoverContent align="start" className="w-72">
+          {options.length > 0 && (
+            <div className="relative">
+              <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="搜尋…"
+                autoFocus
+                className="border-input bg-transparent focus:border-ring h-8 w-full rounded-md border pr-2 pl-7 text-sm outline-none"
+              />
+            </div>
+          )}
           <div className="max-h-56 space-y-0.5 overflow-y-auto">
             {options.length === 0 ? (
               <p className="text-muted-foreground px-1.5 py-1 text-xs">
                 {emptyHint}
               </p>
+            ) : filtered.length === 0 ? (
+              <p className="text-muted-foreground px-1.5 py-1 text-xs">
+                找不到符合「{query.trim()}」的項目
+              </p>
             ) : (
-              options.map((o) => (
+              filtered.map((o) => (
                 <label
                   key={o.id}
                   className="hover:bg-muted flex items-center gap-2 rounded-md px-1.5 py-1.5 text-sm"
@@ -96,7 +126,10 @@ export function MultiSelectField({
         </PopoverContent>
       </Popover>
       {selected.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
+        // 已選項目上限高度 + 內部捲動：客戶底下聯絡人一多，chips 換行會一直往下長，
+        // 把整列 grid 撐得很高，連帶把右邊「負責人」欄位往下擠、甚至遮住下一列的欄位。
+        // 這裡跟活動清單（ACTIVITY_LIST_MAX_H）同一個做法：封頂，超過的用捲動看。
+        <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto">
           {selected.map((s) => {
             const isPrimary = s.id === primaryId;
             return (
