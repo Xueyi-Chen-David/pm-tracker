@@ -4,7 +4,6 @@ import {
   cloneElement,
   isValidElement,
   useEffect,
-  useRef,
   useState,
   useTransition,
 } from "react";
@@ -115,9 +114,11 @@ export function DealDialog({
   const [stageKey, setStageKey] = useState(deal?.stage ?? firstStage);
   // 備註：控制項狀態，右下角字數統計要即時更新。
   const [note, setNote] = useState(deal?.note ?? "");
-  // 預計成交日：維持非受控（跟其他原生欄位一樣靠 FormData 讀），但原生 date input 的
-  // 內建清除鈕不夠明顯／有些瀏覽器沒有，另外補一顆「清除」直接操作 DOM value。
-  const closeDateRef = useRef<HTMLInputElement>(null);
+  // 預計成交日：改控制項狀態（原本用 ref 直接改原生 input 的 DOM value 來清除，
+  // 但那不會同步更新 React 對這顆 uncontrolled input 的認知，重render 後有機會被打回
+  // defaultValue，導致「清除」按下去看起來清空了、實際存檔時日期又跑回來）。改成跟
+  // note 同一套：state 直接驅動 value，「清除」只是 setCloseDate("")，不會有殘留。
+  const [closeDate, setCloseDate] = useState(deal?.expectedCloseDate ?? "");
 
   // 開啟編輯時載入活動時間軸 + 階段歷程 + 完整的聯絡人 / 負責人名單。
   // 新增（無 deal）時的清空改放在 openDialog（事件處理常式，不是 effect）——避免在 effect
@@ -156,7 +157,7 @@ export function DealDialog({
       primaryContactId,
       ownerIds,
       primaryOwnerId,
-      expectedCloseDate: String(fd.get("expectedCloseDate") ?? "") || null,
+      expectedCloseDate: closeDate.trim() || null,
       probability: (() => {
         const raw = String(fd.get("probability") ?? "").trim();
         return raw === "" ? null : Number(raw);
@@ -202,6 +203,7 @@ export function DealDialog({
     setError(null);
     setStageKey(deal?.stage ?? firstStage);
     setNote(deal?.note ?? "");
+    setCloseDate(deal?.expectedCloseDate ?? "");
     // 新增商機：清掉上次（若曾開過又取消）殘留的聯絡人 / 負責人選取。編輯時交給上面
     // 的 effect 從 getDealTeam 重新載入，這裡不用管。
     if (!editing) {
@@ -339,22 +341,22 @@ export function DealDialog({
                 <div className="space-y-1.5">
                   <div className="flex items-baseline justify-between">
                     <Label htmlFor="d-close">預計成交日</Label>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (closeDateRef.current) closeDateRef.current.value = "";
-                      }}
-                      className="text-muted-foreground hover:text-foreground text-xs"
-                    >
-                      清除
-                    </button>
+                    {closeDate && (
+                      <button
+                        type="button"
+                        onClick={() => setCloseDate("")}
+                        className="text-muted-foreground hover:text-foreground text-xs"
+                      >
+                        清除
+                      </button>
+                    )}
                   </div>
                   <Input
                     id="d-close"
-                    ref={closeDateRef}
                     name="expectedCloseDate"
                     type="date"
-                    defaultValue={deal?.expectedCloseDate ?? ""}
+                    value={closeDate}
+                    onChange={(e) => setCloseDate(e.target.value)}
                   />
                 </div>
                 <div className="space-y-1.5">
