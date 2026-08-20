@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Trash2, Check, User, Users } from "lucide-react";
+import { Trash2, Check, User, Users, X } from "lucide-react";
 import {
   createDeal,
   updateDeal,
@@ -341,15 +341,15 @@ export function DealDialog({
                 <div className="space-y-1.5">
                   <div className="flex items-baseline justify-between">
                     <Label htmlFor="d-close">預計成交日</Label>
-                    {closeDate && (
-                      <button
-                        type="button"
-                        onClick={() => setCloseDate("")}
-                        className="text-muted-foreground hover:text-foreground text-xs"
-                      >
-                        清除
-                      </button>
-                    )}
+                    {/* 永遠顯示，不要用「有日期才顯示」去猜——那反而讓人在真的要清除時找不到它。
+                        補一顆 X 圖示：純文字「清除」太小容易被忽略，之前就被回報找不到。 */}
+                    <button
+                      type="button"
+                      onClick={() => setCloseDate("")}
+                      className="text-muted-foreground hover:text-foreground inline-flex items-center gap-0.5 text-xs"
+                    >
+                      <X className="h-3 w-3" /> 清除
+                    </button>
                   </div>
                   <Input
                     id="d-close"
