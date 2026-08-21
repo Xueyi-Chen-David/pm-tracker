@@ -3,8 +3,10 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { CalendarClock, Copy } from "lucide-react";
+import { CalendarClock, Copy, RefreshCw } from "lucide-react";
 import { setGoogleCalendarId } from "@/server/actions/org-settings";
+import { backfillCalendarSync } from "@/server/actions/calendar-sync";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,6 +33,8 @@ export function GoogleCalendarSettings({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
+  // 手動補同步跟儲存日曆 ID 用各自的 pending，避免儲存中把補同步按鈕也一起鎖住（反之亦然）。
+  const [backfilling, startBackfill] = useTransition();
   const [calendarId, setCalendarId] = useState(initialCalendarId ?? "");
 
   function copyEmail() {
@@ -50,6 +54,28 @@ export function GoogleCalendarSettings({
         router.refresh();
       } catch (e) {
         toast.error(e instanceof Error ? e.message : "儲存失敗");
+      }
+    });
+  }
+
+  function backfill() {
+    startBackfill(async () => {
+      try {
+        const res = await backfillCalendarSync();
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
+        if (res.total === 0) {
+          toast.success("沒有需要補同步的歷史紀錄");
+        } else if (res.failed > 0) {
+          toast.warning(`已同步 ${res.synced} / ${res.total} 筆，${res.failed} 筆失敗（詳見伺服器記錄）`);
+        } else {
+          toast.success(`已同步 ${res.synced} 筆歷史請假 / 出差紀錄`);
+        }
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "同步失敗");
       }
     });
   }
@@ -128,6 +154,29 @@ export function GoogleCalendarSettings({
                 留空即可隨時關閉同步，不影響既有的請假 / 出差紀錄。
               </p>
             </div>
+
+            {/* 只在「已儲存」的日曆 ID 存在時才顯示——這顆按鈕是照資料庫現在存的日曆 ID
+                去補同步，不是照上面輸入框裡還沒存檔的值，避免使用者誤會兩者是同一件事。 */}
+            {initialCalendarId && (
+              <div className="space-y-1.5 border-t pt-3.5">
+                <Label>手動補同步</Label>
+                <p className="text-muted-foreground text-xs">
+                  新核准的請假 / 出差已經會自動同步；這顆按鈕是把設定日曆 ID
+                  之前、原本就已核准的舊紀錄一次補進日曆。可重複按，不會建立重複事件。
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={backfill}
+                  disabled={backfilling}
+                >
+                  <RefreshCw className={cn("h-3.5 w-3.5", backfilling && "animate-spin")} />
+                  {backfilling ? "同步中…" : "同步歷史請假 / 出差紀錄"}
+                </Button>
+              </div>
+            )}
           </div>
 
           <DialogFooter>

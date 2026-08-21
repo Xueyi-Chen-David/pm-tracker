@@ -125,10 +125,14 @@ type UpsertInput = {
   endDate: Date; // inclusive
 };
 
-/** 新增或覆寫（冪等）一筆全天行事曆事件。 */
-async function upsertCalendarEvent(input: UpsertInput): Promise<void> {
+/**
+ * 新增或覆寫（冪等）一筆全天行事曆事件。回傳是否成功——一般呼叫端（簽核 / 登記
+ * server action）不看這個值（同步失敗不該擋主流程），但「手動補同步歷史紀錄」
+ * 的按鈕需要統計成功幾筆、失敗幾筆給管理者看。
+ */
+async function upsertCalendarEvent(input: UpsertInput): Promise<boolean> {
   const token = await getAccessToken();
-  if (!token) return;
+  if (!token) return false;
   const eventId = toEventId(input.sourceKey);
   const body = JSON.stringify({
     id: eventId,
@@ -145,7 +149,7 @@ async function upsertCalendarEvent(input: UpsertInput): Promise<void> {
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body,
     });
-    if (insertRes.ok) return;
+    if (insertRes.ok) return true;
     // 事件已存在（同一筆來源紀錄重複同步，例如簽核進度重算）→ 改用 update，一樣冪等。
     if (insertRes.status === 409) {
       const updateRes = await fetch(`${base}/${eventId}`, {
@@ -159,23 +163,26 @@ async function upsertCalendarEvent(input: UpsertInput): Promise<void> {
           updateRes.status,
           await updateRes.text().catch(() => ""),
         );
+        return false;
       }
-      return;
+      return true;
     }
     console.error(
       "[google-calendar] 新增事件失敗",
       insertRes.status,
       await insertRes.text().catch(() => ""),
     );
+    return false;
   } catch (e) {
     console.error("[google-calendar] 同步失敗", e);
+    return false;
   }
 }
 
 /** 刪除一筆先前同步的事件。找不到（早已刪除或從未同步過）視為成功，不算錯誤。 */
-async function deleteCalendarEvent(calendarId: string, sourceKey: string): Promise<void> {
+async function deleteCalendarEvent(calendarId: string, sourceKey: string): Promise<boolean> {
   const token = await getAccessToken();
-  if (!token) return;
+  if (!token) return false;
   const eventId = toEventId(sourceKey);
   try {
     const res = await fetch(
@@ -188,15 +195,18 @@ async function deleteCalendarEvent(calendarId: string, sourceKey: string): Promi
         res.status,
         await res.text().catch(() => ""),
       );
+      return false;
     }
+    return true;
   } catch (e) {
     console.error("[google-calendar] 刪除事件時發生錯誤", e);
+    return false;
   }
 }
 
 /**
  * 請假 / 出差核准後呼叫：同步進該組織設定的 Google 日曆。組織未設定 googleCalendarId、
- * 或服務帳戶 env 未設定時靜默略過（不影響呼叫端的簽核 / 登記流程）。
+ * 或服務帳戶 env 未設定時靜默略過（不影響呼叫端的簽核 / 登記流程），回傳 false。
  */
 export async function syncMemberAbsenceToCalendar(opts: {
   orgId: string;
@@ -206,15 +216,15 @@ export async function syncMemberAbsenceToCalendar(opts: {
   note?: string | null;
   startDate: Date;
   endDate: Date;
-}): Promise<void> {
-  if (!isCalendarSyncConfigured()) return;
+}): Promise<boolean> {
+  if (!isCalendarSyncConfigured()) return false;
   const org = await db.organization.findUnique({
     where: { id: opts.orgId },
     select: { googleCalendarId: true },
   });
   const calendarId = org?.googleCalendarId?.trim();
-  if (!calendarId) return;
-  await upsertCalendarEvent({
+  if (!calendarId) return false;
+  return upsertCalendarEvent({
     calendarId,
     sourceKey: opts.sourceKey,
     summary: `${opts.typeLabel} - ${opts.memberName}`,
@@ -228,13 +238,13 @@ export async function syncMemberAbsenceToCalendar(opts: {
 export async function removeMemberAbsenceFromCalendar(
   orgId: string,
   sourceKey: string,
-): Promise<void> {
-  if (!isCalendarSyncConfigured()) return;
+): Promise<boolean> {
+  if (!isCalendarSyncConfigured()) return false;
   const org = await db.organization.findUnique({
     where: { id: orgId },
     select: { googleCalendarId: true },
   });
   const calendarId = org?.googleCalendarId?.trim();
-  if (!calendarId) return;
-  await deleteCalendarEvent(calendarId, sourceKey);
+  if (!calendarId) return false;
+  return deleteCalendarEvent(calendarId, sourceKey);
 }
