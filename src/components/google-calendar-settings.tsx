@@ -118,7 +118,10 @@ export function GoogleCalendarSettings({
                   </li>
                 </ol>
                 <div className="flex items-center gap-1.5">
-                  <code className="bg-background flex-1 truncate rounded border px-2 py-1">
+                  {/* min-w-0 是關鍵：flex 子項預設不會縮到比內容本身還窄（min-width: auto），
+                      服務帳戶信箱很長，沒有這個 truncate 不會生效，會把整個對話框撐寬、
+                      要左右捲動才看得完。跟 MultiSelectField 的觸發鈕同一個修法。 */}
+                  <code className="bg-background min-w-0 flex-1 truncate rounded border px-2 py-1">
                     {serviceAccountEmail}
                   </code>
                   <Button
