@@ -86,7 +86,7 @@ export default async function CheckInPage({
   ] = await Promise.all([
     db.organization.findUnique({
       where: { id: org.id },
-      select: { checkInEnabled: true, checkInMatchMode: true },
+      select: { checkInEnabled: true, checkInMatchMode: true, googleCalendarId: true },
     }),
     getSelfAttendanceMonth(org.id, user.id, start, end),
     // 本月的所有打卡（組打卡紙用）。
@@ -122,6 +122,7 @@ export default async function CheckInPage({
   ]);
 
   const checkInEnabled = orgConfig?.checkInEnabled ?? false;
+  const calendarSyncEnabled = !!orgConfig?.googleCalendarId?.trim();
   const anchorStr = firstCheckIn
     ? firstCheckIn.date.toISOString().slice(0, 10)
     : null;
@@ -249,7 +250,7 @@ export default async function CheckInPage({
                 <p className="text-muted-foreground text-xs">
                   正式請假走簽核流程，核准後自動登記到出席月曆；出差等免簽核事件用下方表單登記。
                 </p>
-                <LeaveRequestForm leaveTypes={leaveTypes} />
+                <LeaveRequestForm leaveTypes={leaveTypes} calendarSyncEnabled={calendarSyncEnabled} />
               </div>
 
               <QuickEventForm userId={user.id} types={NON_LEAVE_EVENT_TYPES} />

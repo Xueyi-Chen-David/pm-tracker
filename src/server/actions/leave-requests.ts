@@ -103,6 +103,7 @@ async function materializeApprovedLeave(opts: {
   attachment?: string | null;
   attachmentName?: string | null;
   hourly?: { startTime: string; endTime: string; hours: number } | null;
+  syncToCalendar: boolean;
 }) {
   const {
     orgId,
@@ -115,10 +116,12 @@ async function materializeApprovedLeave(opts: {
     leaveTypeId,
     reason,
     hourly,
+    syncToCalendar,
   } = opts;
 
   // Google 日曆同步：跟請假/出差共用同一顆函式；型別標籤帶假別名稱方便一眼看出請的是什麼假。
-  // 未設定組織日曆 ID 或服務帳戶 env 時 syncMemberAbsenceToCalendar 會自己靜默略過。
+  // 未設定組織日曆 ID 或服務帳戶 env 時 syncMemberAbsenceToCalendar 會自己靜默略過；
+  // syncToCalendar=false（申請人自己在表單勾選不同步）則連呼叫都不打，同一邏輯。
   const leaveType = leaveTypeId
     ? await db.leaveType.findUnique({ where: { id: leaveTypeId }, select: { name: true } })
     : null;
@@ -162,15 +165,17 @@ async function materializeApprovedLeave(opts: {
     revalidatePath("/attendance");
     revalidatePath("/team");
     revalidatePath(`/me/${userId}`);
-    await syncMemberAbsenceToCalendar({
-      orgId,
-      sourceKey: `leave:${requestId}`,
-      memberName: memberDisplayName,
-      typeLabel,
-      note: `${hourly.startTime}–${hourly.endTime}${reason ? "・" + reason : ""}`,
-      startDate,
-      endDate: startDate,
-    });
+    if (syncToCalendar) {
+      await syncMemberAbsenceToCalendar({
+        orgId,
+        sourceKey: `leave:${requestId}`,
+        memberName: memberDisplayName,
+        typeLabel,
+        note: `${hourly.startTime}–${hourly.endTime}${reason ? "・" + reason : ""}`,
+        startDate,
+        endDate: startDate,
+      });
+    }
     return;
   }
 
@@ -199,15 +204,17 @@ async function materializeApprovedLeave(opts: {
   revalidatePath("/attendance");
   revalidatePath("/team");
   revalidatePath(`/me/${userId}`);
-  await syncMemberAbsenceToCalendar({
-    orgId,
-    sourceKey: `leave:${requestId}`,
-    memberName: memberDisplayName,
-    typeLabel,
-    note: reason,
-    startDate,
-    endDate,
-  });
+  if (syncToCalendar) {
+    await syncMemberAbsenceToCalendar({
+      orgId,
+      sourceKey: `leave:${requestId}`,
+      memberName: memberDisplayName,
+      typeLabel,
+      note: reason,
+      startDate,
+      endDate,
+    });
+  }
 }
 
 const SubmitInput = z.object({
@@ -220,6 +227,9 @@ const SubmitInput = z.object({
   reason: z.string().trim().max(2000).optional(),
   attachment: z.string().optional(), // 證明附件 data URL（選填）
   attachmentName: z.string().trim().max(200).optional(),
+  // 核准後要不要同步進組織的 Google 日曆（有些假別事由較私密不想公開在共用日曆上）。
+  // 預設 true，維持原本一律同步的行為。
+  syncToCalendar: z.boolean().default(true),
 });
 
 /** 送出一筆請假申請（替自己）。回傳是否因未設定簽核關卡而自動核准。 */
@@ -325,6 +335,7 @@ export async function submitLeaveRequest(input: z.input<typeof SubmitInput>) {
       reason: d.reason || null,
       attachment,
       attachmentName,
+      syncToCalendar: d.syncToCalendar,
       status: chain.length ? "PENDING" : "APPROVED",
       currentStep: 0,
       decidedAt: chain.length ? null : now,
@@ -356,6 +367,7 @@ export async function submitLeaveRequest(input: z.input<typeof SubmitInput>) {
       attachment,
       attachmentName,
       hourly,
+      syncToCalendar: d.syncToCalendar,
     });
   } else {
     // 通知第一關簽核人。
@@ -483,6 +495,7 @@ export async function decideLeaveApproval(input: z.input<typeof DecideInput>) {
       attachment: request.attachment,
       attachmentName: request.attachmentName,
       hourly,
+      syncToCalendar: request.syncToCalendar,
     });
     await notify({
       orgId: org.id,

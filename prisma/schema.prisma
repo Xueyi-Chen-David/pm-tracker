@@ -1478,6 +1478,11 @@ model LeaveRequest {
   attachment     String? @db.Text // 證明附件（data URL；圖片 / PDF）
   attachmentName String? // 附件原始檔名
 
+  // 申請人自己選的：核准後要不要同步進組織設定的 Google 日曆（有些假別事由較私密，
+  // 不想出現在共用日曆上）。預設 true（維持原本一律同步的行為）；組織根本沒設定
+  // 日曆同步時這個欄位不影響任何事。
+  syncToCalendar Boolean @default(true)
+
   // PENDING（待簽核）| APPROVED（已核准）| REJECTED（已駁回）| CANCELLED（已取消）
   status      String    @default("PENDING")
   currentStep Int       @default(0) // 目前待簽核的關卡索引（0-based）

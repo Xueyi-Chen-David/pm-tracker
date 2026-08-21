@@ -39,9 +39,15 @@ export async function backfillCalendarSync() {
     return { ok: false as const, error: "尚未設定要同步的日曆 ID，請先在上方填寫並儲存。" };
   }
 
-  // 請假：已核准、未（軟）刪除的全部；假別名稱一次查完，避免每筆各打一次。
+  // 請假：已核准、未（軟）刪除、申請人沒勾選「不同步」的全部；假別名稱一次查完，
+  // 避免每筆各打一次。
   const leaves = await db.leaveRequest.findMany({
-    where: { organizationId: org.id, status: "APPROVED", deletedAt: null },
+    where: {
+      organizationId: org.id,
+      status: "APPROVED",
+      deletedAt: null,
+      syncToCalendar: true,
+    },
     select: {
       id: true,
       startDate: true,

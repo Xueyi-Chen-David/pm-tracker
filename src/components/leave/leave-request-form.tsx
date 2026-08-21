@@ -38,8 +38,12 @@ function diffHours(startTime: string, endTime: string): number {
 /** 「申請請假」對話框：填假別 / 起訖日（或單日時數）/ 事由，送出後進入簽核流程。 */
 export function LeaveRequestForm({
   leaveTypes,
+  calendarSyncEnabled = false,
 }: {
   leaveTypes: LeaveTypeOption[];
+  /** 組織有沒有設定 Google 日曆同步——沒設定就不用顯示「同步到日曆」這個選項，
+   *  對申請人來說只是無意義的雜訊（打勾與否都不會有任何效果）。 */
+  calendarSyncEnabled?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -52,6 +56,7 @@ export function LeaveRequestForm({
   const [endTime, setEndTime] = useState("11:00");
   const [reason, setReason] = useState("");
   const [attachment, setAttachment] = useState<AttachmentValue>(null);
+  const [syncToCalendar, setSyncToCalendar] = useState(true);
 
   const hours = diffHours(startTime, endTime);
 
@@ -64,6 +69,7 @@ export function LeaveRequestForm({
     setEndTime("11:00");
     setReason("");
     setAttachment(null);
+    setSyncToCalendar(true);
   }
 
   function submit() {
@@ -90,6 +96,7 @@ export function LeaveRequestForm({
           reason: reason.trim() || undefined,
           attachment: attachment?.dataUrl,
           attachmentName: attachment?.name,
+          syncToCalendar,
         });
         if (!res.ok) {
           toast.error(res.error);
@@ -240,6 +247,18 @@ export function LeaveRequestForm({
             />
           </div>
           <AttachmentField value={attachment} onChange={setAttachment} />
+          {calendarSyncEnabled && (
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={syncToCalendar}
+                onChange={(e) => setSyncToCalendar(e.target.checked)}
+                className="accent-primary h-4 w-4"
+              />
+              核准後同步到公司 Google 日曆
+              <span className="text-muted-foreground text-xs">（事由較私密可取消勾選）</span>
+            </label>
+          )}
         </div>
 
         <DialogFooter>
