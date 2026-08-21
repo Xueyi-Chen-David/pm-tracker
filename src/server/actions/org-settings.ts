@@ -73,3 +73,18 @@ export async function setCheckInConfig(input: z.input<typeof CheckInConfigInput>
   revalidatePath("/daily");
   return { ok: true as const };
 }
+
+/**
+ * 設定要同步請假 / 出差核准結果的 Google 日曆 ID（留空＝關閉同步）。需管理者。
+ * 只存 ID，不驗證日曆是否真的存在／服務帳戶是否已被分享權限——那要打 Calendar API
+ * 才能確認，且失敗不該擋住儲存；下次有請假 / 出差核准時同步失敗會留 server log 可查。
+ */
+export async function setGoogleCalendarId(calendarId: string) {
+  const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
+  await db.organization.update({
+    where: { id: org.id },
+    data: { googleCalendarId: calendarId.trim() || null },
+  });
+  revalidatePath("/attendance");
+  return { ok: true as const };
+}

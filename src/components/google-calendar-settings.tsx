@@ -1,0 +1,150 @@
+"use client";
+
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { CalendarClock, Copy } from "lucide-react";
+import { setGoogleCalendarId } from "@/server/actions/org-settings";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+
+export function GoogleCalendarSettings({
+  calendarId: initialCalendarId,
+  serviceAccountConfigured,
+  serviceAccountEmail,
+}: {
+  calendarId: string | null;
+  /** 服務帳戶 env（GOOGLE_CALENDAR_CLIENT_EMAIL / _PRIVATE_KEY）是否已設定——沒設定時
+   *  就算貼了日曆 ID 也不會真的同步，先把話講清楚，不要讓管理者以為設完就會動。 */
+  serviceAccountConfigured: boolean;
+  serviceAccountEmail: string | null;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [pending, start] = useTransition();
+  const [calendarId, setCalendarId] = useState(initialCalendarId ?? "");
+
+  function copyEmail() {
+    if (!serviceAccountEmail) return;
+    navigator.clipboard
+      .writeText(serviceAccountEmail)
+      .then(() => toast.success("已複製服務帳戶 Email"))
+      .catch(() => toast.error("複製失敗，請手動選取複製"));
+  }
+
+  function save() {
+    start(async () => {
+      try {
+        await setGoogleCalendarId(calendarId);
+        toast.success(calendarId.trim() ? "已啟用 Google 日曆同步" : "已關閉 Google 日曆同步");
+        setOpen(false);
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "儲存失敗");
+      }
+    });
+  }
+
+  return (
+    <>
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-1.5"
+        onClick={() => setOpen(true)}
+        title="Google 日曆同步"
+      >
+        <CalendarClock className="h-4 w-4" />
+        <span className="hidden sm:inline">Google 日曆同步</span>
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Google 日曆同步</DialogTitle>
+            <DialogDescription>
+              請假、出差核准後自動在指定日曆寫一筆全天事件；駁回 / 待簽核不會出現。
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {!serviceAccountConfigured ? (
+              <p className="bg-amber-50 text-amber-900 rounded-md px-3 py-2 text-xs dark:bg-amber-950/40 dark:text-amber-100">
+                系統尚未設定 Google 服務帳戶（環境變數
+                GOOGLE_CALENDAR_CLIENT_EMAIL / GOOGLE_CALENDAR_PRIVATE_KEY），
+                這裡填了日曆 ID 也不會真的同步，請先洽系統管理員設定。
+              </p>
+            ) : (
+              <div className="bg-muted/40 space-y-1.5 rounded-md px-3 py-2 text-xs">
+                <p className="font-medium">設定步驟：</p>
+                <ol className="list-decimal space-y-1 pl-4">
+                  <li>
+                    到要同步進去的 Google 日曆「設定與共用」，把下面這個信箱加為
+                    「進行變更並管理共用設定」的共用對象：
+                  </li>
+                </ol>
+                <div className="flex items-center gap-1.5">
+                  <code className="bg-background flex-1 truncate rounded border px-2 py-1">
+                    {serviceAccountEmail}
+                  </code>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 shrink-0"
+                    onClick={copyEmail}
+                    title="複製"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+                <ol start={2} className="list-decimal space-y-1 pl-4">
+                  <li>
+                    在該日曆的「整合日曆」找到「日曆 ID」（通常是一串 Email 或
+                    xxx@group.calendar.google.com），貼到下面。
+                  </li>
+                </ol>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <Label htmlFor="gc-id">日曆 ID</Label>
+              <Input
+                id="gc-id"
+                value={calendarId}
+                onChange={(e) => setCalendarId(e.target.value)}
+                placeholder="留空＝不同步"
+                className="font-mono"
+              />
+              <p className="text-muted-foreground text-xs">
+                留空即可隨時關閉同步，不影響既有的請假 / 出差紀錄。
+              </p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setOpen(false)}
+              disabled={pending}
+            >
+              取消
+            </Button>
+            <Button type="button" onClick={save} disabled={pending}>
+              {pending ? "儲存中…" : "儲存設定"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}

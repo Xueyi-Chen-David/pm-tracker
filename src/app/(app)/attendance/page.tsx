@@ -27,6 +27,8 @@ import {
   ATTENDANCE_LEGEND_ID,
 } from "@/components/attendance-export-png-button";
 import { CheckInSettings } from "@/components/check-in-settings";
+import { GoogleCalendarSettings } from "@/components/google-calendar-settings";
+import { isCalendarSyncConfigured } from "@/server/google-calendar";
 import {
   MemberTimecards,
   type MemberTimecard,
@@ -72,6 +74,7 @@ export default async function AttendancePage({
           checkInAllowedIps: true,
           checkInGeofences: true,
           checkInMatchMode: true,
+          googleCalendarId: true,
         },
       }),
       // 自動缺席的起算錨點：該企業第一次打卡的日期（在那之前不判缺席，避免把
@@ -168,6 +171,13 @@ export default async function AttendancePage({
             allowedIps={orgConfig.checkInAllowedIps}
             geofences={parseGeofences(orgConfig.checkInGeofences)}
             matchMode={parseMatchMode(orgConfig.checkInMatchMode)}
+          />
+        )}
+        {canManageAtt && orgConfig && (
+          <GoogleCalendarSettings
+            calendarId={orgConfig.googleCalendarId}
+            serviceAccountConfigured={isCalendarSyncConfigured()}
+            serviceAccountEmail={process.env.GOOGLE_CALENDAR_CLIENT_EMAIL ?? null}
           />
         )}
         {canManageAtt && <AttendanceTrackManager members={trackable} />}

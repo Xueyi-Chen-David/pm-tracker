@@ -11,6 +11,10 @@ import { validateAttachment } from "@/lib/attachment";
 import { fmtDate } from "@/lib/date";
 import { displayName } from "@/lib/display";
 import { createNotification } from "@/server/notify";
+import {
+  syncMemberAbsenceToCalendar,
+  removeMemberAbsenceFromCalendar,
+} from "@/server/google-calendar";
 
 /**
  * 出差 / 事件登記與逐關簽核——與 leave-requests.ts 同一套機制（同一組「簽核流程」設定），
@@ -80,7 +84,12 @@ export async function createMemberEvent(input: z.input<typeof EventInput>) {
   }
   const member = await db.organizationMember.findUnique({
     where: { organizationId_userId: { organizationId: org.id, userId: d.userId } },
-    select: { id: true, managerId: true, leaveApprovalExempt: true },
+    select: {
+      id: true,
+      managerId: true,
+      leaveApprovalExempt: true,
+      user: { select: { name: true, nickname: true, useNickname: true } },
+    },
   });
   if (!member) throw new Error("該成員不屬於目前組織。");
 
@@ -117,7 +126,7 @@ export async function createMemberEvent(input: z.input<typeof EventInput>) {
   const needsApproval = chain.length > 0;
   const now = new Date();
 
-  await db.memberEvent.create({
+  const created = await db.memberEvent.create({
     data: {
       organizationId: org.id,
       userId: d.userId,
@@ -145,7 +154,8 @@ export async function createMemberEvent(input: z.input<typeof EventInput>) {
   });
 
   if (!needsApproval) {
-    // 免簽核（代他人登記 / 免簽核成員 / 未設定簽核流程）：直接落地到出席月曆。
+    // 免簽核（代他人登記 / 免簽核成員 / 未設定簽核流程）：直接落地到出席月曆 + 同步 Google 日曆
+    // （只同步會影響出勤的類型——請假 / 出差 / 在家工作；外出 / 其他不同步，見 eventAttendanceEffect）。
     if (eventAttendanceEffect(d.type)) {
       await recomputeAttendance(
         db,
@@ -154,6 +164,15 @@ export async function createMemberEvent(input: z.input<typeof EventInput>) {
         user.id,
         weekdaysInRange(start, endDate ?? start),
       );
+      await syncMemberAbsenceToCalendar({
+        orgId: org.id,
+        sourceKey: `member-event:${created.id}`,
+        memberName: displayName(member.user),
+        typeLabel: d.type,
+        note: d.note || null,
+        startDate: start,
+        endDate: endDate ?? start,
+      });
     }
   } else {
     // 通知第一關簽核人。
@@ -275,6 +294,15 @@ export async function decideMemberEventApproval(
         user.id,
         weekdaysInRange(event.startDate, event.endDate ?? event.startDate),
       );
+      await syncMemberAbsenceToCalendar({
+        orgId: org.id,
+        sourceKey: `member-event:${event.id}`,
+        memberName: displayName(event.user),
+        typeLabel: event.type,
+        note: event.note,
+        startDate: event.startDate,
+        endDate: event.endDate ?? event.startDate,
+      });
     }
     await notify({
       orgId: org.id,
@@ -405,6 +433,7 @@ export async function deleteMemberEvent(input: { id: string; userId: string }) {
       user.id,
       weekdaysInRange(event.startDate, event.endDate ?? event.startDate),
     );
+    await removeMemberAbsenceFromCalendar(org.id, `member-event:${input.id}`);
   }
 
   if (wasPending && current) {

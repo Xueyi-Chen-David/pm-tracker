@@ -10,6 +10,7 @@ import { fmtDate } from "@/lib/date";
 import { displayName } from "@/lib/display";
 import { validateAttachment } from "@/lib/attachment";
 import { createNotification } from "@/server/notify";
+import { syncMemberAbsenceToCalendar } from "@/server/google-calendar";
 
 /**
  * 請假申請與逐關簽核。
@@ -91,8 +92,10 @@ async function notify(opts: {
  */
 async function materializeApprovedLeave(opts: {
   orgId: string;
+  requestId: string;
   userId: string;
   createdById: string;
+  memberDisplayName: string;
   startDate: Date;
   endDate: Date;
   leaveTypeId: string | null;
@@ -103,14 +106,23 @@ async function materializeApprovedLeave(opts: {
 }) {
   const {
     orgId,
+    requestId,
     userId,
     createdById,
+    memberDisplayName,
     startDate,
     endDate,
     leaveTypeId,
     reason,
     hourly,
   } = opts;
+
+  // Google 日曆同步：跟請假/出差共用同一顆函式；型別標籤帶假別名稱方便一眼看出請的是什麼假。
+  // 未設定組織日曆 ID 或服務帳戶 env 時 syncMemberAbsenceToCalendar 會自己靜默略過。
+  const leaveType = leaveTypeId
+    ? await db.leaveType.findUnique({ where: { id: leaveTypeId }, select: { name: true } })
+    : null;
+  const typeLabel = leaveType?.name ? `請假（${leaveType.name}）` : "請假";
 
   if (hourly) {
     const existing = await db.attendanceRecord.findUnique({
@@ -150,6 +162,15 @@ async function materializeApprovedLeave(opts: {
     revalidatePath("/attendance");
     revalidatePath("/team");
     revalidatePath(`/me/${userId}`);
+    await syncMemberAbsenceToCalendar({
+      orgId,
+      sourceKey: `leave:${requestId}`,
+      memberName: memberDisplayName,
+      typeLabel,
+      note: `${hourly.startTime}–${hourly.endTime}${reason ? "・" + reason : ""}`,
+      startDate,
+      endDate: startDate,
+    });
     return;
   }
 
@@ -178,6 +199,15 @@ async function materializeApprovedLeave(opts: {
   revalidatePath("/attendance");
   revalidatePath("/team");
   revalidatePath(`/me/${userId}`);
+  await syncMemberAbsenceToCalendar({
+    orgId,
+    sourceKey: `leave:${requestId}`,
+    memberName: memberDisplayName,
+    typeLabel,
+    note: reason,
+    startDate,
+    endDate,
+  });
 }
 
 const SubmitInput = z.object({
@@ -315,8 +345,10 @@ export async function submitLeaveRequest(input: z.input<typeof SubmitInput>) {
     // 未設定簽核關卡（或全部無法解析）→ 視同直接核准，落地到出席月曆。
     await materializeApprovedLeave({
       orgId: org.id,
+      requestId: request.id,
       userId: user.id,
       createdById: user.id,
+      memberDisplayName: displayName(user),
       startDate: start,
       endDate: end,
       leaveTypeId: d.leaveTypeId || null,
@@ -440,8 +472,10 @@ export async function decideLeaveApproval(input: z.input<typeof DecideInput>) {
   if (isFinal) {
     await materializeApprovedLeave({
       orgId: org.id,
+      requestId: request.id,
       userId: request.userId,
       createdById: user.id,
+      memberDisplayName: displayName(request.user),
       startDate: request.startDate,
       endDate: request.endDate,
       leaveTypeId: request.leaveTypeId,

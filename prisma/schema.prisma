@@ -157,6 +157,11 @@ model Organization {
   // 只設定其中一種條件時，兩種模式行為相同（只需該條件通過）。
   checkInMatchMode  String   @default("any")
 
+  // Google 日曆同步（請假 / 出差核准後自動寫入一筆全天事件）：要同步進去的日曆 ID。
+  // 管理者需自行把這顆日曆分享給服務帳戶（env GOOGLE_CALENDAR_CLIENT_EMAIL）「進行變更」權限。
+  // 留空＝不同步（服務帳戶 env 沒設也一樣不同步，見 src/server/google-calendar.ts）。
+  googleCalendarId String?
+
   members             OrganizationMember[]
   emailChangeRequests EmailChangeRequest[]
   projects            Project[]
