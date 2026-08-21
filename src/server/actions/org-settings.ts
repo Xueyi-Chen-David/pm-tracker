@@ -3,7 +3,7 @@
 import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
-import { requireActiveOrg, requireActiveOrgWithRole } from "@/server/org";
+import { requireActiveOrg, requireActiveOrgWithRole, requireOrgPermission } from "@/server/org";
 
 /** 公司營運頁：設定組織願景（Vision）。內部工具，任何在職成員皆可編輯（與 OKR 一致）。 */
 export async function setOrgVision(vision: string) {
@@ -80,7 +80,13 @@ export async function setCheckInConfig(input: z.input<typeof CheckInConfigInput>
  * 才能確認，且失敗不該擋住儲存；下次有請假 / 出差核准時同步失敗會留 server log 可查。
  */
 export async function setGoogleCalendarId(calendarId: string) {
-  const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
+  // 跟畫面上「Google 日曆同步」按鈕的顯示條件一致（attendance.manage 權限，見
+  // attendance/page.tsx 的 canManageAtt）——原本這裡限 OWNER/ADMIN 角色，但組織可能是
+  // 用自訂角色（roleDefs）把 attendance.manage 授權給非 OWNER/ADMIN 的成員（例如
+  // 「人資/會計」），那些成員會看得到按鈕、點下去卻因為角色檢查沒過而丟錯，正式環境
+  // 又把 Server Action 丟出的錯誤訊息隱去，變成「看起來存了但其實完全沒存到、也沒有
+  // 任何 log」。改用權限檢查，跟 UI 顯示條件對齊。
+  const { org } = await requireOrgPermission("attendance.manage");
   await db.organization.update({
     where: { id: org.id },
     data: { googleCalendarId: calendarId.trim() || null },

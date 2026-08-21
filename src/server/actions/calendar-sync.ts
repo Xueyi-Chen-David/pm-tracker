@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
-import { requireActiveOrgWithRole } from "@/server/org";
+import { requireOrgPermission } from "@/server/org";
 import { displayName } from "@/lib/display";
 import { eventAttendanceEffect } from "@/lib/constants";
 import {
@@ -17,7 +17,9 @@ import {
  * 決定性推導事件 id，天生冪等。
  */
 export async function backfillCalendarSync() {
-  const { org } = await requireActiveOrgWithRole(["OWNER", "ADMIN"]);
+  // 跟「Google 日曆同步」按鈕的顯示條件（attendance.manage 權限）對齊，見
+  // setGoogleCalendarId 同樣的修正說明。
+  const { org } = await requireOrgPermission("attendance.manage");
 
   if (!isCalendarSyncConfigured()) {
     return { ok: false as const, error: "系統尚未設定 Google 服務帳戶，無法同步。" };
