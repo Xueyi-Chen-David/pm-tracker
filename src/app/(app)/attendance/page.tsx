@@ -28,7 +28,7 @@ import {
 } from "@/components/attendance-export-png-button";
 import { CheckInSettings } from "@/components/check-in-settings";
 import { GoogleCalendarSettings } from "@/components/google-calendar-settings";
-import { isCalendarSyncConfigured } from "@/server/google-calendar";
+import { getEffectiveServiceAccountEmail } from "@/server/google-calendar";
 import {
   MemberTimecards,
   type MemberTimecard,
@@ -60,7 +60,7 @@ export default async function AttendancePage({
   const { year, month } = parseMonth(monthParam, thisMonth);
   const { start, end, days } = monthRange(year, month);
 
-  const [rows, trackable, leaveTypes, orgConfig, firstCheckIn, monthPunchers] =
+  const [rows, trackable, leaveTypes, orgConfig, effectiveServiceAccount, firstCheckIn, monthPunchers] =
     await Promise.all([
       canViewAll
         ? getAttendanceMonth(org.id, start, end)
@@ -75,8 +75,12 @@ export default async function AttendancePage({
           checkInGeofences: true,
           checkInMatchMode: true,
           googleCalendarId: true,
+          googleCalendarClientEmail: true,
         },
       }),
+      // 這個組織「實際」會用哪個服務帳戶（自訂優先，否則系統預設）——只在需要顯示設定
+      // 畫面時才查（跟其他 canManageAtt 限定的查詢一致，沒權限就不查）。
+      canManageAtt ? getEffectiveServiceAccountEmail(org.id) : Promise.resolve(null),
       // 自動缺席的起算錨點：該企業第一次打卡的日期（在那之前不判缺席，避免把
       // 尚未導入打卡的歷史日子全部誤標）。沒有任何打卡則不啟用自動缺席。
       db.checkIn.findFirst({
@@ -176,8 +180,8 @@ export default async function AttendancePage({
         {canManageAtt && orgConfig && (
           <GoogleCalendarSettings
             calendarId={orgConfig.googleCalendarId}
-            serviceAccountConfigured={isCalendarSyncConfigured()}
-            serviceAccountEmail={process.env.GOOGLE_CALENDAR_CLIENT_EMAIL ?? null}
+            orgServiceAccountEmail={orgConfig.googleCalendarClientEmail}
+            effectiveServiceAccount={effectiveServiceAccount}
           />
         )}
         {canManageAtt && <AttendanceTrackManager members={trackable} />}

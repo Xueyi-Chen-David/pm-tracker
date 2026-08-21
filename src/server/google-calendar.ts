@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { db } from "@/server/db";
+import { decryptSecret } from "@/server/encryption";
 
 /**
  * Google 日曆同步（server-only）：請假 / 出差等成員事件核准後，自動在組織指定的
@@ -18,16 +19,85 @@ import { db } from "@/server/db";
  * 刪除也能直接用同一個推導出來的 id 打，不需要先查。
  *
  * 任何錯誤都只記 log、不 throw／不影響回傳值——行事曆同步失敗不該讓簽核、登記出差失敗。
+ *
+ * 每組織可自訂服務帳戶（Organization.googleCalendarClientEmail /
+ * googleCalendarPrivateKeyEncrypted）：多租戶下所有組織預設共用系統的服務帳戶
+ * （env GOOGLE_CALENDAR_CLIENT_EMAIL/_PRIVATE_KEY），但某些公司的 Google Workspace
+ * 網域對「網域外的服務帳戶」有額外的信任邊界限制——就算日曆 ACL 給了 writer、共用政策也
+ * 調到最高，實際寫入還是會被 403 擋下（KORVVA 案例：服務帳戶掛在網域外的個人 Google
+ * Cloud 專案下）。這種情況該組織可以改用「自己網域底下建立」的服務帳戶覆寫預設，兩個
+ * 欄位都有值才生效；沒設定就 fallback 回系統預設，不會影響其他組織。
  */
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
 
+type Credentials = { clientEmail: string; privateKey: string };
+
+function defaultCredentials(): Credentials | null {
+  const clientEmail = (process.env.GOOGLE_CALENDAR_CLIENT_EMAIL ?? "").trim();
+  const privateKey = (process.env.GOOGLE_CALENDAR_PRIVATE_KEY ?? "")
+    .trim()
+    // .env / Vercel 環境變數塞多行 PEM 時常是字面上的 "\n"，換回真正的換行。
+    .replace(/\\n/g, "\n");
+  if (!clientEmail || !privateKey) return null;
+  return { clientEmail, privateKey };
+}
+
+/** 系統預設服務帳戶（env）是否已設定——UI 用來判斷「沒設自訂憑證的組織能不能用」。 */
 export function isCalendarSyncConfigured(): boolean {
-  return !!(
-    (process.env.GOOGLE_CALENDAR_CLIENT_EMAIL ?? "").trim() &&
-    (process.env.GOOGLE_CALENDAR_PRIVATE_KEY ?? "").trim()
-  );
+  return defaultCredentials() !== null;
+}
+
+/** 私鑰是否為可用的 PEM 格式（存自訂憑證前先驗證，別讓打錯格式的內容默默存進資料庫）。 */
+export function isValidPrivateKeyPem(privateKey: string): boolean {
+  try {
+    crypto.createSign("RSA-SHA256").update("validate").sign(privateKey);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 解析某組織實際該用的服務帳戶：組織自訂（兩欄位都有值）優先，否則 fallback 回系統預設。
+ * 私鑰解密失敗（ENCRYPTION_KEY 換過 / 資料被動過手腳）視為組織自訂憑證不可用，
+ * 不會靜默改用系統預設（那不是使用者的意圖，且系統預設對這個組織可能本來就進不去）。
+ */
+async function resolveCredentials(
+  orgId: string,
+): Promise<{ credentials: Credentials; source: "org" | "default" } | null> {
+  const org = await db.organization.findUnique({
+    where: { id: orgId },
+    select: { googleCalendarClientEmail: true, googleCalendarPrivateKeyEncrypted: true },
+  });
+  if (org?.googleCalendarClientEmail && org.googleCalendarPrivateKeyEncrypted) {
+    try {
+      const privateKey = decryptSecret(org.googleCalendarPrivateKeyEncrypted)
+        .trim()
+        .replace(/\\n/g, "\n");
+      return {
+        credentials: { clientEmail: org.googleCalendarClientEmail, privateKey },
+        source: "org",
+      };
+    } catch (e) {
+      console.error(`[google-calendar] 組織 ${orgId} 自訂服務帳戶私鑰解密失敗`, e);
+      return null;
+    }
+  }
+  const fallback = defaultCredentials();
+  return fallback ? { credentials: fallback, source: "default" } : null;
+}
+
+/**
+ * 目前這個組織「實際會用哪個服務帳戶」的信箱（不含私鑰，給設定頁顯示用）。
+ * 回傳 null 代表完全沒有可用的服務帳戶（沒自訂、系統預設也沒設）。
+ */
+export async function getEffectiveServiceAccountEmail(
+  orgId: string,
+): Promise<{ email: string; source: "org" | "default" } | null> {
+  const resolved = await resolveCredentials(orgId);
+  return resolved ? { email: resolved.credentials.clientEmail, source: resolved.source } : null;
 }
 
 function base64url(input: Buffer | string): string {
@@ -38,25 +108,20 @@ function base64url(input: Buffer | string): string {
     .replace(/=+$/, "");
 }
 
-// access token 快取（同一次 server 執行期間重複使用，減少換 token 的往返）。
-let cachedToken: { token: string; expiresAt: number } | null = null;
+// access token 快取，用 clientEmail 當 key——不同組織可能用不同服務帳戶，不能只快取一顆。
+const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
-async function getAccessToken(): Promise<string | null> {
-  if (cachedToken && cachedToken.expiresAt > Date.now() + 30_000) {
-    return cachedToken.token;
+async function getAccessToken(credentials: Credentials): Promise<string | null> {
+  const cached = tokenCache.get(credentials.clientEmail);
+  if (cached && cached.expiresAt > Date.now() + 30_000) {
+    return cached.token;
   }
-  const clientEmail = (process.env.GOOGLE_CALENDAR_CLIENT_EMAIL ?? "").trim();
-  const privateKey = (process.env.GOOGLE_CALENDAR_PRIVATE_KEY ?? "")
-    .trim()
-    // .env / Vercel 環境變數塞多行 PEM 時常是字面上的 "\n"，換回真正的換行。
-    .replace(/\\n/g, "\n");
-  if (!clientEmail || !privateKey) return null;
 
   const now = Math.floor(Date.now() / 1000);
   const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const claims = base64url(
     JSON.stringify({
-      iss: clientEmail,
+      iss: credentials.clientEmail,
       scope: CALENDAR_SCOPE,
       aud: TOKEN_URL,
       iat: now,
@@ -66,7 +131,7 @@ async function getAccessToken(): Promise<string | null> {
   const signInput = `${header}.${claims}`;
   let signature: Buffer;
   try {
-    signature = crypto.createSign("RSA-SHA256").update(signInput).sign(privateKey);
+    signature = crypto.createSign("RSA-SHA256").update(signInput).sign(credentials.privateKey);
   } catch (e) {
     console.error("[google-calendar] 服務帳戶私鑰格式錯誤", e);
     return null;
@@ -96,7 +161,10 @@ async function getAccessToken(): Promise<string | null> {
     return null;
   }
   const json = (await res.json()) as { access_token: string; expires_in: number };
-  cachedToken = { token: json.access_token, expiresAt: Date.now() + json.expires_in * 1000 };
+  tokenCache.set(credentials.clientEmail, {
+    token: json.access_token,
+    expiresAt: Date.now() + json.expires_in * 1000,
+  });
   return json.access_token;
 }
 
@@ -117,6 +185,7 @@ function exclusiveEnd(end: Date): string {
 }
 
 type UpsertInput = {
+  credentials: Credentials;
   calendarId: string;
   sourceKey: string; // 例如 `leave:${requestId}`、`member-event:${eventId}`，決定事件 id
   summary: string;
@@ -131,7 +200,7 @@ type UpsertInput = {
  * 的按鈕需要統計成功幾筆、失敗幾筆給管理者看。
  */
 async function upsertCalendarEvent(input: UpsertInput): Promise<boolean> {
-  const token = await getAccessToken();
+  const token = await getAccessToken(input.credentials);
   if (!token) return false;
   const eventId = toEventId(input.sourceKey);
   const body = JSON.stringify({
@@ -180,8 +249,12 @@ async function upsertCalendarEvent(input: UpsertInput): Promise<boolean> {
 }
 
 /** 刪除一筆先前同步的事件。找不到（早已刪除或從未同步過）視為成功，不算錯誤。 */
-async function deleteCalendarEvent(calendarId: string, sourceKey: string): Promise<boolean> {
-  const token = await getAccessToken();
+async function deleteCalendarEvent(
+  credentials: Credentials,
+  calendarId: string,
+  sourceKey: string,
+): Promise<boolean> {
+  const token = await getAccessToken(credentials);
   if (!token) return false;
   const eventId = toEventId(sourceKey);
   try {
@@ -206,7 +279,8 @@ async function deleteCalendarEvent(calendarId: string, sourceKey: string): Promi
 
 /**
  * 請假 / 出差核准後呼叫：同步進該組織設定的 Google 日曆。組織未設定 googleCalendarId、
- * 或服務帳戶 env 未設定時靜默略過（不影響呼叫端的簽核 / 登記流程），回傳 false。
+ * 或沒有任何可用的服務帳戶（自訂 + 系統預設都沒有）時靜默略過（不影響呼叫端的簽核 /
+ * 登記流程），回傳 false。
  */
 export async function syncMemberAbsenceToCalendar(opts: {
   orgId: string;
@@ -217,14 +291,16 @@ export async function syncMemberAbsenceToCalendar(opts: {
   startDate: Date;
   endDate: Date;
 }): Promise<boolean> {
-  if (!isCalendarSyncConfigured()) return false;
   const org = await db.organization.findUnique({
     where: { id: opts.orgId },
     select: { googleCalendarId: true },
   });
   const calendarId = org?.googleCalendarId?.trim();
   if (!calendarId) return false;
+  const resolved = await resolveCredentials(opts.orgId);
+  if (!resolved) return false;
   return upsertCalendarEvent({
+    credentials: resolved.credentials,
     calendarId,
     sourceKey: opts.sourceKey,
     summary: `${opts.typeLabel} - ${opts.memberName}`,
@@ -239,12 +315,13 @@ export async function removeMemberAbsenceFromCalendar(
   orgId: string,
   sourceKey: string,
 ): Promise<boolean> {
-  if (!isCalendarSyncConfigured()) return false;
   const org = await db.organization.findUnique({
     where: { id: orgId },
     select: { googleCalendarId: true },
   });
   const calendarId = org?.googleCalendarId?.trim();
   if (!calendarId) return false;
-  return deleteCalendarEvent(calendarId, sourceKey);
+  const resolved = await resolveCredentials(orgId);
+  if (!resolved) return false;
+  return deleteCalendarEvent(resolved.credentials, calendarId, sourceKey);
 }

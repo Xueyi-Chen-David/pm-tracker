@@ -1,14 +1,17 @@
 "use server";
 
+import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
 import { requireOrgPermission } from "@/server/org";
 import { displayName } from "@/lib/display";
 import { eventAttendanceEffect } from "@/lib/constants";
 import {
-  isCalendarSyncConfigured,
+  getEffectiveServiceAccountEmail,
+  isValidPrivateKeyPem,
   syncMemberAbsenceToCalendar,
 } from "@/server/google-calendar";
+import { encryptSecret, isEncryptionConfigured } from "@/server/encryption";
 
 /**
  * 手動補同步：把「已核准」但是在 Google 日曆同步功能上線 / 這個組織設定日曆 ID 之前
@@ -21,8 +24,12 @@ export async function backfillCalendarSync() {
   // setGoogleCalendarId 同樣的修正說明。
   const { org } = await requireOrgPermission("attendance.manage");
 
-  if (!isCalendarSyncConfigured()) {
-    return { ok: false as const, error: "系統尚未設定 Google 服務帳戶，無法同步。" };
+  const serviceAccount = await getEffectiveServiceAccountEmail(org.id);
+  if (!serviceAccount) {
+    return {
+      ok: false as const,
+      error: "沒有可用的 Google 服務帳戶（系統預設未設定，這個組織也沒有自訂憑證），無法同步。",
+    };
   }
   const orgRow = await db.organization.findUnique({
     where: { id: org.id },
@@ -108,4 +115,55 @@ export async function backfillCalendarSync() {
     synced,
     failed,
   };
+}
+
+const SetServiceAccountInput = z.object({
+  clientEmail: z.string().trim().max(200),
+  privateKey: z.string().trim().max(10_000),
+});
+
+/**
+ * 設定 / 清除這個組織自訂的 Google 服務帳戶（進階選項，見 google-calendar.ts 檔頭說明）。
+ * 兩個欄位都留空＝清除、改用系統預設；否則兩個都要有值。私鑰加密後才存進資料庫。
+ */
+export async function setGoogleCalendarServiceAccount(
+  input: z.input<typeof SetServiceAccountInput>,
+) {
+  const { org } = await requireOrgPermission("attendance.manage");
+  const d = SetServiceAccountInput.parse(input);
+
+  if (!d.clientEmail && !d.privateKey) {
+    await db.organization.update({
+      where: { id: org.id },
+      data: { googleCalendarClientEmail: null, googleCalendarPrivateKeyEncrypted: null },
+    });
+    revalidatePath("/attendance");
+    return { ok: true as const };
+  }
+  if (!d.clientEmail || !d.privateKey) {
+    return { ok: false as const, error: "服務帳戶 Email 與私鑰要嘛都填、要嘛都留空清除。" };
+  }
+  if (!isEncryptionConfigured()) {
+    return {
+      ok: false as const,
+      error: "系統尚未設定加密金鑰（ENCRYPTION_KEY），無法儲存自訂服務帳戶，請洽系統管理員。",
+    };
+  }
+  const privateKey = d.privateKey.replace(/\\n/g, "\n");
+  if (!isValidPrivateKeyPem(privateKey)) {
+    return { ok: false as const, error: "私鑰格式不正確，請確認貼的是完整的 PEM 私鑰內容。" };
+  }
+
+  let encrypted: string;
+  try {
+    encrypted = encryptSecret(privateKey);
+  } catch (e) {
+    return { ok: false as const, error: e instanceof Error ? e.message : "加密失敗" };
+  }
+  await db.organization.update({
+    where: { id: org.id },
+    data: { googleCalendarClientEmail: d.clientEmail, googleCalendarPrivateKeyEncrypted: encrypted },
+  });
+  revalidatePath("/attendance");
+  return { ok: true as const };
 }

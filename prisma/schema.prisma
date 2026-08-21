@@ -158,9 +158,17 @@ model Organization {
   checkInMatchMode  String   @default("any")
 
   // Google 日曆同步（請假 / 出差核准後自動寫入一筆全天事件）：要同步進去的日曆 ID。
-  // 管理者需自行把這顆日曆分享給服務帳戶（env GOOGLE_CALENDAR_CLIENT_EMAIL）「進行變更」權限。
-  // 留空＝不同步（服務帳戶 env 沒設也一樣不同步，見 src/server/google-calendar.ts）。
+  // 管理者需自行把這顆日曆分享給服務帳戶「進行變更」權限。留空＝不同步。
   googleCalendarId String?
+
+  // 進階：組織自訂 Google 服務帳戶。多租戶下所有組織預設共用系統的服務帳戶（env
+  // GOOGLE_CALENDAR_CLIENT_EMAIL/_PRIVATE_KEY），但某些公司的 Google Workspace 網域對
+  // 「網域外的服務帳戶」有額外的信任邊界限制，就算日曆 ACL 給了 writer 實際寫入還是會
+  // 被擋（KORVVA 案例：服務帳戶掛在網域外的個人 Google Cloud 專案下，就算共用政策、ACL
+  // 都設對了仍 403）。這種情況該組織可以改用「自己網域底下建立」的服務帳戶，兩個欄位都
+  // 有值才會覆寫預設；私鑰用 src/server/encryption.ts 的 AES-256-GCM 加密存放，不是明文。
+  googleCalendarClientEmail        String?
+  googleCalendarPrivateKeyEncrypted String? @db.Text
 
   members             OrganizationMember[]
   emailChangeRequests EmailChangeRequest[]
