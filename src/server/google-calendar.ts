@@ -22,19 +22,29 @@ import { decryptSecret } from "@/server/encryption";
  *
  * 每組織可自訂服務帳戶（Organization.googleCalendarClientEmail /
  * googleCalendarPrivateKeyEncrypted）：多租戶下所有組織預設共用系統的服務帳戶
- * （env GOOGLE_CALENDAR_CLIENT_EMAIL/_PRIVATE_KEY），但某些公司的 Google Workspace
- * 網域對「網域外的服務帳戶」有額外的信任邊界限制——就算日曆 ACL 給了 writer、共用政策也
- * 調到最高，實際寫入還是會被 403 擋下（KORVVA 案例：服務帳戶掛在網域外的個人 Google
- * Cloud 專案下）。這種情況該組織可以改用「自己網域底下建立」的服務帳戶覆寫預設，兩個
- * 欄位都有值才生效；沒設定就 fallback 回系統預設，不會影響其他組織。
+ * （env GOOGLE_CALENDAR_CLIENT_EMAIL/_PRIVATE_KEY），組織可以改用自己建立的服務帳戶
+ * 覆寫，兩個欄位都有值才生效；沒設定就 fallback 回系統預設，不會影響其他組織。
+ *
+ * 模擬使用者 / 網域範圍委派（Organization.googleCalendarImpersonateUser）：KORVVA 案例
+ * 證實——目標日曆若屬於 Google Workspace 網域，直接把日曆分享給服務帳戶（不管服務帳戶
+ * 是哪個 GCP 專案的、換幾把金鑰）ACL 角色即使確認是 writer，實際寫入仍一律 403。Google
+ * 官方文件講得很明確：網域擁有的日曆只認「網域範圍委派」（服務帳戶模擬網域內某個真實
+ * 使用者操作），不認直接 ACL 分享這條路——這是這裡最終真正解決寫入被拒的方法，不是
+ * 「換專案」或「重設 ACL」。設定 googleCalendarImpersonateUser 後 JWT 會多帶 sub claim；
+ * 前提是網域管理員已在 Admin 控制台「安全性 → API 控制項 → 網域範圍委派」把服務帳戶的
+ * 用戶端 ID 授權 calendar 範圍，且被模擬的使用者本身要對目標日曆有權限。
  */
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar";
 
-type Credentials = { clientEmail: string; privateKey: string };
+type Credentials = { clientEmail: string; privateKey: string; impersonateUser?: string };
 
-function defaultCredentials(): Credentials | null {
+/** 系統預設服務帳戶（env）的 email/私鑰，不含模擬使用者——那個一律來自組織自己的設定
+ *  （googleCalendarImpersonateUser），因為要模擬誰是「哪個網域」的問題，跟用哪個服務
+ *  帳戶去模擬是兩件事：即使用系統共用的預設服務帳戶，只要該組織的 Workspace 管理員把
+ *  這個服務帳戶的用戶端 ID 授權了網域範圍委派，一樣可以模擬自己網域內的使用者。 */
+function defaultServiceAccount(): { clientEmail: string; privateKey: string } | null {
   const clientEmail = (process.env.GOOGLE_CALENDAR_CLIENT_EMAIL ?? "").trim();
   const privateKey = (process.env.GOOGLE_CALENDAR_PRIVATE_KEY ?? "")
     .trim()
@@ -46,7 +56,7 @@ function defaultCredentials(): Credentials | null {
 
 /** 系統預設服務帳戶（env）是否已設定——UI 用來判斷「沒設自訂憑證的組織能不能用」。 */
 export function isCalendarSyncConfigured(): boolean {
-  return defaultCredentials() !== null;
+  return defaultServiceAccount() !== null;
 }
 
 /** 私鑰是否為可用的 PEM 格式（存自訂憑證前先驗證，別讓打錯格式的內容默默存進資料庫）。 */
@@ -60,7 +70,9 @@ export function isValidPrivateKeyPem(privateKey: string): boolean {
 }
 
 /**
- * 解析某組織實際該用的服務帳戶：組織自訂（兩欄位都有值）優先，否則 fallback 回系統預設。
+ * 解析某組織實際該用的服務帳戶：組織自訂（兩欄位都有值）優先，否則 fallback 回系統預設；
+ * 模擬使用者（googleCalendarImpersonateUser）一律來自組織自己的設定，不管用的是自訂還是
+ * 系統預設服務帳戶都會套用——見上面 defaultServiceAccount() 的說明。
  * 私鑰解密失敗（ENCRYPTION_KEY 換過 / 資料被動過手腳）視為組織自訂憑證不可用，
  * 不會靜默改用系統預設（那不是使用者的意圖，且系統預設對這個組織可能本來就進不去）。
  */
@@ -69,15 +81,21 @@ async function resolveCredentials(
 ): Promise<{ credentials: Credentials; source: "org" | "default" } | null> {
   const org = await db.organization.findUnique({
     where: { id: orgId },
-    select: { googleCalendarClientEmail: true, googleCalendarPrivateKeyEncrypted: true },
+    select: {
+      googleCalendarClientEmail: true,
+      googleCalendarPrivateKeyEncrypted: true,
+      googleCalendarImpersonateUser: true,
+    },
   });
+  const impersonateUser = org?.googleCalendarImpersonateUser?.trim() || undefined;
+
   if (org?.googleCalendarClientEmail && org.googleCalendarPrivateKeyEncrypted) {
     try {
       const privateKey = decryptSecret(org.googleCalendarPrivateKeyEncrypted)
         .trim()
         .replace(/\\n/g, "\n");
       return {
-        credentials: { clientEmail: org.googleCalendarClientEmail, privateKey },
+        credentials: { clientEmail: org.googleCalendarClientEmail, privateKey, impersonateUser },
         source: "org",
       };
     } catch (e) {
@@ -85,19 +103,27 @@ async function resolveCredentials(
       return null;
     }
   }
-  const fallback = defaultCredentials();
-  return fallback ? { credentials: fallback, source: "default" } : null;
+  const fallback = defaultServiceAccount();
+  return fallback ? { credentials: { ...fallback, impersonateUser }, source: "default" } : null;
 }
 
 /**
- * 目前這個組織「實際會用哪個服務帳戶」的信箱（不含私鑰，給設定頁顯示用）。
- * 回傳 null 代表完全沒有可用的服務帳戶（沒自訂、系統預設也沒設）。
+ * 目前這個組織「實際會用哪個服務帳戶」的信箱 + 有沒有設模擬使用者（不含私鑰，給設定頁
+ * 顯示用）。回傳 null 代表完全沒有可用的服務帳戶（沒自訂、系統預設也沒設）。
  */
-export async function getEffectiveServiceAccountEmail(
-  orgId: string,
-): Promise<{ email: string; source: "org" | "default" } | null> {
+export async function getEffectiveServiceAccountEmail(orgId: string): Promise<{
+  email: string;
+  source: "org" | "default";
+  impersonateUser?: string;
+} | null> {
   const resolved = await resolveCredentials(orgId);
-  return resolved ? { email: resolved.credentials.clientEmail, source: resolved.source } : null;
+  return resolved
+    ? {
+        email: resolved.credentials.clientEmail,
+        source: resolved.source,
+        impersonateUser: resolved.credentials.impersonateUser,
+      }
+    : null;
 }
 
 function base64url(input: Buffer | string): string {
@@ -108,11 +134,17 @@ function base64url(input: Buffer | string): string {
     .replace(/=+$/, "");
 }
 
-// access token 快取，用 clientEmail 當 key——不同組織可能用不同服務帳戶，不能只快取一顆。
+// access token 快取，key 帶 clientEmail + impersonateUser——不同組織可能用不同服務帳戶，
+// 同一個服務帳戶也可能模擬不同使用者，換出來的 token 代表的身分不一樣，不能共用快取。
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
+function cacheKey(credentials: Credentials): string {
+  return `${credentials.clientEmail}::${credentials.impersonateUser ?? ""}`;
+}
+
 async function getAccessToken(credentials: Credentials): Promise<string | null> {
-  const cached = tokenCache.get(credentials.clientEmail);
+  const key = cacheKey(credentials);
+  const cached = tokenCache.get(key);
   if (cached && cached.expiresAt > Date.now() + 30_000) {
     return cached.token;
   }
@@ -126,6 +158,8 @@ async function getAccessToken(credentials: Credentials): Promise<string | null> 
       aud: TOKEN_URL,
       iat: now,
       exp: now + 3600,
+      // 網域範圍委派：有設定才帶 sub，讓服務帳戶模擬這個使用者操作（見檔頭說明）。
+      ...(credentials.impersonateUser ? { sub: credentials.impersonateUser } : {}),
     }),
   );
   const signInput = `${header}.${claims}`;
@@ -161,7 +195,7 @@ async function getAccessToken(credentials: Credentials): Promise<string | null> 
     return null;
   }
   const json = (await res.json()) as { access_token: string; expires_in: number };
-  tokenCache.set(credentials.clientEmail, {
+  tokenCache.set(key, {
     token: json.access_token,
     expiresAt: Date.now() + json.expires_in * 1000,
   });

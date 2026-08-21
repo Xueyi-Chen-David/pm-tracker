@@ -125,6 +125,8 @@ const SetServiceAccountInput = z.object({
 /**
  * 設定 / 清除這個組織自訂的 Google 服務帳戶（進階選項，見 google-calendar.ts 檔頭說明）。
  * 兩個欄位都留空＝清除、改用系統預設；否則兩個都要有值。私鑰加密後才存進資料庫。
+ * 不動 googleCalendarImpersonateUser——模擬使用者是獨立設定（見 setGoogleCalendarImpersonateUser），
+ * 清掉自訂服務帳戶不代表要一併清掉模擬使用者設定。
  */
 export async function setGoogleCalendarServiceAccount(
   input: z.input<typeof SetServiceAccountInput>,
@@ -163,6 +165,31 @@ export async function setGoogleCalendarServiceAccount(
   await db.organization.update({
     where: { id: org.id },
     data: { googleCalendarClientEmail: d.clientEmail, googleCalendarPrivateKeyEncrypted: encrypted },
+  });
+  revalidatePath("/attendance");
+  return { ok: true as const };
+}
+
+const SetImpersonateInput = z.object({
+  impersonateUser: z.string().trim().max(200),
+});
+
+/**
+ * 設定 / 清除「模擬使用者」（網域範圍委派，見 google-calendar.ts 檔頭說明）。留空＝不模擬，
+ * 走原本直接分享日曆 ACL 給服務帳戶那條路。這是獨立於自訂服務帳戶的設定——即使用系統
+ * 預設服務帳戶，只要該組織的 Workspace 管理員把它的用戶端 ID 授權了委派，一樣能用。
+ */
+export async function setGoogleCalendarImpersonateUser(
+  input: z.input<typeof SetImpersonateInput>,
+) {
+  const { org } = await requireOrgPermission("attendance.manage");
+  const d = SetImpersonateInput.parse(input);
+  if (d.impersonateUser && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.impersonateUser)) {
+    return { ok: false as const, error: "請輸入正確的 Email 格式。" };
+  }
+  await db.organization.update({
+    where: { id: org.id },
+    data: { googleCalendarImpersonateUser: d.impersonateUser || null },
   });
   revalidatePath("/attendance");
   return { ok: true as const };

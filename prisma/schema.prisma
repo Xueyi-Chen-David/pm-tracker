@@ -162,13 +162,20 @@ model Organization {
   googleCalendarId String?
 
   // 進階：組織自訂 Google 服務帳戶。多租戶下所有組織預設共用系統的服務帳戶（env
-  // GOOGLE_CALENDAR_CLIENT_EMAIL/_PRIVATE_KEY），但某些公司的 Google Workspace 網域對
-  // 「網域外的服務帳戶」有額外的信任邊界限制，就算日曆 ACL 給了 writer 實際寫入還是會
-  // 被擋（KORVVA 案例：服務帳戶掛在網域外的個人 Google Cloud 專案下，就算共用政策、ACL
-  // 都設對了仍 403）。這種情況該組織可以改用「自己網域底下建立」的服務帳戶，兩個欄位都
-  // 有值才會覆寫預設；私鑰用 src/server/encryption.ts 的 AES-256-GCM 加密存放，不是明文。
+  // GOOGLE_CALENDAR_CLIENT_EMAIL/_PRIVATE_KEY），組織可以改用自己建立的服務帳戶覆寫，
+  // 兩個欄位都有值才生效；私鑰用 src/server/encryption.ts 的 AES-256-GCM 加密存放，
+  // 不是明文。
   googleCalendarClientEmail        String?
   googleCalendarPrivateKeyEncrypted String? @db.Text
+
+  // 進階：模擬使用者（網域範圍委派 / domain-wide delegation）。KORVVA 案例證實：服務帳戶
+  // 就算直接分享到日曆 ACL、角色也確實是 writer，只要目標日曆屬於 Google Workspace 網域，
+  // 實際寫入還是會被 403 擋下——Google 官方文件講得很清楚，網域擁有的日曆只認網域範圍
+  // 委派，不認直接 ACL 分享這條路（跟 GCP 專案是誰的、換幾把金鑰都無關）。設定這個欄位
+  // 後，JWT 會多帶 sub claim，服務帳戶等於「變身」成這個使用者操作，不再需要日曆 ACL
+  // 分享；該使用者需要網域管理員先在 Admin 控制台「安全性 → API 控制項 → 網域範圍
+  // 委派」把服務帳戶的用戶端 ID 授權 https://www.googleapis.com/auth/calendar 範圍。
+  googleCalendarImpersonateUser String?
 
   members             OrganizationMember[]
   emailChangeRequests EmailChangeRequest[]

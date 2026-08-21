@@ -8,6 +8,7 @@ import { setGoogleCalendarId } from "@/server/actions/org-settings";
 import {
   backfillCalendarSync,
   setGoogleCalendarServiceAccount,
+  setGoogleCalendarImpersonateUser,
 } from "@/server/actions/calendar-sync";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -23,30 +24,40 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 
-type EffectiveServiceAccount = { email: string; source: "org" | "default" } | null;
+type EffectiveServiceAccount = {
+  email: string;
+  source: "org" | "default";
+  impersonateUser?: string;
+} | null;
 
 export function GoogleCalendarSettings({
   calendarId: initialCalendarId,
   orgServiceAccountEmail,
+  impersonateUser: initialImpersonateUser,
   effectiveServiceAccount,
 }: {
   calendarId: string | null;
   /** 這個組織自己設定的服務帳戶信箱（若有）——只是拿來預填「進階設定」表單。 */
   orgServiceAccountEmail: string | null;
+  /** 這個組織設定的模擬使用者（若有）——網域範圍委派用，見下方說明。 */
+  impersonateUser: string | null;
   /** 實際會用哪個服務帳戶：組織自訂優先，否則系統預設；兩者都沒有就是 null。 */
   effectiveServiceAccount: EffectiveServiceAccount;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [pending, start] = useTransition();
-  // 手動補同步 / 服務帳戶設定 / 日曆 ID 各自獨立的 pending，避免其中一個在跑，
+  // 手動補同步 / 服務帳戶設定 / 模擬使用者 / 日曆 ID 各自獨立的 pending，避免其中一個在跑，
   // 把其他不相干的按鈕也一起鎖住。
   const [backfilling, startBackfill] = useTransition();
   const [savingAccount, startSaveAccount] = useTransition();
+  const [savingImpersonate, startSaveImpersonate] = useTransition();
   const [calendarId, setCalendarId] = useState(initialCalendarId ?? "");
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [clientEmail, setClientEmail] = useState(orgServiceAccountEmail ?? "");
   const [privateKey, setPrivateKey] = useState("");
+  const [impersonateOpen, setImpersonateOpen] = useState(false);
+  const [impersonateUser, setImpersonateUser] = useState(initialImpersonateUser ?? "");
 
   function copyEmail(email: string) {
     navigator.clipboard
@@ -125,6 +136,22 @@ export function GoogleCalendarSettings({
     });
   }
 
+  function saveImpersonate() {
+    startSaveImpersonate(async () => {
+      try {
+        const res = await setGoogleCalendarImpersonateUser({ impersonateUser });
+        if (!res.ok) {
+          toast.error(res.error);
+          return;
+        }
+        toast.success(impersonateUser ? "已設定模擬使用者" : "已清除模擬使用者");
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "儲存失敗");
+      }
+    });
+  }
+
   return (
     <>
       <Button
@@ -171,12 +198,23 @@ export function GoogleCalendarSettings({
                     </span>
                   )}
                 </p>
-                <ol className="list-decimal space-y-1 pl-4">
-                  <li>
-                    到要同步進去的 Google 日曆「設定與共用」，把下面這個信箱加為
-                    「進行變更」（Make changes to events）的共用對象：
-                  </li>
-                </ol>
+                {effectiveServiceAccount.impersonateUser ? (
+                  <p className="text-muted-foreground">
+                    已設定模擬使用者（
+                    <span className="font-mono">{effectiveServiceAccount.impersonateUser}</span>
+                    ），走網域範圍委派，<strong className="text-foreground">不需要</strong>
+                    把日曆分享給下面這個服務帳戶信箱。
+                  </p>
+                ) : (
+                  <ol className="list-decimal space-y-1 pl-4">
+                    <li>
+                      到要同步進去的 Google 日曆「設定與共用」，把下面這個信箱加為
+                      「進行變更」（Make changes to events）的共用對象——如果目標日曆屬於
+                      Google Workspace 網域，這條路可能會被網域政策擋住，改用下面「進階：
+                      模擬使用者」那個設定。
+                    </li>
+                  </ol>
+                )}
                 <div className="flex items-center gap-1.5">
                   {/* min-w-0 是關鍵：flex 子項預設不會縮到比內容本身還窄（min-width: auto），
                       服務帳戶信箱很長，沒有這個 truncate 不會生效。 */}
@@ -263,10 +301,10 @@ export function GoogleCalendarSettings({
               {advancedOpen && (
                 <div className="mt-2.5 space-y-2.5">
                   <p className="text-muted-foreground text-xs break-words">
-                    大部分組織不需要設定這裡，直接用上面顯示的系統預設服務帳戶即可。只有當
-                    貴公司的 Google Workspace 網域擋住了系統預設服務帳戶（日曆 ACL、共用
-                    政策都設定正確，寫入卻仍被拒絕）時，才需要在自己的網域底下另外建立一個
-                    服務帳戶，貼上憑證覆寫預設。
+                    大部分組織不需要設定這裡，直接用上面顯示的系統預設服務帳戶即可。這裡是
+                    換一個完全不同的服務帳戶（例如想跟其他組織的憑證分開管理）。如果你是
+                    「日曆屬於 Google Workspace 網域，分享 ACL 設對了寫入還是被拒絕」這種
+                    狀況，要解的是下面「進階：模擬使用者」，換服務帳戶本身沒有用。
                   </p>
                   <div className="space-y-1.5">
                     <Label htmlFor="gc-sa-email">服務帳戶 Email</Label>
@@ -322,6 +360,69 @@ export function GoogleCalendarSettings({
                       </Button>
                     )}
                   </div>
+                </div>
+              )}
+            </div>
+
+            {/* 進階：模擬使用者（網域範圍委派）。真正解決「日曆屬於 Google Workspace 網域，
+                ACL 分享明明設對了寫入還是被拒絕」的地方——Google 官方文件說網域擁有的日曆
+                只認網域範圍委派，不認直接分享給服務帳戶這條路（KORVVA 案例證實過）。 */}
+            <div className="border-t pt-3.5">
+              <button
+                type="button"
+                onClick={() => setImpersonateOpen((v) => !v)}
+                className="text-muted-foreground hover:text-foreground flex w-full items-center justify-between text-left text-xs font-medium"
+              >
+                <span>
+                  進階：模擬使用者（網域範圍委派）
+                  {initialImpersonateUser && (
+                    <span className="text-primary ml-1.5 font-normal">（已設定）</span>
+                  )}
+                </span>
+                <ChevronDown
+                  className={cn("h-3.5 w-3.5 transition-transform", impersonateOpen && "rotate-180")}
+                />
+              </button>
+              {impersonateOpen && (
+                <div className="mt-2.5 space-y-2.5">
+                  <p className="text-muted-foreground text-xs break-words">
+                    如果目標日曆屬於 Google Workspace 網域，直接把日曆分享給服務帳戶這條路
+                    可能會被網域政策擋住——ACL 角色即使確認是「進行變更」，實際寫入仍會被拒
+                    絕。這種情況要設定這裡，讓服務帳戶「模擬」網域內某個對這顆日曆本身有
+                    權限的真實使用者去操作，設定後上面就不用再分享日曆給服務帳戶信箱了。
+                  </p>
+                  <ol className="text-muted-foreground list-decimal space-y-1 pl-4 text-xs break-words">
+                    <li>
+                      請貴公司 Google Workspace 管理員到 Admin 控制台「安全性 → API 控制項
+                      → 網域範圍委派」，新增一筆，把上面顯示的服務帳戶「用戶端 ID」
+                      （在 Google Cloud Console 服務帳戶詳細資料頁面可以找到，是一串數字，
+                      不是 Email）填進去，範圍填 <code>https://www.googleapis.com/auth/calendar</code>。
+                    </li>
+                    <li>下面填要模擬的使用者 Email（該使用者本身要對目標日曆有權限）。</li>
+                  </ol>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="gc-impersonate">模擬使用者 Email</Label>
+                    <Input
+                      id="gc-impersonate"
+                      type="email"
+                      value={impersonateUser}
+                      onChange={(e) => setImpersonateUser(e.target.value)}
+                      placeholder="someone@your-domain.com"
+                      className="font-mono text-xs"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={saveImpersonate}
+                    disabled={savingImpersonate}
+                  >
+                    {savingImpersonate
+                      ? "儲存中…"
+                      : impersonateUser
+                        ? "儲存模擬使用者"
+                        : "清除模擬使用者"}
+                  </Button>
                 </div>
               )}
             </div>

@@ -76,6 +76,7 @@ export default async function AttendancePage({
           checkInMatchMode: true,
           googleCalendarId: true,
           googleCalendarClientEmail: true,
+          googleCalendarImpersonateUser: true,
         },
       }),
       // 這個組織「實際」會用哪個服務帳戶（自訂優先，否則系統預設）——只在需要顯示設定
@@ -181,6 +182,7 @@ export default async function AttendancePage({
           <GoogleCalendarSettings
             calendarId={orgConfig.googleCalendarId}
             orgServiceAccountEmail={orgConfig.googleCalendarClientEmail}
+            impersonateUser={orgConfig.googleCalendarImpersonateUser}
             effectiveServiceAccount={effectiveServiceAccount}
           />
         )}
