@@ -77,11 +77,40 @@ export function KeyResultRow({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  // 狀態 / 健康度 / 類型 / 進度 / 連動專案 / 負責人：改本地樂觀狀態，不要直接綁
+  // kr.xxx prop。原本用 <select value={kr.status}> 這種寫法，onChange 送出 patch()
+  // 後、伺服器還沒回應完成 router.refresh() 之前，kr.status 這個 prop 完全沒變，
+  // controlled select 下一次 render（例如 useTransition 的 pending 一變 true 就會
+  // 觸發）就會被 React 打回原本的舊值——使用者剛選的東西「瞬間跳回去」，看起來像
+  // 沒反應／卡住，其實幾秒後 router.refresh() 完成就會自己修正，只是使用者早就以為
+  // 壞了。改成先在本地立刻反映使用者的選擇，prop 之後跟上時再同步回來（處理其他人
+  // 同時改動、或這次 patch 失敗要復原的情況）。
+  //
+  // 同步方式刻意不用 useEffect：那樣「prop 換了 → effect 觸發 → 再 setState」
+  // 會多繞一輪、多一次 render，而且這個 repo 的 lint（react-hooks/set-state-in-effect）
+  // 本來就禁止這種寫法。改用 React 官方文件建議的「render 期間比對 prop 是否換了
+  // 一顆新物件、換了就直接同步呼叫 setState」，同一個 render pass 內完成，不多一輪。
+  const [prevKr, setPrevKr] = useState(kr);
+  const [status, setStatus] = useState(kr.status);
+  const [health, setHealth] = useState(kr.health);
+  const [kind, setKind] = useState(kr.kind);
+  const [progress, setProgress] = useState(kr.progress);
+  const [projectId, setProjectId] = useState(kr.project?.id ?? "");
   const [ownerIds, setOwnerIds] = useState<Set<string>>(
     () => new Set(kr.owners.map((o) => o.id)),
   );
+  if (kr !== prevKr) {
+    setPrevKr(kr);
+    setStatus(kr.status);
+    setHealth(kr.health);
+    setKind(kr.kind);
+    setProgress(kr.progress);
+    setProjectId(kr.project?.id ?? "");
+    setOwnerIds(new Set(kr.owners.map((o) => o.id)));
+  }
 
-  const resolved = resolveKr(kr);
+  const selectedProject = projects.find((p) => p.id === projectId) ?? null;
+  const resolved = resolveKr({ ...kr, status, health, progress, project: selectedProject });
 
   function run(
     fn: () => Promise<{ ok: boolean; error?: string } | void>,
@@ -112,7 +141,7 @@ export function KeyResultRow({
     run(() => setKrOwners(kr.id, [...next]));
   }
 
-  const isTodo = kr.kind === "todo";
+  const isTodo = kind === "todo";
 
   return (
     <tr className={cn("hover:bg-muted/30", pending && "opacity-60")}>
@@ -221,12 +250,16 @@ export function KeyResultRow({
           </span>
         ) : (
           <select
-            value={kr.status}
+            value={status}
             disabled={pending}
-            onChange={(e) => patch({ status: e.currentTarget.value as KrStatus })}
+            onChange={(e) => {
+              const v = e.currentTarget.value as KrStatus;
+              setStatus(v);
+              patch({ status: v });
+            }}
             className={cn(
               "h-7 rounded-full border px-2 text-xs font-medium outline-none",
-              KR_STATUS[kr.status].badge,
+              KR_STATUS[status].badge,
             )}
           >
             {(Object.keys(KR_STATUS) as KrStatus[]).map((s) => (
@@ -260,8 +293,11 @@ export function KeyResultRow({
               type="number"
               min={0}
               max={100}
-              defaultValue={kr.progress}
+              value={progress}
               disabled={pending}
+              onChange={(e) =>
+                setProgress(Math.max(0, Math.min(100, Number(e.currentTarget.value) || 0)))
+              }
               onBlur={(e) => {
                 const v = Math.max(0, Math.min(100, Number(e.currentTarget.value) || 0));
                 if (v !== kr.progress) patch({ progress: v });
@@ -281,9 +317,13 @@ export function KeyResultRow({
             type="button"
             disabled={pending}
             title="點擊切換 順利/注意/延宕"
-            onClick={() => patch({ health: HEALTH_CYCLE[kr.health] })}
+            onClick={() => {
+              const v = HEALTH_CYCLE[health];
+              setHealth(v);
+              patch({ health: v });
+            }}
           >
-            <HealthDot health={kr.health} />
+            <HealthDot health={health} />
           </button>
         )}
       </td>
@@ -314,11 +354,13 @@ export function KeyResultRow({
             <div className="space-y-1">
               <div className="text-muted-foreground text-xs">連動專案（即時抓狀態）</div>
               <select
-                value={kr.project?.id ?? ""}
+                value={projectId}
                 disabled={pending}
-                onChange={(e) =>
-                  patch({ projectId: e.currentTarget.value || null })
-                }
+                onChange={(e) => {
+                  const v = e.currentTarget.value;
+                  setProjectId(v);
+                  patch({ projectId: v || null });
+                }}
                 className={inputCls}
               >
                 <option value="">不連結（手動填）</option>
@@ -333,11 +375,13 @@ export function KeyResultRow({
               <div className="space-y-1">
                 <div className="text-muted-foreground text-xs">類型</div>
                 <select
-                  value={kr.kind}
+                  value={kind}
                   disabled={pending}
-                  onChange={(e) =>
-                    patch({ kind: e.currentTarget.value as "kr" | "todo" })
-                  }
+                  onChange={(e) => {
+                    const v = e.currentTarget.value as "kr" | "todo";
+                    setKind(v);
+                    patch({ kind: v });
+                  }}
                   className={inputCls}
                 >
                   <option value="kr">Key Result</option>
