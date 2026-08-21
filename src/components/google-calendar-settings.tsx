@@ -104,7 +104,13 @@ export function GoogleCalendarSettings({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4">
+          {/* min-w-0 是真正的根因：DialogContent 是 display:grid，這個 div 是它的直接
+              grid item，預設 min-width:auto 會讓 grid 欄寬去遷就子孫裡最寬的「內在內容」
+              （這裡是日曆 ID 那顆 input 的長字串值），把整個 grid track 撐寬到超過
+              max-w-lg，害 header/footer 也一起被撐寬、且對話框預設 focus 在右上角關閉鈕，
+              一開啟就自動橫向捲到最右，看起來像整段文字從左邊被裁掉。用 devtools 量出
+              scrollWidth(598) vs clientWidth(512) 才抓到，不是靠猜的。 */}
+          <div className="min-w-0 space-y-4">
             {!serviceAccountConfigured ? (
               <p className="bg-amber-50 text-amber-900 rounded-md px-3 py-2 text-xs break-words dark:bg-amber-950/40 dark:text-amber-100">
                 系統尚未設定 Google 服務帳戶（環境變數
