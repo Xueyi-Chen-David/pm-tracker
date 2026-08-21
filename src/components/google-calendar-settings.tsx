@@ -93,7 +93,10 @@ export function GoogleCalendarSettings({
         <span className="hidden sm:inline">Google 日曆同步</span>
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
+        {/* max-h + overflow-y-auto 已經是 DialogContent 的預設值（見 ui/dialog.tsx 註解），
+            這裡加寬到 lg 純粹是內容本身偏長（服務帳戶信箱、日曆 ID 提示都是長字串），
+            sm:max-w-md 太窄逼得裡面的字擠得緊，容易看起來像被裁切。 */}
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Google 日曆同步</DialogTitle>
             <DialogDescription>
@@ -103,18 +106,20 @@ export function GoogleCalendarSettings({
 
           <div className="space-y-4">
             {!serviceAccountConfigured ? (
-              <p className="bg-amber-50 text-amber-900 rounded-md px-3 py-2 text-xs dark:bg-amber-950/40 dark:text-amber-100">
+              <p className="bg-amber-50 text-amber-900 rounded-md px-3 py-2 text-xs break-words dark:bg-amber-950/40 dark:text-amber-100">
                 系統尚未設定 Google 服務帳戶（環境變數
                 GOOGLE_CALENDAR_CLIENT_EMAIL / GOOGLE_CALENDAR_PRIVATE_KEY），
                 這裡填了日曆 ID 也不會真的同步，請先洽系統管理員設定。
               </p>
             ) : (
-              <div className="bg-muted/40 space-y-1.5 rounded-md px-3 py-2 text-xs">
+              // break-words：GOOGLE_CALENDAR_CLIENT_EMAIL 這類沒有空白的長字串，瀏覽器預設
+              // 不會在字中間換行，字比容器寬就會整段被推出去、對話框看起來像被裁切，要顯式允許斷字。
+              <div className="bg-muted/40 space-y-1.5 rounded-md px-3 py-2 text-xs break-words">
                 <p className="font-medium">設定步驟：</p>
                 <ol className="list-decimal space-y-1 pl-4">
                   <li>
                     到要同步進去的 Google 日曆「設定與共用」，把下面這個信箱加為
-                    「進行變更並管理共用設定」的共用對象：
+                    「進行變更」（Make changes to events）的共用對象：
                   </li>
                 </ol>
                 <div className="flex items-center gap-1.5">
