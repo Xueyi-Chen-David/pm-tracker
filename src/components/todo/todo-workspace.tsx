@@ -39,6 +39,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { DatePicker } from "@/components/ui/date-picker";
 
 export type TodoView = {
   id: string;
@@ -76,6 +77,8 @@ const selectCls =
   "border-input bg-transparent dark:bg-input/30 h-8 rounded-md border px-2 text-sm outline-none focus-visible:border-ring";
 const dateCls =
   "border-input bg-transparent dark:bg-input/30 h-8 rounded-md border px-2 text-xs outline-none focus-visible:border-ring";
+// 快速新增列的日期鈕：跟旁邊的 select 一樣矮，寬度剛好放得下 yyyy/MM/dd。
+const datePickerCls = "h-8 w-[8.5rem] text-xs";
 // popover 在手機上不能比視窗還寬（w-72＝288px 對 320px 的機器已經頂到邊）。
 const popoverCls = "w-[min(18rem,calc(100vw-2rem))]";
 
@@ -256,26 +259,28 @@ function TodoList({
               ))}
             </select>
           </label>
-          <label className="text-muted-foreground inline-flex items-center gap-1 text-xs">
+          <div className="text-muted-foreground inline-flex items-center gap-1 text-xs">
             開始
-            <input
-              type="date"
+            <DatePicker
               value={startDate}
               max={dueDate || undefined}
-              onChange={(e) => setStartDate(e.target.value)}
-              className={dateCls}
+              onChange={setStartDate}
+              placeholder="未設定"
+              ariaLabel="開始日"
+              className={datePickerCls}
             />
-          </label>
-          <label className="text-muted-foreground inline-flex items-center gap-1 text-xs">
+          </div>
+          <div className="text-muted-foreground inline-flex items-center gap-1 text-xs">
             結束
-            <input
-              type="date"
+            <DatePicker
               value={dueDate}
               min={startDate || undefined}
-              onChange={(e) => setDueDate(e.target.value)}
-              className={dateCls}
+              onChange={setDueDate}
+              placeholder="未設定"
+              ariaLabel="結束 / 到期日"
+              className={datePickerCls}
             />
-          </label>
+          </div>
         </div>
       </div>
 
@@ -603,24 +608,26 @@ function TodoRow({
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <div className="min-w-0 space-y-1">
               <div className="text-muted-foreground text-xs">開始日</div>
-              <input
-                type="date"
+              <DatePicker
                 value={startDate}
                 max={dueDate || undefined}
                 disabled={pending}
-                onChange={(e) => setStartDate(e.target.value)}
-                className={dateCls + " w-full min-w-0"}
+                onChange={setStartDate}
+                placeholder="未設定"
+                ariaLabel="開始日"
+                className="h-8 min-w-0 text-xs"
               />
             </div>
             <div className="min-w-0 space-y-1">
               <div className="text-muted-foreground text-xs">結束 / 到期日</div>
-              <input
-                type="date"
+              <DatePicker
                 value={dueDate}
                 min={startDate || undefined}
                 disabled={pending}
-                onChange={(e) => setDueDate(e.target.value)}
-                className={dateCls + " w-full min-w-0"}
+                onChange={setDueDate}
+                placeholder="未設定"
+                ariaLabel="結束 / 到期日"
+                className="h-8 min-w-0 text-xs"
               />
             </div>
           </div>
