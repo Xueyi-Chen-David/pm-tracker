@@ -14,10 +14,13 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Clock,
   Download,
+  Eye,
   FileSpreadsheet,
   Mail,
   Plus,
+  Send,
   Settings2,
   Trash2,
 } from "lucide-react";
@@ -119,6 +122,46 @@ function trackDays(mail: MailCellValue): number | null {
 function readLatencyDays(mail: MailCellValue): number | null {
   if (mail.sentDate && mail.readDate) return daysBetween(mail.sentDate, mail.readDate);
   return null;
+}
+
+type MailColumnStats = {
+  total: number;
+  sent: number;
+  read: number;
+  avgDays: number | null; // 已寄送的平均追蹤天數（距今）
+  avgLatency: number | null; // 已讀的平均讀取耗時
+};
+
+/** 某個 MAIL 欄位在目前這批商機裡的寄送／已讀彙總，供上方統計列使用。 */
+function mailColumnStats(col: ViewColumn, deals: DealView[]): MailColumnStats {
+  let sent = 0;
+  let read = 0;
+  let daysSum = 0;
+  let daysCount = 0;
+  let latencySum = 0;
+  let latencyCount = 0;
+  for (const d of deals) {
+    const mail = parseMailValue(col.valueByDealId[d.id] ?? null);
+    if (mail.sent) sent++;
+    if (mail.read) read++;
+    const days = trackDays(mail);
+    if (days !== null) {
+      daysSum += days;
+      daysCount++;
+    }
+    const latency = readLatencyDays(mail);
+    if (latency !== null) {
+      latencySum += latency;
+      latencyCount++;
+    }
+  }
+  return {
+    total: deals.length,
+    sent,
+    read,
+    avgDays: daysCount > 0 ? daysSum / daysCount : null,
+    avgLatency: latencyCount > 0 ? latencySum / latencyCount : null,
+  };
 }
 
 /** {{企業名}} 替換成該列的公司名稱；header/body/footer 有值的部分才組進去、
@@ -339,6 +382,8 @@ export function SpreadsheetView({
         </div>
       </div>
 
+      <MailStatsBar view={view} deals={activeDeals} />
+
       {view.columns.length === 0 ? (
         <div className="text-muted-foreground flex flex-1 items-center justify-center rounded-lg border border-dashed text-sm">
           這個分頁還沒有欄位，按「管理欄位」開始新增
@@ -457,6 +502,62 @@ export function SpreadsheetView({
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+/** 每一輪信件的寄送／已讀彙總——一眼看到寄了幾封、讀了幾封、平均隔了多久，
+ *  不用逐列數。沒有任何 MAIL 欄位的分頁不顯示。 */
+function MailStatsBar({ view, deals }: { view: CrmViewLite; deals: DealView[] }) {
+  const mailCols = view.columns.filter((c) => c.type === "MAIL");
+  if (mailCols.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {mailCols.map((col) => {
+        const s = mailColumnStats(col, deals);
+        const readRate = s.sent > 0 ? Math.round((s.read / s.sent) * 100) : null;
+        return (
+          <div
+            key={col.id}
+            className="bg-muted/40 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-1.5 text-xs"
+          >
+            <span className="font-medium">{col.label}</span>
+            <span className="text-muted-foreground flex items-center gap-1">
+              <Send className="h-3 w-3" />
+              已寄{" "}
+              <strong className="text-foreground tabular-nums">{s.sent}</strong>
+              /{s.total}
+            </span>
+            <span className="text-muted-foreground flex items-center gap-1">
+              <Eye className="h-3 w-3" />
+              已讀{" "}
+              <strong className="text-foreground tabular-nums">{s.read}</strong>
+              {readRate !== null && (
+                <span className="tabular-nums">（{readRate}%）</span>
+              )}
+            </span>
+            {s.avgDays !== null && (
+              <span className="text-muted-foreground flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                平均距今{" "}
+                <strong className="text-foreground tabular-nums">
+                  {s.avgDays.toFixed(1)}
+                </strong>{" "}
+                天
+              </span>
+            )}
+            {s.avgLatency !== null && (
+              <span className="text-muted-foreground">
+                平均讀取耗時{" "}
+                <strong className="text-foreground tabular-nums">
+                  {s.avgLatency.toFixed(1)}
+                </strong>{" "}
+                天
+              </span>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
