@@ -1923,7 +1923,7 @@ export async function getCrmDeals(orgId: string) {
     where: { organizationId: orgId },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     include: {
-      contact: { select: { id: true, name: true, company: true } },
+      contact: { select: { id: true, name: true, company: true, email: true } },
       owner: { select: userIdentitySelect },
       _count: { select: { activities: true } },
     },
@@ -1962,7 +1962,7 @@ export async function getCrmEvents(orgId: string) {
     where: { organizationId: orgId },
     orderBy: [{ date: "desc" }, { createdAt: "desc" }],
     include: {
-      contact: { select: { id: true, name: true, company: true } },
+      contact: { select: { id: true, name: true, company: true, email: true } },
     },
   });
 }
@@ -1990,6 +1990,42 @@ export async function getDealStages(orgId: string) {
 }
 export type DealStageRow = Awaited<ReturnType<typeof getDealStages>>[number];
 
+/**
+ * 每組織自訂的 CRM 試算表分頁（含欄位定義＋每欄的所有格子值）。跟管線階段不同，
+ * 這裡沒有預設種子——沒有任何自訂分頁是合理狀態（純看板／漏斗也能用），使用者從
+ * CRM 頁自己按「新增清單」才會有第一筆。cellsByDeal 在查詢時就攤平成
+ * `Map<dealId, Map<columnId, value>>`，元件端不用自己重新分組。
+ */
+export async function getCrmViews(orgId: string) {
+  const views = await db.crmView.findMany({
+    where: { organizationId: orgId },
+    orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+    include: {
+      columns: {
+        orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
+        include: { values: { select: { dealId: true, value: true } } },
+      },
+    },
+  });
+  return views.map((v) => ({
+    id: v.id,
+    name: v.name,
+    columns: v.columns.map((c) => ({
+      id: c.id,
+      label: c.label,
+      type: c.type,
+      selectOptions: c.selectOptions,
+      // 以下三個都僅 type=MAIL 使用，每個 MAIL 欄位（每一輪信）各自一套，不共用：
+      header: c.header,
+      template: c.template,
+      footer: c.footer,
+      // 攤平成純物件（不是 Map）——這份資料會經 RSC 邊界傳給 client 元件，Map 過不去。
+      valueByDealId: Object.fromEntries(c.values.map((cell) => [cell.dealId, cell.value])),
+    })),
+  }));
+}
+export type CrmViewRow = Awaited<ReturnType<typeof getCrmViews>>[number];
+
 /** 待跟進活動（type=task 且未完成），跨所有商機彙整（今日跟進總覽用）。無到期日的排最後。 */
 export async function getCrmFollowUps(orgId: string) {
   return db.crmActivity.findMany({
@@ -2000,7 +2036,7 @@ export async function getCrmFollowUps(orgId: string) {
         select: {
           id: true,
           title: true,
-          contact: { select: { id: true, name: true, company: true } },
+          contact: { select: { id: true, name: true, company: true, email: true } },
         },
       },
     },
@@ -2031,7 +2067,7 @@ export async function getCrmActivityLog(orgId: string, limit = 300) {
         select: {
           id: true,
           title: true,
-          contact: { select: { id: true, name: true, company: true } },
+          contact: { select: { id: true, name: true, company: true, email: true } },
         },
       },
     },
@@ -2191,6 +2227,10 @@ export async function getCrmCompanyProfiles(orgId: string) {
       productCategory: true,
       hasEcommerce: true,
       ecommercePlatform: true,
+      website: true,
+      entryHook: true,
+      grade: true,
+      note: true,
     },
     orderBy: { company: "asc" },
   });

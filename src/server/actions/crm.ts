@@ -1143,3 +1143,415 @@ export async function updateContactRole(
   revalidate();
   return { ok: true as const };
 }
+
+// ── 自訂試算表分頁（CrmView）─────────────────────
+// 跟 Pipeline／漏斗一樣讀同一份組織商機清單，只是換一種（可自訂）欄位配置去看；
+// type=STAGE 的欄位不走這裡的 setViewCell，直接沿用既有的 moveDealStage，
+// 這樣試算表改狀態＝看板換欄，兩邊資料自然是同一份、不會兜不起來。
+
+const ViewNameInput = z.string().trim().min(1, "請輸入名稱").max(60);
+
+export async function createCrmView(name: string) {
+  const { user, org } = await requireActiveOrg();
+  const n = ViewNameInput.parse(name);
+  const max = await db.crmView.aggregate({
+    where: { organizationId: org.id },
+    _max: { sortOrder: true },
+  });
+  const view = await db.crmView.create({
+    data: {
+      organizationId: org.id,
+      name: n,
+      sortOrder: (max._max.sortOrder ?? -1) + 1,
+      createdById: user.id,
+    },
+    select: { id: true },
+  });
+  revalidate();
+  return { ok: true as const, ...view };
+}
+
+export async function renameCrmView(id: string, name: string) {
+  const { org } = await requireActiveOrg();
+  const n = ViewNameInput.parse(name);
+  const res = await db.crmView.updateMany({
+    where: { id, organizationId: org.id },
+    data: { name: n },
+  });
+  if (res.count === 0) return { ok: false as const, error: "找不到分頁" };
+  revalidate();
+  return { ok: true as const };
+}
+
+/** 刪除自訂分頁（連同底下欄位與已填的格子值一起刪，見 schema 的 onDelete: Cascade）；
+ *  不影響商機本身——分頁只是一種呈現方式，刪分頁不會刪商機。 */
+export async function deleteCrmView(id: string) {
+  const { org } = await requireActiveOrg();
+  await db.crmView.deleteMany({ where: { id, organizationId: org.id } });
+  revalidate();
+}
+
+const ViewColumnInput = z.object({
+  label: z.string().trim().min(1, "請輸入欄位名稱").max(60),
+  type: z.enum(["STAGE", "CHECKBOX", "DATE", "TEXT", "SELECT", "MAIL"]),
+  selectOptions: z.array(z.string().trim().min(1).max(40)).max(30).default([]),
+  // 以下三個都僅 type=MAIL 使用，每一輪各自一套（不同輪的頭尾／範本可以不一樣）：
+  header: z.string().trim().max(4000).optional(),
+  template: z.string().trim().max(4000).optional(),
+  footer: z.string().trim().max(4000).optional(),
+});
+
+export async function createCrmViewColumn(
+  viewId: string,
+  input: z.input<typeof ViewColumnInput>,
+) {
+  const { org } = await requireActiveOrg();
+  const view = await db.crmView.findFirst({
+    where: { id: viewId, organizationId: org.id },
+    select: { id: true },
+  });
+  if (!view) return { ok: false as const, error: "找不到分頁" };
+  const d = ViewColumnInput.parse(input);
+  const max = await db.crmViewColumn.aggregate({
+    where: { viewId },
+    _max: { sortOrder: true },
+  });
+  await db.crmViewColumn.create({
+    data: {
+      viewId,
+      label: d.label,
+      type: d.type,
+      selectOptions: d.type === "SELECT" ? d.selectOptions : [],
+      header: d.type === "MAIL" ? d.header || null : null,
+      template: d.type === "MAIL" ? d.template || null : null,
+      footer: d.type === "MAIL" ? d.footer || null : null,
+      sortOrder: (max._max.sortOrder ?? -1) + 1,
+    },
+  });
+  revalidate();
+  return { ok: true as const };
+}
+
+/** 編輯既有欄位：只能改名稱／SELECT 選項／MAIL 的頭中尾，不能改型別——型別一換，
+ *  已經存的格子值（"true"/"false"、yyyy-mm-dd、MAIL 的 JSON…）就對不上新型別了，
+ *  要換型別請刪掉重建一欄。 */
+const ViewColumnPatch = z.object({
+  label: z.string().trim().min(1, "請輸入欄位名稱").max(60),
+  selectOptions: z.array(z.string().trim().min(1).max(40)).max(30).default([]),
+  header: z.string().trim().max(4000).optional(),
+  template: z.string().trim().max(4000).optional(),
+  footer: z.string().trim().max(4000).optional(),
+});
+
+export async function updateCrmViewColumn(
+  id: string,
+  input: z.input<typeof ViewColumnPatch>,
+) {
+  const { org } = await requireActiveOrg();
+  const d = ViewColumnPatch.parse(input);
+  const col = await db.crmViewColumn.findFirst({
+    where: { id, view: { organizationId: org.id } },
+    select: { type: true },
+  });
+  if (!col) return { ok: false as const, error: "找不到欄位" };
+  await db.crmViewColumn.update({
+    where: { id },
+    data: {
+      label: d.label,
+      selectOptions: col.type === "SELECT" ? d.selectOptions : [],
+      header: col.type === "MAIL" ? d.header || null : null,
+      template: col.type === "MAIL" ? d.template || null : null,
+      footer: col.type === "MAIL" ? d.footer || null : null,
+    },
+  });
+  revalidate();
+  return { ok: true as const };
+}
+
+export async function deleteCrmViewColumn(id: string) {
+  const { org } = await requireActiveOrg();
+  await db.crmViewColumn.deleteMany({ where: { id, view: { organizationId: org.id } } });
+  revalidate();
+}
+
+/** 欄位排序：整組欄位鍵依新順序一次寫入（拖曳／上移下移都走這條，不用區分手法）。 */
+export async function reorderCrmViewColumns(viewId: string, orderedIds: string[]) {
+  const { org } = await requireActiveOrg();
+  const view = await db.crmView.findFirst({
+    where: { id: viewId, organizationId: org.id },
+    select: { id: true },
+  });
+  if (!view) return { ok: false as const, error: "找不到分頁" };
+  await db.$transaction(
+    orderedIds.map((id, i) =>
+      db.crmViewColumn.updateMany({
+        where: { id, viewId },
+        data: { sortOrder: i },
+      }),
+    ),
+  );
+  revalidate();
+  return { ok: true as const };
+}
+
+/** 試算表行內編輯：寫某商機在某自訂欄位的值（CHECKBOX 存 "true"/"false"、DATE 存
+ *  yyyy-mm-dd、TEXT/SELECT 存原文；空字串／null 視為清空，直接刪掉那筆格子值）。
+ *  type=STAGE 的欄位沒有格子值，一律走既有的 moveDealStage——呼叫端不應該傳這種
+ *  columnId 進來，這裡防呆擋掉以免兩套資料打架。 */
+export async function setCrmViewCell(dealId: string, columnId: string, value: string | null) {
+  const { org } = await requireActiveOrg();
+  const [deal, column] = await Promise.all([
+    db.crmDeal.findFirst({ where: { id: dealId, organizationId: org.id }, select: { id: true } }),
+    db.crmViewColumn.findFirst({
+      where: { id: columnId, view: { organizationId: org.id } },
+      select: { id: true, type: true },
+    }),
+  ]);
+  if (!deal) return { ok: false as const, error: "找不到商機" };
+  if (!column) return { ok: false as const, error: "找不到欄位" };
+  if (column.type === "STAGE") {
+    return { ok: false as const, error: "狀態欄位請用階段下拉選單" };
+  }
+  const v = value?.trim() || null;
+  if (v === null) {
+    await db.crmViewCellValue.deleteMany({ where: { dealId, columnId } });
+  } else {
+    await db.crmViewCellValue.upsert({
+      where: { columnId_dealId: { columnId, dealId } },
+      create: { dealId, columnId, value: v },
+      update: { value: v },
+    });
+  }
+  revalidate();
+  return { ok: true as const };
+}
+
+/** 試算表「新增列」：輕量建一個商機（可選帶一個佔位聯絡人存 Email），預設落在第一個
+ *  階段（未指定時抓 sortOrder 最小的那個）。跟 createDeal 的差異——這裡只給試算表用，
+ *  欄位精簡到「公司名稱 + Email」，細節（負責人、金額…）事後在商機編輯視窗再補。 */
+const QuickDealInput = z.object({
+  title: z.string().trim().min(1, "請輸入企業名稱").max(200),
+  email: z.string().trim().max(200).optional(),
+  stage: STAGE.optional(),
+});
+
+export async function createSpreadsheetDeal(input: z.input<typeof QuickDealInput>) {
+  const { user, org } = await requireActiveOrg();
+  const d = QuickDealInput.parse(input);
+
+  let contactId: string | null = null;
+  if (d.email) {
+    const contact = await db.crmContact.create({
+      data: {
+        organizationId: org.id,
+        name: d.title, // 還沒有具名窗口，先用公司名代替（同「ご担当者様」慣例）
+        company: d.title,
+        email: d.email,
+        createdById: user.id,
+      },
+      select: { id: true },
+    });
+    contactId = contact.id;
+    await ensureCompanyProfile(org.id, d.title, user.id);
+  }
+
+  const stage =
+    d.stage ??
+    (
+      await db.dealStage.findFirst({
+        where: { organizationId: org.id },
+        orderBy: { sortOrder: "asc" },
+        select: { key: true },
+      })
+    )?.key ??
+    "LEAD";
+
+  const max = await db.crmDeal.aggregate({
+    where: { organizationId: org.id, stage, status: "OPEN" },
+    _max: { sortOrder: true },
+  });
+  const deal = await db.crmDeal.create({
+    data: {
+      organizationId: org.id,
+      title: d.title,
+      stage,
+      contactId,
+      sortOrder: (max._max.sortOrder ?? 0) + 1,
+      createdById: user.id,
+    },
+    select: { id: true },
+  });
+  await db.dealStageChange.create({
+    data: { organizationId: org.id, dealId: deal.id, fromStage: null, toStage: stage, changedById: user.id },
+  });
+  revalidate();
+  return { ok: true as const, id: deal.id };
+}
+
+// ── Excel 匯入（試算表分頁）───────────────────────
+// 前端用 xlsx 套件把上傳的檔案解析成「表頭→值」的物件陣列後送進來，這裡只處理
+// 已經是結構化資料的陣列，不碰檔案二進位——上傳/解析留在瀏覽器端做，server action
+// payload 就是單純的 JSON。
+
+const CHECKBOX_TRUE = new Set(["true", "1", "是", "v", "✓", "已", "yes", "y", "已讀", "已寄送", "已寄"]);
+
+function isChecked(v: string | undefined): boolean {
+  return !!v && CHECKBOX_TRUE.has(v.trim().toLowerCase());
+}
+
+/** 公司名稱／Email 欄位常見表頭別名，依序嘗試比對（不分大小寫）。 */
+const COMPANY_HEADER_ALIASES = ["企業名", "公司", "公司名稱", "客戶", "company", "customer"];
+const EMAIL_HEADER_ALIASES = ["email", "商家email", "e-mail", "信箱"];
+
+const ExcelRow = z.record(z.string(), z.string());
+const ExcelImportInput = z.object({
+  viewId: z.string().min(1),
+  rows: z.array(ExcelRow).min(1).max(2000),
+});
+
+/**
+ * Excel 匯入：每一列建一個聯絡人＋商機（預設階段＝「潛在」，忽略 excel 裡任何狀態欄），
+ * 其餘欄位依「表頭文字＝欄位名稱」精準比對寫進對應的 CrmViewCellValue（MAIL 型欄位
+ * 支援 "{欄位名}-已寄送"／"{欄位名}-日期"／"{欄位名}-已讀" 三個子表頭）。
+ * 公司名稱已經有基本檔案（CrmCompanyProfile）的列會略過，避免跟既有名單撞名重複。
+ */
+export async function importCrmViewExcelRows(
+  input: z.input<typeof ExcelImportInput>,
+): Promise<
+  | { ok: true; created: number; skipped: number; total: number }
+  | { ok: false; error: string }
+> {
+  const { user, org } = await requireActiveOrg();
+  const d = ExcelImportInput.parse(input);
+
+  const view = await db.crmView.findFirst({
+    where: { id: d.viewId, organizationId: org.id },
+    include: { columns: true },
+  });
+  if (!view) return { ok: false, error: "找不到分頁" };
+
+  const leadStage =
+    (
+      await db.dealStage.findFirst({
+        where: { organizationId: org.id },
+        orderBy: { sortOrder: "asc" },
+        select: { key: true },
+      })
+    )?.key ?? "LEAD";
+
+  const existingProfiles = new Set(
+    (
+      await db.crmCompanyProfile.findMany({
+        where: { organizationId: org.id },
+        select: { company: true },
+      })
+    ).map((p) => p.company),
+  );
+
+  const max = await db.crmDeal.aggregate({
+    where: { organizationId: org.id, stage: leadStage, status: "OPEN" },
+    _max: { sortOrder: true },
+  });
+  let sortOrder = (max._max.sortOrder ?? 0) + 1;
+
+  let created = 0;
+  let skipped = 0;
+
+  for (const row of d.rows) {
+    const byLowerHeader = new Map(
+      Object.entries(row).map(([k, v]) => [k.trim().toLowerCase(), v.trim()]),
+    );
+    const company = COMPANY_HEADER_ALIASES.map((h) => byLowerHeader.get(h.toLowerCase()))
+      .find((v) => !!v)
+      ?.trim();
+    if (!company || existingProfiles.has(company)) {
+      skipped++;
+      continue;
+    }
+    const email = EMAIL_HEADER_ALIASES.map((h) => byLowerHeader.get(h.toLowerCase())).find(
+      (v) => !!v,
+    );
+
+    const contact = await db.crmContact.create({
+      data: {
+        organizationId: org.id,
+        name: "ご担当者様",
+        company,
+        email: email || null,
+        createdById: user.id,
+      },
+      select: { id: true },
+    });
+    await ensureCompanyProfile(org.id, company, user.id);
+    existingProfiles.add(company);
+
+    const deal = await db.crmDeal.create({
+      data: {
+        organizationId: org.id,
+        title: company,
+        stage: leadStage,
+        contactId: contact.id,
+        sortOrder: sortOrder++,
+        createdById: user.id,
+      },
+      select: { id: true },
+    });
+    await db.dealStageChange.create({
+      data: {
+        organizationId: org.id,
+        dealId: deal.id,
+        fromStage: null,
+        toStage: leadStage,
+        changedById: user.id,
+      },
+    });
+
+    for (const col of view.columns) {
+      if (col.type === "STAGE") continue; // 一律用預設階段，不從 excel 讀狀態欄
+
+      if (col.type === "MAIL") {
+        const sentRaw = row[`${col.label}-已寄送`];
+        const sentDateRaw = row[`${col.label}-日期`]?.trim();
+        const readRaw = row[`${col.label}-已讀`];
+        const readDateRaw = row[`${col.label}-已讀日期`]?.trim();
+        const subjectRaw = row[`${col.label}-件名`];
+        const bodyRaw = row[`${col.label}-內容`];
+        if (
+          sentRaw === undefined &&
+          sentDateRaw === undefined &&
+          readRaw === undefined &&
+          readDateRaw === undefined &&
+          subjectRaw === undefined &&
+          bodyRaw === undefined
+        ) {
+          continue;
+        }
+        const value = {
+          sent: isChecked(sentRaw),
+          sentDate: sentDateRaw || null,
+          read: isChecked(readRaw),
+          readDate: readDateRaw || null,
+          subject: subjectRaw ?? "",
+          body: bodyRaw ?? "",
+        };
+        await db.crmViewCellValue.create({
+          data: { columnId: col.id, dealId: deal.id, value: JSON.stringify(value) },
+        });
+        continue;
+      }
+
+      const raw = row[col.label]?.trim();
+      if (!raw) continue;
+      const value = col.type === "CHECKBOX" ? (isChecked(raw) ? "true" : null) : raw;
+      if (!value) continue;
+      await db.crmViewCellValue.create({
+        data: { columnId: col.id, dealId: deal.id, value },
+      });
+    }
+
+    created++;
+  }
+
+  revalidate();
+  return { ok: true, created, skipped, total: d.rows.length };
+}

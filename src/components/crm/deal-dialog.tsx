@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Trash2, Check, User, Users, X } from "lucide-react";
+import { Trash2, Check, Building2, User, Users, X } from "lucide-react";
 import {
   createDeal,
   updateDeal,
@@ -24,6 +24,7 @@ import {
   getDealTeam,
 } from "@/server/actions/crm";
 import { MultiSelectField } from "@/components/crm/multi-select-field";
+import { CompanyComboboxField } from "@/components/crm/company-combobox-field";
 import { StageStepper } from "@/components/crm/stage-stepper";
 import {
   CRM_ACTIVITY_TYPES,
@@ -108,6 +109,11 @@ export function DealDialog({
   const [primaryContactId, setPrimaryContactId] = useState<string | null>(null);
   const [ownerIds, setOwnerIds] = useState<string[]>([]);
   const [primaryOwnerId, setPrimaryOwnerId] = useState<string | null>(null);
+  // 企業名稱＝商機名稱（見下方 handleSubmit）；控制項狀態，因為「聯絡人 / 客戶」
+  // 要即時依這個值篩選同一家企業底下的人。初始值直接用 deal.title——這個欄位
+  // 上線後兩者就是同一份資料，用 title 當來源最一致（也讓舊商機的自訂名稱原封
+  // 不動地顯示出來，不會被我們偷改，改不改由使用者自己決定）。
+  const [companyName, setCompanyName] = useState(deal?.title ?? "");
   const editing = !!deal;
   const firstStage = defaultStage ?? stages[0]?.key ?? "LEAD";
   const stageMap = new Map(stages.map((s) => [s.key, s]));
@@ -120,6 +126,17 @@ export function DealDialog({
   // defaultValue，導致「清除」按下去看起來清空了、實際存檔時日期又跑回來）。改成跟
   // note 同一套：state 直接驅動 value，「清除」只是 setCloseDate("")，不會有殘留。
   const [closeDate, setCloseDate] = useState(deal?.expectedCloseDate ?? "");
+
+  // 企業名稱下拉建議：所有聯絡人已經有的公司名稱（去重）。
+  const companyOptions = [
+    ...new Set(contacts.map((c) => c.company).filter((v): v is string => !!v)),
+  ].sort((a, b) => a.localeCompare(b, "ja"));
+  // 「聯絡人 / 客戶」只給目前企業名稱底下的人選——同一家企業可能有多位窗口。
+  // 企業名稱還沒填的時候先不列任何人，避免一開始就看到一大串不相干的聯絡人。
+  const trimmedCompany = companyName.trim();
+  const companyContacts = trimmedCompany
+    ? contacts.filter((c) => (c.company ?? "") === trimmedCompany)
+    : [];
 
   // 開啟編輯時載入活動時間軸 + 階段歷程 + 完整的聯絡人 / 負責人名單。
   // 新增（無 deal）時的清空改放在 openDialog（事件處理常式，不是 effect）——避免在 effect
@@ -149,13 +166,24 @@ export function DealDialog({
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const title = companyName.trim();
+    if (!title) return setError("請輸入企業名稱");
+    // 聯絡人只保留仍屬於目前企業名稱的——換過企業名稱後，先前選的人可能已經不相關了
+    // （見上面 companyContacts 的篩選邏輯，這裡存檔前再確認一次，避免留下舊選取）。
+    const validContactIds = contactIds.filter(
+      (id) => (contacts.find((c) => c.id === id)?.company ?? "") === title,
+    );
+    const validPrimaryContactId =
+      primaryContactId && validContactIds.includes(primaryContactId)
+        ? primaryContactId
+        : (validContactIds[0] ?? null);
     const fd = new FormData(e.currentTarget);
     const input = {
-      title: String(fd.get("title") ?? "").trim(),
+      title,
       value: Number(fd.get("value") ?? 0) || 0,
       stage: stageKey,
-      contactIds,
-      primaryContactId,
+      contactIds: validContactIds,
+      primaryContactId: validPrimaryContactId,
       ownerIds,
       primaryOwnerId,
       expectedCloseDate: closeDate.trim() || null,
@@ -165,7 +193,6 @@ export function DealDialog({
       })(),
       note: note.trim() || null,
     };
-    if (!input.title) return setError("請輸入商機名稱");
     start(async () => {
       try {
         const res = editing
@@ -205,6 +232,7 @@ export function DealDialog({
     setStageKey(deal?.stage ?? firstStage);
     setNote(deal?.note ?? "");
     setCloseDate(deal?.expectedCloseDate ?? "");
+    setCompanyName(deal?.title ?? "");
     // 新增商機：清掉上次（若曾開過又取消）殘留的聯絡人 / 負責人選取。編輯時交給上面
     // 的 effect 從 getDealTeam 重新載入，這裡不用管。
     if (!editing) {
@@ -241,18 +269,18 @@ export function DealDialog({
 
           <div className={cn("grid gap-4", editing && "lg:grid-cols-[1fr_360px]")}>
             <form id={FORM_ID} onSubmit={handleSubmit} className="min-w-0 space-y-3">
-              <div className="space-y-1.5">
-                <Label htmlFor="d-title">
-                  商機名稱 <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="d-title"
-                  name="title"
-                  required
-                  defaultValue={deal?.title ?? ""}
-                  placeholder="例：井上酒造 導入 AI 客服"
-                />
-              </div>
+              {/* 商機名稱＝企業名稱：跟下面「聯絡人 / 客戶」同一套可搜尋下拉元件——
+                  可以選既有企業，也可以直接打字新增一家還沒出現過的企業。下面的
+                  「聯絡人 / 客戶」會依這裡即時篩選。 */}
+              <CompanyComboboxField
+                label="企業名稱"
+                icon={<Building2 className="text-muted-foreground h-4 w-4 shrink-0" />}
+                options={companyOptions}
+                value={companyName}
+                onChange={setCompanyName}
+                placeholder="選擇或輸入企業名稱"
+                required
+              />
 
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
@@ -308,9 +336,9 @@ export function DealDialog({
                 <MultiSelectField
                   label="聯絡人 / 客戶"
                   icon={<User className="text-muted-foreground h-4 w-4 shrink-0" />}
-                  options={contacts.map((c) => ({
+                  options={companyContacts.map((c) => ({
                     id: c.id,
-                    label: c.company ? `${c.name}（${c.company}）` : c.name,
+                    label: c.name,
                   }))}
                   selectedIds={contactIds}
                   primaryId={primaryContactId}
@@ -319,7 +347,11 @@ export function DealDialog({
                     setPrimaryContactId(primary);
                   }}
                   placeholder="尚未關聯聯絡人"
-                  emptyHint="還沒有任何聯絡人，先到「聯絡人」分頁新增"
+                  emptyHint={
+                    trimmedCompany
+                      ? "這家企業還沒有任何聯絡人，先到「聯絡人」分頁新增"
+                      : "先在上面填企業名稱"
+                  }
                 />
                 <MultiSelectField
                   label="負責人"

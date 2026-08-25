@@ -10,6 +10,7 @@ import {
   getCrmActivityLog,
   getCrmCompanies,
   getCrmCompanyProfiles,
+  getCrmViews,
   getOrgMemberUsers,
 } from "@/server/queries";
 import { fmtMoney, effectiveProbability } from "@/lib/crm";
@@ -35,7 +36,14 @@ import { FollowUpsList } from "@/components/crm/followups-list";
 import { ActivityLogList } from "@/components/crm/activity-log-list";
 import { AddCompanyDialog } from "@/components/crm/company-profile-card";
 import { CompanyStatsPanel } from "@/components/crm/company-stats-panel";
-import type { EventView, FollowUpView, ActivityLogView } from "@/components/crm/types";
+import { SpreadsheetView } from "@/components/crm/spreadsheet-view";
+import { NewViewButton } from "@/components/crm/view-manager";
+import type {
+  EventView,
+  FollowUpView,
+  ActivityLogView,
+  CrmViewLite,
+} from "@/components/crm/types";
 
 export const metadata = { title: "CRM · Project Pulse" };
 
@@ -51,20 +59,6 @@ export default async function CrmPage({
   const { org } = await requireActiveOrg();
   const aiEnabled = isAiEnabled();
   const { tab: tabParam } = await searchParams;
-  const tab =
-    tabParam === "contacts"
-      ? "contacts"
-      : tabParam === "funnel"
-        ? "funnel"
-        : tabParam === "events"
-          ? "events"
-          : tabParam === "followups"
-            ? "followups"
-            : tabParam === "activityLog"
-              ? "activityLog"
-              : tabParam === "companyStats"
-                ? "companyStats"
-                : "pipeline";
 
   const [
     dealRows,
@@ -76,6 +70,7 @@ export default async function CrmPage({
     activityLogRows,
     companies,
     companyProfiles,
+    viewRows,
   ] = await Promise.all([
     getCrmDeals(org.id),
     getCrmContacts(org.id),
@@ -86,7 +81,30 @@ export default async function CrmPage({
     getCrmActivityLog(org.id),
     getCrmCompanies(org.id),
     getCrmCompanyProfiles(org.id),
+    getCrmViews(org.id),
   ]);
+
+  const views: CrmViewLite[] = viewRows;
+  // 自訂分頁用 `view:{id}` 當 tab 值；指到一個已經被刪掉的分頁時退回管線，
+  // 不會停在一個再也點不到的分頁上。
+  const viewTab = tabParam?.startsWith("view:") ? tabParam.slice(5) : null;
+  const activeView = viewTab ? views.find((v) => v.id === viewTab) : undefined;
+  const tab =
+    activeView
+      ? (`view:${activeView.id}` as const)
+      : tabParam === "contacts"
+        ? "contacts"
+        : tabParam === "funnel"
+          ? "funnel"
+          : tabParam === "events"
+            ? "events"
+            : tabParam === "followups"
+              ? "followups"
+              : tabParam === "activityLog"
+                ? "activityLog"
+                : tabParam === "companyStats"
+                  ? "companyStats"
+                  : "pipeline";
 
   const events: EventView[] = eventRows.map((e) => ({
     id: e.id,
@@ -96,7 +114,12 @@ export default async function CrmPage({
     notes: e.notes,
     link: e.link,
     contact: e.contact
-      ? { id: e.contact.id, name: e.contact.name, company: e.contact.company }
+      ? {
+          id: e.contact.id,
+          name: e.contact.name,
+          company: e.contact.company,
+          email: e.contact.email,
+        }
       : null,
   }));
 
@@ -117,7 +140,12 @@ export default async function CrmPage({
     stage: d.stage,
     status: d.status,
     contact: d.contact
-      ? { id: d.contact.id, name: d.contact.name, company: d.contact.company }
+      ? {
+          id: d.contact.id,
+          name: d.contact.name,
+          company: d.contact.company,
+          email: d.contact.email,
+        }
       : null,
     owner: d.owner,
     expectedCloseDate: ymd(d.expectedCloseDate),
@@ -150,6 +178,7 @@ export default async function CrmPage({
             id: f.deal.contact.id,
             name: f.deal.contact.name,
             company: f.deal.contact.company,
+            email: f.deal.contact.email,
           }
         : null,
     },
@@ -171,6 +200,7 @@ export default async function CrmPage({
             id: a.deal.contact.id,
             name: a.deal.contact.name,
             company: a.deal.contact.company,
+            email: a.deal.contact.email,
           }
         : null,
     },
@@ -196,6 +226,7 @@ export default async function CrmPage({
     id: c.id,
     name: c.name,
     company: c.company,
+    email: c.email,
   }));
 
   const contactRowsView: ContactRow[] = contactRows.map((c) => ({
@@ -300,10 +331,39 @@ export default async function CrmPage({
         <TabLink href="/crm?tab=companyStats" active={tab === "companyStats"}>
           統計 · {companyProfiles.length}
         </TabLink>
+        {views.map((v) => (
+          <TabLink
+            key={v.id}
+            href={`/crm?tab=view:${v.id}`}
+            active={tab === `view:${v.id}`}
+          >
+            {v.name}
+          </TabLink>
+        ))}
+        <NewViewButton
+          trigger={
+            <button
+              type="button"
+              title="新增自訂分頁"
+              className="text-muted-foreground hover:bg-muted hover:text-foreground -mb-px ml-1 rounded-t-md px-2 py-2 text-sm"
+            >
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          }
+        />
       </div>
 
       <div className="min-h-0 flex-1">
-        {tab === "followups" ? (
+        {activeView ? (
+          <SpreadsheetView
+            view={activeView}
+            deals={openDeals}
+            members={members}
+            contacts={contacts}
+            stages={stages}
+            companyProfiles={companyProfiles}
+          />
+        ) : tab === "followups" ? (
           <div className="h-full overflow-y-auto pb-2">
             <FollowUpsList
               followUps={followUps}

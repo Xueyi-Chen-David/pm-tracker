@@ -165,7 +165,7 @@ model Organization {
   // GOOGLE_CALENDAR_CLIENT_EMAIL/_PRIVATE_KEY），組織可以改用自己建立的服務帳戶覆寫，
   // 兩個欄位都有值才生效；私鑰用 src/server/encryption.ts 的 AES-256-GCM 加密存放，
   // 不是明文。
-  googleCalendarClientEmail        String?
+  googleCalendarClientEmail         String?
   googleCalendarPrivateKeyEncrypted String? @db.Text
 
   // 進階：模擬使用者（網域範圍委派 / domain-wide delegation）。KORVVA 案例證實：服務帳戶
@@ -202,6 +202,7 @@ model Organization {
   crmEvents           CrmEvent[]
   crmCompanyNotes     CrmCompanyNote[]
   crmCompanyProfiles  CrmCompanyProfile[]
+  crmViews            CrmView[]
   todoItems           TodoItem[]
   pomodoroSessions    PomodoroSession[]
   // 人資：自訂角色 / 假別 / 薪資設定 / 薪資單。
@@ -256,17 +257,17 @@ model OrganizationMember {
   leaveApprovalExempt Boolean  @default(false)
 
   // 人資：指派的自訂角色（多對多，如 人資 / 會計）；權限取聯集。刪除角色時自動解除指派。
-  roleDefs      OrgRoleDef[]   @relation("MemberRoles")
+  roleDefs           OrgRoleDef[]        @relation("MemberRoles")
   // 人資：薪資設定（每位成員一份）與歷月薪資單。
-  salaryProfile SalaryProfile?
-  payslips      Payslip[]
+  salaryProfile      SalaryProfile?
+  payslips           Payslip[]
   // 當月一次性獎金 / 調整（三節 / 臨時 / 年終…；不進常駐薪資設定，僅影響指定月份）。
   payslipAdjustments PayslipAdjustment[]
 
   // 請假簽核：作為簽核關卡的指定簽核人 / 作為申請人 / 作為某申請某關的實際簽核人。
-  leaveStepApprovals LeaveApprovalStep[] @relation("LeaveStepApprover")
-  leaveRequests      LeaveRequest[]      @relation("LeaveRequestMember")
-  leaveApprovals     LeaveApproval[]     @relation("LeaveApprovalApprover")
+  leaveStepApprovals   LeaveApprovalStep[]   @relation("LeaveStepApprover")
+  leaveRequests        LeaveRequest[]        @relation("LeaveRequestMember")
+  leaveApprovals       LeaveApproval[]       @relation("LeaveApprovalApprover")
   // 出差 / 事件簽核：沿用同一組簽核關卡設定，作為某事件某關的實際簽核人。
   memberEventApprovals MemberEventApproval[] @relation("MemberEventApprovalApprover")
 
@@ -547,23 +548,23 @@ model ReportImage {
 
 /// 會議記錄（全體會議 / 研發部會議 等）。依日期歸入對應週、顯示在該週週報。
 model Meeting {
-  id          String   @id @default(cuid())
-  date        DateTime @db.Date
-  category    String // 例：全體會議 / 研發部會議
-  title       String
-  attendeeIds String[] // 與會成員（User id；「全體」＝全部成員）
-  attendees   String?  @db.Text // 其他與會者（非系統成員，自由文字）
-  link        String?  @db.Text // 會議連結（Google Meet / 會議文件…；可能很長）
+  id           String   @id @default(cuid())
+  date         DateTime @db.Date
+  category     String // 例：全體會議 / 研發部會議
+  title        String
+  attendeeIds  String[] // 與會成員（User id；「全體」＝全部成員）
+  attendees    String?  @db.Text // 其他與會者（非系統成員，自由文字）
+  link         String?  @db.Text // 會議連結（Google Meet / 會議文件…；可能很長）
   // 會議記錄 / 決議：一段 HTML（圖片以 <img> 內嵌、文字環繞排版，像 Word 插入圖片）。
   // 送出前後端都會用 sanitize-html 過白名單，見 server/actions/meetings.ts。
-  notes       String?  @db.Text
+  notes        String?  @db.Text
   // 舊版「筆記畫布」留下的浮動圖片：[{id,url,xPct,yPct,wPct,hPct}] 或 [{id,url}]（不同代改版）。
   // 新資料一律不寫這欄——圖片已內嵌進 notes 的 HTML 裡；只保留給改版前的舊紀錄顯示 fallback 用。
-  noteImages  Json?
-  createdById String?
+  noteImages   Json?
+  createdById  String?
   recordedById String? // 記錄人；新增時預設帶入建立者，可事後改成別人
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -614,17 +615,17 @@ model AttendanceRecord {
 /// MemberEventApproval，依序簽核；核准後才落地到出席月曆（見 lib/attendance-sync.ts）。
 /// 例外：出勤管理權限者代他人登記一律直接 APPROVED，免簽核——見 server/actions/member-events.ts 註解。
 model MemberEvent {
-  id          String    @id @default(cuid())
-  userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type        String // 請假 / 出差 / 在家工作 / 外出 / 其他
-  startDate   DateTime  @db.Date
-  endDate     DateTime? @db.Date // 範圍結束（null＝單日）
-  note        String?   @db.Text
-  attachment     String? @db.Text // 證明附件（data URL；圖片 / PDF）
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type           String // 請假 / 出差 / 在家工作 / 外出 / 其他
+  startDate      DateTime  @db.Date
+  endDate        DateTime? @db.Date // 範圍結束（null＝單日）
+  note           String?   @db.Text
+  attachment     String?   @db.Text // 證明附件（data URL；圖片 / PDF）
   attachmentName String? // 附件原始檔名
-  createdById String?
-  createdAt   DateTime  @default(now())
+  createdById    String?
+  createdAt      DateTime  @default(now())
 
   // PENDING（待簽核）| APPROVED（已核准）| REJECTED（已駁回）——語意與 LeaveRequest.status 相同。
   status      String    @default("PENDING")
@@ -738,10 +739,10 @@ model KeyResult {
 /// 任務（Task）＝合併「專案與任務」頁裡，掛在某專案卡片下的一列。
 /// 專案卡片的彙總進度/健康度由底下任務即時算出並回寫到 Project（供時程/週報/連動 KR 共用）。
 model Task {
-  id        String  @id @default(cuid())
-  projectId String
-  project   Project @relation("ProjectTask", fields: [projectId], references: [id], onDelete: Cascade)
-  title     String
+  id          String  @id @default(cuid())
+  projectId   String
+  project     Project @relation("ProjectTask", fields: [projectId], references: [id], onDelete: Cascade)
+  title       String
   description String? @db.Text // 任務說明（這個任務要做什麼）
 
   status    KrStatus  @default(NOT_STARTED)
@@ -1122,6 +1123,7 @@ model CrmDeal {
   stageChanges DealStageChange[]
   contactLinks CrmDealContact[]
   ownerLinks   CrmDealOwner[]
+  viewCells    CrmViewCellValue[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1200,6 +1202,90 @@ model DealStageChange {
 
   @@index([dealId, changedAt])
   @@index([organizationId])
+}
+
+/// 自訂欄位的型別。STAGE 是「綁定既有資料」的特例：它不自己存值，讀寫的就是
+/// CrmDeal.stage／DealStage（跟銷售看板共用同一份資料）——這樣試算表分頁跟看板分頁
+/// 永遠是同一份現況的兩種呈現，而不是兩份會兜不起來的平行資料。MAIL 是「一欄＝一輪
+/// 寄信」的複合欄位：寄送／已讀兩個時間戳存在 CrmViewCellValue 的 JSON 裡（見該
+/// model 註解），頭／中／尾三段信件內容則掛在欄位本身（header／template／footer）
+/// ——每一輪的頭尾可能不一樣（例如首次接觸信跟追加信的開場白就不同），所以不是全
+/// View 共用一套，是每個 MAIL 欄位各自一套。其餘型別都是這個 View 自己的、跟
+/// CrmDeal 一對一存值的自由欄位。
+enum CrmViewColumnType {
+  STAGE
+  CHECKBOX
+  DATE
+  TEXT
+  SELECT
+  MAIL
+}
+
+/// 使用者可自訂的 CRM 分頁（試算表清單，如業務開發追蹤表）：一列＝一個商機
+/// （CrmDeal），欄位完全自訂（見 CrmViewColumn）。刻意不建立「這個 View 底下有哪些
+/// 商機」的關聯——所有自訂分頁都讀同一份組織商機清單（跟 Pipeline／漏斗現有做法一致），
+/// 只是換一種欄位配置去看，不是另外開一份平行名單。
+model CrmView {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name      String
+  sortOrder Int    @default(0)
+
+  columns CrmViewColumn[]
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([organizationId])
+}
+
+/// CrmView 底下一欄的定義。key 為穩定鍵（新增時給 cuid），CrmViewCellValue.columnId
+/// 對應到這裡；label／type／selectOptions／順序都可事後編輯，跟 DealStage 的
+/// 「每組織可自訂」是同一套精神。
+model CrmViewColumn {
+  id     String  @id @default(cuid())
+  viewId String
+  view   CrmView @relation(fields: [viewId], references: [id], onDelete: Cascade)
+
+  label         String
+  type          CrmViewColumnType
+  selectOptions String[]          @default([]) // 僅 type=SELECT 使用；可自訂增刪選項
+  // 以下三個都僅 type=MAIL 使用，可含 {{企業名}} 插入公司名稱：
+  header        String?           @db.Text // 這一輪信件的開頭（每輪各自，跟其他輪不共用）
+  template      String?           @db.Text // 這一輪信件「中間」的預設範本——新格子第一次編輯時的起始內容，
+  // 之後每家企業各自修改，改完就存在該格子自己的值裡，不會再跟著範本變動（見 CrmViewCellValue）
+  footer        String?           @db.Text // 這一輪信件的結尾（每輪各自，跟其他輪不共用）
+  sortOrder     Int               @default(0)
+
+  values CrmViewCellValue[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([viewId])
+}
+
+/// 某商機在某自訂欄位上的值（type=STAGE 的欄位不會有對應資料，直接讀 CrmDeal.stage）。
+/// CHECKBOX 存 "true"/"false"、DATE 存 yyyy-mm-dd、TEXT/SELECT 存原文、MAIL 存 JSON
+/// 字串 {"sent":boolean,"sentDate":string|null,"read":boolean,"readDate":string|null,
+/// "body":string}——寄送／已讀各自的狀態與日期，加上這家企業「這一輪」信件中間內容
+/// 的個人化版本（body，每家企業各自獨立，第一次編輯前顯示欄位的 template 當預設稿）。
+model CrmViewCellValue {
+  id       String        @id @default(cuid())
+  columnId String
+  column   CrmViewColumn @relation(fields: [columnId], references: [id], onDelete: Cascade)
+  dealId   String
+  deal     CrmDeal       @relation(fields: [dealId], references: [id], onDelete: Cascade)
+
+  value String? @db.Text
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([columnId, dealId])
+  @@index([dealId])
 }
 
 /// 商機的活動 / 備註時間軸（電話 / 會議 / Email / 備註 / 待辦）。
@@ -1283,40 +1369,40 @@ model CrmCompanyProfile {
   company String
 
   /// 產業類別（自由文字，例如「食品・銘菓」「陶磁器・工芸」「調味料・発酵」）。
-  industry String?
+  industry           String?
   /// 地點（自由文字，可比單純縣市更細，例如「福岡・新宮町」）。
-  location String?
+  location           String?
   /// 公司人數／員工數（自由文字——來源口徑常不一致，如「役員3・正社員13・従業員50、計66名」，
   /// 保留原始描述比硬塞成單一數字更不失真）。
-  headcount String?
+  headcount          String?
   /// 資本額（自由文字，例如「資本金1000万円」——原始揭露格式不一定是乾淨數字，比照 headcount）。
-  capital String?
+  capital            String?
   /// 創業／設立年份或沿革（自由文字，例如「1976年創業」「2000年創業、2008年11月法人化」）。
-  founded String?
-  website String?
+  founded            String?
+  website            String?
   /// 代表人／負責人姓名。
   representativeName String?
   /// 販賣的產品／主要業務內容（自由文字敘述，代表性列幾種即可）。
-  products String? @db.Text
+  products           String?  @db.Text
   /// 產品類型（封閉選項，供統計分頁分組用；見 src/lib/crm-company-stats.ts 的
   /// PRODUCT_CATEGORY_OPTIONS——跟 industry 的差異是這個是給機器分組用的粗分類，
   /// industry 是給人看的自由描述）。
-  productCategory String?
+  productCategory    String?
   /// 公司介紹（背景、特色、沿革等敘述）。
-  companyIntro String? @db.Text
+  companyIntro       String?  @db.Text
   /// 切入點（業務開發用：這家公司值得從哪個角度接觸、鉤子是什麼）。
-  entryHook String? @db.Text
+  entryHook          String?  @db.Text
   /// 是否有直營店面；null＝未查證/不確定。
-  hasPhysicalStore Boolean?
+  hasPhysicalStore   Boolean?
   /// 是否有電商；null＝未查證/不確定。跟 ecommercePlatform 分開存——「有沒有」跟「用哪個平台」
   /// 是兩個問題，先確定有沒有電商，平台是進一步的細節（可能查得到有電商但查不到用哪個平台）。
-  hasEcommerce Boolean?
+  hasEcommerce       Boolean?
   /// 電商平台（自由文字，如 Shopify／カラーミーショップ／MakeShop／futureshop／楽天／自社サイト）。
-  ecommercePlatform String?
+  ecommercePlatform  String?
   /// 優先級（自由文字，如業務開發名單常見的 A/B/C 分級）；不是系統定義的 enum，供各組織自訂用法。
-  grade String?
+  grade              String?
   /// 備註（其他不適合放進上面欄位的補充資訊）。
-  note String? @db.Text
+  note               String?  @db.Text
 
   createdById String?
   createdAt   DateTime @default(now())
@@ -1465,17 +1551,17 @@ model LeaveRequest {
   userId         String
   user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  leaveTypeId String?
-  leaveType   LeaveType? @relation(fields: [leaveTypeId], references: [id], onDelete: SetNull)
-  startDate   DateTime   @db.Date
-  endDate     DateTime   @db.Date
-  days        Float      @default(0) // 換算工作天（週末不計；顯示 / 統計用）。時數請假＝ hours / 該成員 standardHoursPerDay
+  leaveTypeId    String?
+  leaveType      LeaveType? @relation(fields: [leaveTypeId], references: [id], onDelete: SetNull)
+  startDate      DateTime   @db.Date
+  endDate        DateTime   @db.Date
+  days           Float      @default(0) // 換算工作天（週末不計；顯示 / 統計用）。時數請假＝ hours / 該成員 standardHoursPerDay
   // 時數請假（同一天內請幾小時）。三者要嘛全空（整天請假），要嘛全有值；startDate 須等於 endDate。
-  startTime String? // "HH:mm"
-  endTime   String? // "HH:mm"
-  hours     Float? // = endTime - startTime（小時，可含分鐘小數）
-  reason      String?    @db.Text
-  attachment     String? @db.Text // 證明附件（data URL；圖片 / PDF）
+  startTime      String? // "HH:mm"
+  endTime        String? // "HH:mm"
+  hours          Float? // = endTime - startTime（小時，可含分鐘小數）
+  reason         String?    @db.Text
+  attachment     String?    @db.Text // 證明附件（data URL；圖片 / PDF）
   attachmentName String? // 附件原始檔名
 
   // 申請人自己選的：核准後要不要同步進組織設定的 Google 日曆（有些假別事由較私密，
@@ -1711,8 +1797,8 @@ model PayslipAdjustment {
   periodYear  Int
   periodMonth Int // 1–12
 
-  label String // 顯示名稱（如「三節獎金（端午）」；選科目時預帶科目名，可自訂）
-  kind  String  @default("EARNING") // EARNING（加項，如獎金）| DEDUCTION（減項，如臨時扣款）
+  label  String // 顯示名稱（如「三節獎金（端午）」；選科目時預帶科目名，可自訂）
+  kind   String  @default("EARNING") // EARNING（加項，如獎金）| DEDUCTION（減項，如臨時扣款）
   amount Decimal @db.Decimal(12, 2)
 
   // 旗標快照（自由填或選科目時一併存；計算時只看這裡，不再回查科目）
