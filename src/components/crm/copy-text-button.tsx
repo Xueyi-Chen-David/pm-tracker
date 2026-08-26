@@ -14,14 +14,18 @@ export function CopyTextButton({
   text,
   label = "複製",
   className,
+  onBeforeCopy,
 }: {
   text: string;
   label?: string;
   className?: string;
+  /** 複製前要先做的事（例如先把還沒存檔的草稿存起來）。 */
+  onBeforeCopy?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
 
   async function copy() {
+    onBeforeCopy?.();
     try {
       await navigator.clipboard.writeText(text);
       setCopied(true);

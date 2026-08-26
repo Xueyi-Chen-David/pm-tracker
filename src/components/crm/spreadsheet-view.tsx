@@ -11,9 +11,22 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  ChartPie,
   Clock,
   Download,
   Eye,
@@ -23,6 +36,7 @@ import {
   Send,
   Settings2,
   Trash2,
+  X,
 } from "lucide-react";
 import {
   setCrmViewCell,
@@ -59,6 +73,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { CopyTextButton } from "@/components/crm/copy-text-button";
 import { DealDialog } from "@/components/crm/deal-dialog";
 import { ViewColumnsDialog } from "@/components/crm/view-manager";
 import type { OwnerLite } from "@/components/okr/key-result-row";
@@ -283,10 +298,62 @@ export function SpreadsheetView({
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
+  // 逐格編輯（改狀態／打勾／填欄位）走這一套「本地先改、背景存檔」的樂觀更新，
+  // 不再每按一下就整頁 router.refresh()——重新打一次 page.tsx 的 9 條並行查詢，
+  // 這是先前「改業務開發清單很慢」的根因。存檔失敗才回退＋跳錯誤，成功就讓本地
+  // 這份繼續當顯示用的真相（反正跟資料庫已經一致），不需要特地再 refresh 一次。
+  // key："{columnId}" → "{dealId}" → 值；跟 STAGE 分開放是因為 STAGE 不掛在
+  // 任一個 ViewColumn 底下，是 deal.stage 本身。
+  const [cellOverrides, setCellOverrides] = useState<Map<string, Map<string, string | null>>>(
+    new Map(),
+  );
+  const [stageOverrides, setStageOverrides] = useState<Map<string, string>>(new Map());
+
+  function setCellOverride(columnId: string, dealId: string, value: string | null) {
+    setCellOverrides((prev) => {
+      const next = new Map(prev);
+      const forCol = new Map(next.get(columnId) ?? []);
+      forCol.set(dealId, value);
+      next.set(columnId, forCol);
+      return next;
+    });
+  }
+
+  // 結構性操作（刪列／新增列／匯入）維持走原本整頁 refresh；只有「改單一格」才走
+  // 樂觀更新，兩者訴求不同，硬要共用同一顆 pending 只會讓整張表跟著閃。
+  function runCell(
+    fn: () => Promise<{ ok: boolean; error?: string }>,
+    revert: () => void,
+  ) {
+    fn()
+      .then((res) => {
+        if (!res.ok) {
+          toast.error(res.error ?? "儲存失敗");
+          revert();
+        }
+      })
+      .catch((e) => {
+        toast.error(e instanceof Error ? e.message : "儲存失敗");
+        revert();
+      });
+  }
+
+  // 套用樂觀狀態後才拿去給下面畫面用：STAGE 覆蓋先套（會影響是否還算「暫停追蹤」），
+  // 其餘欄位的覆蓋合併進每個 ViewColumn 自己的 valueByDealId。
+  const dealsWithStageOverrides = deals.map((d) =>
+    stageOverrides.has(d.id) ? { ...d, stage: stageOverrides.get(d.id)! } : d,
+  );
+  const effectiveColumns = view.columns.map((c) => {
+    const ov = cellOverrides.get(c.id);
+    if (!ov || ov.size === 0) return c;
+    return { ...c, valueByDealId: { ...c.valueByDealId, ...Object.fromEntries(ov) } };
+  });
+  const effectiveView: CrmViewLite = { ...view, columns: effectiveColumns };
+
   // 「暫停追蹤」的商機不列在業務開發清單裡——這是還在推進中的名單，暫停的已經
   // 不是「現在要盯」的對象，去看板的「暫停追蹤」欄才看得到、要復追再從那裡拖出來。
   // PAUSED 是預設種子階段的穩定 key（見 lib/crm.ts DEFAULT_DEAL_STAGES）。
-  const activeDeals = deals.filter((d) => d.stage !== "PAUSED");
+  const activeDeals = dealsWithStageOverrides.filter((d) => d.stage !== "PAUSED");
   // 依某個 MAIL 欄位的追蹤天數排序（點欄名旁的箭頭切換）：一次只排一欄，
   // 沒寄過的（天數算不出來）一律排最後，不受 asc/desc 影響。
   const [sortColumnId, setSortColumnId] = useState<string | null>(null);
@@ -304,7 +371,7 @@ export function SpreadsheetView({
   }
 
   const sortColumn = sortColumnId
-    ? view.columns.find((c) => c.id === sortColumnId && c.type === "MAIL")
+    ? effectiveColumns.find((c) => c.id === sortColumnId && c.type === "MAIL")
     : undefined;
   const sortedDeals = sortColumn
     ? [...activeDeals]
@@ -318,23 +385,15 @@ export function SpreadsheetView({
         .map((x) => x.d)
     : activeDeals;
 
-  function run(fn: () => Promise<{ ok: boolean; error?: string }>) {
-    start(async () => {
-      try {
-        const res = await fn();
-        if (!res.ok) toast.error(res.error ?? "儲存失敗");
-        router.refresh();
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "儲存失敗");
-      }
-    });
-  }
-
   function removeRow(dealId: string, title: string) {
     if (!confirm(`刪除「${title}」？這會一併刪除這筆商機。`)) return;
-    run(async () => {
-      await deleteDeal(dealId);
-      return { ok: true };
+    start(async () => {
+      try {
+        await deleteDeal(dealId);
+        router.refresh();
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "刪除失敗");
+      }
     });
   }
 
@@ -367,7 +426,9 @@ export function SpreadsheetView({
             variant="outline"
             size="sm"
             className="gap-1"
-            onClick={() => exportSpreadsheetExcel(view, activeDeals, stages, companyProfiles)}
+            onClick={() =>
+              exportSpreadsheetExcel(effectiveView, activeDeals, stages, companyProfiles)
+            }
           >
             <Download className="h-3.5 w-3.5" /> 匯出 Excel
           </Button>
@@ -382,9 +443,15 @@ export function SpreadsheetView({
         </div>
       </div>
 
-      <MailStatsBar view={view} deals={activeDeals} />
+      <MailStatsBar
+        view={effectiveView}
+        deals={activeDeals}
+        members={members}
+        contacts={contacts}
+        stages={stages}
+      />
 
-      {view.columns.length === 0 ? (
+      {effectiveColumns.length === 0 ? (
         <div className="text-muted-foreground flex flex-1 items-center justify-center rounded-lg border border-dashed text-sm">
           這個分頁還沒有欄位，按「管理欄位」開始新增
         </div>
@@ -405,7 +472,7 @@ export function SpreadsheetView({
                   企業名
                 </TableHead>
                 <TableHead className="min-w-44">Email</TableHead>
-                {view.columns.map((c) => {
+                {effectiveColumns.map((c) => {
                   const SortIcon =
                     sortColumnId !== c.id ? ArrowUpDown : sortDir === "asc" ? ArrowUp : ArrowDown;
                   return (
@@ -461,18 +528,28 @@ export function SpreadsheetView({
                   <TableCell className="text-muted-foreground text-xs">
                     {d.contact?.email || "—"}
                   </TableCell>
-                  {view.columns.map((col) => (
+                  {effectiveColumns.map((col) => (
                     <TableCell key={col.id} className="align-top">
                       <ViewCell
                         column={col}
                         deal={d}
                         stages={stages}
-                        onStageChange={(stageKey) =>
-                          run(() => moveDealStage(d.id, stageKey))
-                        }
-                        onCellChange={(value) =>
-                          run(() => setCrmViewCell(d.id, col.id, value))
-                        }
+                        onStageChange={(stageKey) => {
+                          const prevStage = d.stage;
+                          setStageOverrides((prev) => new Map(prev).set(d.id, stageKey));
+                          runCell(
+                            () => moveDealStage(d.id, stageKey),
+                            () => setStageOverrides((prev) => new Map(prev).set(d.id, prevStage)),
+                          );
+                        }}
+                        onCellChange={(value) => {
+                          const prevValue = col.valueByDealId[d.id] ?? null;
+                          setCellOverride(col.id, d.id, value);
+                          runCell(
+                            () => setCrmViewCell(d.id, col.id, value),
+                            () => setCellOverride(col.id, d.id, prevValue),
+                          );
+                        }}
                       />
                     </TableCell>
                   ))}
@@ -491,7 +568,7 @@ export function SpreadsheetView({
               {activeDeals.length === 0 && (
                 <TableRow>
                   <TableCell
-                    colSpan={view.columns.length + 3}
+                    colSpan={effectiveColumns.length + 3}
                     className="text-muted-foreground py-8 text-center"
                   >
                     尚無商機，按「新增列」開始
@@ -507,58 +584,370 @@ export function SpreadsheetView({
 }
 
 /** 每一輪信件的寄送／已讀彙總——一眼看到寄了幾封、讀了幾封、平均隔了多久，
- *  不用逐列數。沒有任何 MAIL 欄位的分頁不顯示。 */
-function MailStatsBar({ view, deals }: { view: CrmViewLite; deals: DealView[] }) {
+ *  不用逐列數。點卡片可以打開圖表＋逐家清單的詳細統計。沒有任何 MAIL 欄位的
+ *  分頁不顯示。 */
+function MailStatsBar({
+  view,
+  deals,
+  members,
+  contacts,
+  stages,
+}: {
+  view: CrmViewLite;
+  deals: DealView[];
+  members: OwnerLite[];
+  contacts: ContactLite[];
+  stages: StageView[];
+}) {
   const mailCols = view.columns.filter((c) => c.type === "MAIL");
+  const [detailCol, setDetailCol] = useState<ViewColumn | null>(null);
   if (mailCols.length === 0) return null;
   return (
-    <div className="flex flex-wrap gap-2">
-      {mailCols.map((col) => {
-        const s = mailColumnStats(col, deals);
-        const readRate = s.sent > 0 ? Math.round((s.read / s.sent) * 100) : null;
-        return (
-          <div
-            key={col.id}
-            className="bg-muted/40 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-1.5 text-xs"
-          >
-            <span className="font-medium">{col.label}</span>
-            <span className="text-muted-foreground flex items-center gap-1">
-              <Send className="h-3 w-3" />
-              已寄{" "}
-              <strong className="text-foreground tabular-nums">{s.sent}</strong>
-              /{s.total}
-            </span>
-            <span className="text-muted-foreground flex items-center gap-1">
-              <Eye className="h-3 w-3" />
-              已讀{" "}
-              <strong className="text-foreground tabular-nums">{s.read}</strong>
-              {readRate !== null && (
-                <span className="tabular-nums">（{readRate}%）</span>
-              )}
-            </span>
-            {s.avgDays !== null && (
+    <>
+      <div className="flex flex-wrap gap-2">
+        {mailCols.map((col) => {
+          const s = mailColumnStats(col, deals);
+          const readRate = s.sent > 0 ? Math.round((s.read / s.sent) * 100) : null;
+          return (
+            <button
+              key={col.id}
+              type="button"
+              onClick={() => setDetailCol(col)}
+              title="點看詳細統計（圖表＋逐家清單）"
+              className="bg-muted/40 hover:bg-muted flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border px-3 py-1.5 text-left text-xs transition-colors"
+            >
+              <span className="flex items-center gap-1 font-medium">
+                {col.label}
+                <ChartPie className="text-muted-foreground h-3 w-3" />
+              </span>
               <span className="text-muted-foreground flex items-center gap-1">
-                <Clock className="h-3 w-3" />
-                平均距今{" "}
-                <strong className="text-foreground tabular-nums">
-                  {s.avgDays.toFixed(1)}
-                </strong>{" "}
-                天
+                <Send className="h-3 w-3" />
+                已寄{" "}
+                <strong className="text-foreground tabular-nums">{s.sent}</strong>
+                /{s.total}
               </span>
+              <span className="text-muted-foreground flex items-center gap-1">
+                <Eye className="h-3 w-3" />
+                已讀{" "}
+                <strong className="text-foreground tabular-nums">{s.read}</strong>
+                {readRate !== null && (
+                  <span className="tabular-nums">（{readRate}%）</span>
+                )}
+              </span>
+              {s.avgDays !== null && (
+                <span className="text-muted-foreground flex items-center gap-1">
+                  <Clock className="h-3 w-3" />
+                  平均距今{" "}
+                  <strong className="text-foreground tabular-nums">
+                    {s.avgDays.toFixed(1)}
+                  </strong>{" "}
+                  天
+                </span>
+              )}
+              {s.avgLatency !== null && (
+                <span className="text-muted-foreground">
+                  平均讀取耗時{" "}
+                  <strong className="text-foreground tabular-nums">
+                    {s.avgLatency.toFixed(1)}
+                  </strong>{" "}
+                  天
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      {detailCol && (
+        <MailStatsDialog
+          column={detailCol}
+          deals={deals}
+          members={members}
+          contacts={contacts}
+          stages={stages}
+          onClose={() => setDetailCol(null)}
+        />
+      )}
+    </>
+  );
+}
+
+const MAIL_STATUS_COLOR = {
+  notSent: "#94a3b8", // slate-400：還沒開始
+  sentUnread: "#0ea5e9", // sky-500：進行中，等對方讀
+  read: "#10b981", // emerald-500：完成
+} as const;
+
+type MailStatusKey = keyof typeof MAIL_STATUS_COLOR;
+
+const DAY_BUCKETS: { key: string; label: string; test: (n: number) => boolean }[] = [
+  { key: "0-3", label: "0-3 天", test: (n) => n <= 3 },
+  { key: "4-7", label: "4-7 天", test: (n) => n >= 4 && n <= 7 },
+  { key: "8-14", label: "8-14 天", test: (n) => n >= 8 && n <= 14 },
+  { key: "15+", label: "15 天以上", test: (n) => n >= 15 },
+];
+
+/**
+ * 某一輪信件的詳細統計：左邊圓餅圖是寄送／已讀狀態（未寄送／已寄未讀／已讀），
+ * 右邊長條圖是距今天數分佈（只算已寄送的）。點圖表的區塊／長條會篩選下面的
+ * 逐家清單，再點一次取消篩選；兩種篩選可以同時套用（互相是「且」的關係）。
+ */
+function MailStatsDialog({
+  column,
+  deals,
+  members,
+  contacts,
+  stages,
+  onClose,
+}: {
+  column: ViewColumn;
+  deals: DealView[];
+  members: OwnerLite[];
+  contacts: ContactLite[];
+  stages: StageView[];
+  onClose: () => void;
+}) {
+  const [statusFilter, setStatusFilter] = useState<MailStatusKey | null>(null);
+  const [bucketFilter, setBucketFilter] = useState<string | null>(null);
+
+  const rows = deals.map((d) => ({
+    deal: d,
+    mail: parseMailValue(column.valueByDealId[d.id] ?? null),
+  }));
+
+  function statusOf(mail: MailCellValue): MailStatusKey {
+    if (mail.read) return "read";
+    if (mail.sent) return "sentUnread";
+    return "notSent";
+  }
+
+  const pieData = (
+    [
+      { key: "notSent" as const, name: "未寄送" },
+      { key: "sentUnread" as const, name: "已寄未讀" },
+      { key: "read" as const, name: "已讀" },
+    ] satisfies { key: MailStatusKey; name: string }[]
+  )
+    .map((d) => ({
+      ...d,
+      value: rows.filter((r) => statusOf(r.mail) === d.key).length,
+      color: MAIL_STATUS_COLOR[d.key],
+    }))
+    .filter((d) => d.value > 0);
+
+  const sentRows = rows.filter((r) => r.mail.sent);
+  const barData = DAY_BUCKETS.map((b) => ({
+    ...b,
+    count: sentRows.filter((r) => {
+      const days = trackDays(r.mail);
+      return days !== null && b.test(days);
+    }).length,
+  }));
+
+  const filteredRows = rows.filter(({ mail }) => {
+    if (statusFilter && statusOf(mail) !== statusFilter) return false;
+    if (bucketFilter) {
+      const days = trackDays(mail);
+      const bucket = DAY_BUCKETS.find((b) => b.key === bucketFilter);
+      if (days === null || !bucket?.test(days)) return false;
+    }
+    return true;
+  });
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>{column.label}・詳細統計</DialogTitle>
+        </DialogHeader>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>寄送 / 已讀狀態（點一下篩選下面清單）</Label>
+            <div className="flex items-center gap-3">
+              <div className="h-36 w-36 shrink-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={pieData}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={38}
+                      outerRadius={66}
+                      paddingAngle={pieData.length > 1 ? 2 : 0}
+                      stroke="none"
+                    >
+                      {pieData.map((d) => (
+                        <Cell
+                          key={d.key}
+                          fill={d.color}
+                          opacity={statusFilter && statusFilter !== d.key ? 0.35 : 1}
+                          className="cursor-pointer"
+                          onClick={() =>
+                            setStatusFilter((cur) => (cur === d.key ? null : d.key))
+                          }
+                        />
+                      ))}
+                    </Pie>
+                    <RechartsTooltip
+                      formatter={(value, name) => [`${value} 家`, name]}
+                      contentStyle={{
+                        borderRadius: 8,
+                        border: "1px solid #e5e7eb",
+                        fontSize: 12,
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="min-w-0 flex-1 space-y-1 text-xs">
+                {pieData.map((d) => (
+                  <button
+                    key={d.key}
+                    type="button"
+                    onClick={() =>
+                      setStatusFilter((cur) => (cur === d.key ? null : d.key))
+                    }
+                    className={cn(
+                      "hover:bg-muted flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left",
+                      statusFilter === d.key && "bg-muted",
+                    )}
+                  >
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: d.color }}
+                    />
+                    <span className="flex-1">{d.name}</span>
+                    <strong className="tabular-nums">{d.value}</strong>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>距今天數分佈（已寄送，點長條篩選）</Label>
+            <div className="h-36 w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={barData} margin={{ top: 8, right: 8, bottom: 4, left: -20 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#6b7280" }} tickMargin={6} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#6b7280" }} />
+                  <RechartsTooltip
+                    formatter={(v) => [`${v} 家`, "數量"]}
+                    contentStyle={{
+                      borderRadius: 8,
+                      border: "1px solid #e5e7eb",
+                      fontSize: 12,
+                    }}
+                    cursor={{ fill: "rgba(0,0,0,0.04)" }}
+                  />
+                  <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                    {barData.map((d) => (
+                      <Cell
+                        key={d.key}
+                        fill="#6366f1"
+                        opacity={bucketFilter && bucketFilter !== d.key ? 0.35 : 1}
+                        className="cursor-pointer"
+                        onClick={() =>
+                          setBucketFilter((cur) => (cur === d.key ? null : d.key))
+                        }
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+
+        {(statusFilter || bucketFilter) && (
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-muted-foreground">篩選中：</span>
+            {statusFilter && (
+              <button
+                type="button"
+                onClick={() => setStatusFilter(null)}
+                className="bg-muted inline-flex items-center gap-1 rounded-full px-2 py-0.5"
+              >
+                {pieData.find((d) => d.key === statusFilter)?.name}
+                <X className="h-3 w-3" />
+              </button>
             )}
-            {s.avgLatency !== null && (
-              <span className="text-muted-foreground">
-                平均讀取耗時{" "}
-                <strong className="text-foreground tabular-nums">
-                  {s.avgLatency.toFixed(1)}
-                </strong>{" "}
-                天
-              </span>
+            {bucketFilter && (
+              <button
+                type="button"
+                onClick={() => setBucketFilter(null)}
+                className="bg-muted inline-flex items-center gap-1 rounded-full px-2 py-0.5"
+              >
+                {DAY_BUCKETS.find((b) => b.key === bucketFilter)?.label}
+                <X className="h-3 w-3" />
+              </button>
             )}
           </div>
-        );
-      })}
-    </div>
+        )}
+
+        <div className="max-h-72 overflow-y-auto rounded-lg border">
+          <table className="w-full text-xs">
+            <thead className="bg-muted/50 sticky top-0">
+              <tr>
+                <th className="p-2 text-left">企業</th>
+                <th className="p-2 text-left">Email</th>
+                <th className="p-2 text-left">已寄送</th>
+                <th className="p-2 text-left">已讀</th>
+                <th className="p-2 text-left">距今</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredRows.map(({ deal: d, mail }) => {
+                const days = trackDays(mail);
+                return (
+                  <tr key={d.id} className="border-t">
+                    <td className="p-2">
+                      <DealDialog
+                        deal={d}
+                        members={members}
+                        contacts={contacts}
+                        stages={stages}
+                        trigger={
+                          <button type="button" className="hover:underline">
+                            {d.title}
+                          </button>
+                        }
+                      />
+                    </td>
+                    <td className="text-muted-foreground p-2">
+                      {d.contact?.email || "—"}
+                    </td>
+                    <td className="p-2 tabular-nums">
+                      {mail.sent ? mail.sentDate || "✓" : "—"}
+                    </td>
+                    <td className="p-2 tabular-nums">
+                      {mail.read ? mail.readDate || "✓" : "—"}
+                    </td>
+                    <td className="p-2 tabular-nums">
+                      {days !== null ? `${days} 天` : "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+              {filteredRows.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="text-muted-foreground p-4 text-center">
+                    沒有符合的企業
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={onClose}>
+            關閉
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -612,6 +1001,7 @@ function ViewCell({
         column={column}
         value={parseMailValue(value)}
         companyName={deal.contact?.company || deal.title}
+        email={deal.contact?.email ?? null}
         onChange={(next) => onCellChange(JSON.stringify(next))}
       />
     );
@@ -675,11 +1065,13 @@ function MailCell({
   column,
   value,
   companyName,
+  email,
   onChange,
 }: {
   column: ViewColumn;
   value: MailCellValue;
   companyName: string;
+  email: string | null;
   onChange: (next: MailCellValue) => void;
 }) {
   const [editOpen, setEditOpen] = useState(false);
@@ -763,6 +1155,7 @@ function MailCell({
           column={column}
           value={value}
           companyName={companyName}
+          email={email}
           onSave={(patch) => onChange({ ...value, ...patch })}
           onClose={() => setEditOpen(false)}
         />
@@ -783,12 +1176,14 @@ function MailCellDialog({
   column,
   value,
   companyName,
+  email,
   onSave,
   onClose,
 }: {
   column: ViewColumn;
   value: MailCellValue;
   companyName: string;
+  email: string | null;
   onSave: (patch: { subject: string; body: string }) => void;
   onClose: () => void;
 }) {
@@ -809,18 +1204,8 @@ function MailCellDialog({
     onClose();
   }
 
-  async function copy() {
-    commitIfChanged();
-    const composed = composeMail(column.header, body, column.footer, companyName);
-    const full = subject.trim() ? `件名：${subject.trim()}\n\n${composed}` : composed;
-    try {
-      await navigator.clipboard.writeText(full);
-      toast.success("已儲存並複製信件內容");
-    } catch {
-      toast.error("複製失敗，請手動選取複製");
-    }
-  }
-
+  // 複製只複製信件本文（開頭＋內容＋結尾），不含件名——件名是給自己標題用的，
+  // 貼到 email 軟體不需要那一行。件名要複製另外按它旁邊的小複製鈕。
   const preview = composeMail(column.header, body, column.footer, companyName);
 
   return (
@@ -831,8 +1216,15 @@ function MailCellDialog({
             {column.label}・{companyName}
           </DialogTitle>
         </DialogHeader>
+        <div className="text-muted-foreground flex items-center gap-1.5 text-xs">
+          <span>Email：{email || "—"}</span>
+          {email && <CopyTextButton text={email} label="複製 Email" />}
+        </div>
         <div className="space-y-1.5">
-          <Label htmlFor="mc-subject">件名</Label>
+          <div className="flex items-center gap-1">
+            <Label htmlFor="mc-subject">件名</Label>
+            {subject.trim() && <CopyTextButton text={subject} label="複製件名" />}
+          </div>
           <Input
             id="mc-subject"
             value={subject}
@@ -854,7 +1246,16 @@ function MailCellDialog({
             />
           </div>
           <div className="space-y-1.5">
-            <Label>預覽（開頭＋內容＋結尾）</Label>
+            <div className="flex items-center justify-between">
+              <Label>預覽（開頭＋內容＋結尾）</Label>
+              {preview && (
+                <CopyTextButton
+                  text={preview}
+                  label="儲存並複製信件內容（不含件名）"
+                  onBeforeCopy={commitIfChanged}
+                />
+              )}
+            </div>
             <Textarea
               readOnly
               rows={12}
@@ -866,9 +1267,6 @@ function MailCellDialog({
         <DialogFooter>
           <Button type="button" variant="ghost" onClick={handleClose}>
             關閉
-          </Button>
-          <Button type="button" onClick={copy}>
-            儲存並複製整段
           </Button>
         </DialogFooter>
       </DialogContent>
