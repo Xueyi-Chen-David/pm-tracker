@@ -15,6 +15,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -33,6 +34,7 @@ import {
   FileSpreadsheet,
   Mail,
   Plus,
+  Search,
   Send,
   Settings2,
   Trash2,
@@ -354,6 +356,12 @@ export function SpreadsheetView({
   // 不是「現在要盯」的對象，去看板的「暫停追蹤」欄才看得到、要復追再從那裡拖出來。
   // PAUSED 是預設種子階段的穩定 key（見 lib/crm.ts DEFAULT_DEAL_STAGES）。
   const activeDeals = dealsWithStageOverrides.filter((d) => d.stage !== "PAUSED");
+  // 搜尋企業名稱——只影響畫面上列出哪幾列，統計列／匯出都還是算全部（不受
+  // 搜尋框篩選影響），這只是方便在長清單裡快速找到某家企業。
+  const [search, setSearch] = useState("");
+  const searchedDeals = search.trim()
+    ? activeDeals.filter((d) => d.title.toLowerCase().includes(search.trim().toLowerCase()))
+    : activeDeals;
   // 依某個 MAIL 欄位的追蹤天數排序（點欄名旁的箭頭切換）：一次只排一欄，
   // 沒寄過的（天數算不出來）一律排最後，不受 asc/desc 影響。
   const [sortColumnId, setSortColumnId] = useState<string | null>(null);
@@ -374,7 +382,7 @@ export function SpreadsheetView({
     ? effectiveColumns.find((c) => c.id === sortColumnId && c.type === "MAIL")
     : undefined;
   const sortedDeals = sortColumn
-    ? [...activeDeals]
+    ? [...searchedDeals]
         .map((d) => ({ d, days: trackDays(parseMailValue(sortColumn.valueByDealId[d.id] ?? null)) }))
         .sort((a, b) => {
           if (a.days === null && b.days === null) return 0;
@@ -383,7 +391,7 @@ export function SpreadsheetView({
           return sortDir === "asc" ? a.days - b.days : b.days - a.days;
         })
         .map((x) => x.d)
-    : activeDeals;
+    : searchedDeals;
 
   function removeRow(dealId: string, title: string) {
     if (!confirm(`刪除「${title}」？這會一併刪除這筆商機。`)) return;
@@ -399,12 +407,24 @@ export function SpreadsheetView({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-muted-foreground text-xs">
-          {activeDeals.length} 家
-          {activeDeals.length !== deals.length &&
-            `（另有 ${deals.length - activeDeals.length} 家暫停追蹤中，未列出）`}
-        </span>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-muted-foreground text-xs whitespace-nowrap">
+            {search.trim() ? `${searchedDeals.length} / ` : ""}
+            {activeDeals.length} 家
+            {activeDeals.length !== deals.length &&
+              `（另有 ${deals.length - activeDeals.length} 家暫停追蹤中，未列出）`}
+          </span>
+          <div className="relative">
+            <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 h-3.5 w-3.5 -translate-y-1/2" />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="搜尋企業…"
+              className="h-7 w-40 pl-7 text-xs"
+            />
+          </div>
+        </div>
         <div className="flex items-center gap-1.5">
           <ViewColumnsDialog
             view={view}
@@ -565,13 +585,15 @@ export function SpreadsheetView({
                   </TableCell>
                 </TableRow>
               ))}
-              {activeDeals.length === 0 && (
+              {sortedDeals.length === 0 && (
                 <TableRow>
                   <TableCell
                     colSpan={effectiveColumns.length + 3}
                     className="text-muted-foreground py-8 text-center"
                   >
-                    尚無商機，按「新增列」開始
+                    {activeDeals.length === 0
+                      ? "尚無商機，按「新增列」開始"
+                      : `沒有符合「${search.trim()}」的企業`}
                   </TableCell>
                 </TableRow>
               )}
@@ -735,13 +757,14 @@ function MailStatsDialog({
     .filter((d) => d.value > 0);
 
   const sentRows = rows.filter((r) => r.mail.sent);
-  const barData = DAY_BUCKETS.map((b) => ({
-    ...b,
-    count: sentRows.filter((r) => {
+  const barData = DAY_BUCKETS.map((b) => {
+    const inBucket = sentRows.filter((r) => {
       const days = trackDays(r.mail);
       return days !== null && b.test(days);
-    }).length,
-  }));
+    });
+    const read = inBucket.filter((r) => r.mail.read).length;
+    return { ...b, read, unread: inBucket.length - read, total: inBucket.length };
+  });
 
   const filteredRows = rows.filter(({ mail }) => {
     if (statusFilter && statusOf(mail) !== statusFilter) return false;
@@ -825,15 +848,36 @@ function MailStatsDialog({
           </div>
 
           <div className="space-y-1.5">
-            <Label>距今天數分佈（已寄送，點長條篩選）</Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label>距今天數分佈（已寄送，點長條篩選）</Label>
+              <div className="flex items-center gap-2 text-[10px]">
+                <span className="flex items-center gap-1">
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: MAIL_STATUS_COLOR.read }}
+                  />
+                  已讀
+                </span>
+                <span className="flex items-center gap-1">
+                  <span
+                    className="h-2 w-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: MAIL_STATUS_COLOR.sentUnread }}
+                  />
+                  未讀
+                </span>
+              </div>
+            </div>
             <div className="h-36 w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={barData} margin={{ top: 8, right: 8, bottom: 4, left: -20 }}>
+                <BarChart data={barData} margin={{ top: 16, right: 8, bottom: 4, left: -20 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
                   <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#6b7280" }} tickMargin={6} />
                   <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#6b7280" }} />
                   <RechartsTooltip
-                    formatter={(v) => [`${v} 家`, "數量"]}
+                    formatter={(v, name) => [
+                      `${v} 家`,
+                      name === "read" ? "已讀" : "已寄未讀",
+                    ]}
                     contentStyle={{
                       borderRadius: 8,
                       border: "1px solid #e5e7eb",
@@ -841,11 +885,10 @@ function MailStatsDialog({
                     }}
                     cursor={{ fill: "rgba(0,0,0,0.04)" }}
                   />
-                  <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                  <Bar dataKey="unread" stackId="days" fill={MAIL_STATUS_COLOR.sentUnread}>
                     {barData.map((d) => (
                       <Cell
                         key={d.key}
-                        fill="#6366f1"
                         opacity={bucketFilter && bucketFilter !== d.key ? 0.35 : 1}
                         className="cursor-pointer"
                         onClick={() =>
@@ -853,6 +896,39 @@ function MailStatsDialog({
                         }
                       />
                     ))}
+                    <LabelList
+                      dataKey="unread"
+                      position="center"
+                      formatter={(v) => (typeof v === "number" && v > 0 ? v : "")}
+                      fill="#fff"
+                      fontSize={11}
+                    />
+                  </Bar>
+                  <Bar dataKey="read" stackId="days" fill={MAIL_STATUS_COLOR.read} radius={[4, 4, 0, 0]}>
+                    {barData.map((d) => (
+                      <Cell
+                        key={d.key}
+                        opacity={bucketFilter && bucketFilter !== d.key ? 0.35 : 1}
+                        className="cursor-pointer"
+                        onClick={() =>
+                          setBucketFilter((cur) => (cur === d.key ? null : d.key))
+                        }
+                      />
+                    ))}
+                    <LabelList
+                      dataKey="read"
+                      position="center"
+                      formatter={(v) => (typeof v === "number" && v > 0 ? v : "")}
+                      fill="#fff"
+                      fontSize={11}
+                    />
+                    <LabelList
+                      dataKey="total"
+                      position="top"
+                      formatter={(v) => (typeof v === "number" && v > 0 ? v : "")}
+                      fill="#374151"
+                      fontSize={11}
+                    />
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
