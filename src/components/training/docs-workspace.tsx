@@ -788,45 +788,49 @@ export function DocsWorkspace({
                   )}
                   <span className="truncate">{f.name}</span>
                 </button>
-                {canManage && (
-                  <RowMenu
-                    items={[
-                      {
-                        icon: <FolderPlus className="h-4 w-4" />,
-                        label: "新增子資料夾",
-                        onSelect: () =>
-                          setDialog({ kind: "newFolder", parentId: f.id }),
-                      },
-                      {
-                        icon: <FilePlus className="h-4 w-4" />,
-                        label: "新增文件",
-                        onSelect: () =>
-                          setDialog({ kind: "newPage", folderId: f.id }),
-                      },
-                      {
-                        icon: <Pencil className="h-4 w-4" />,
-                        label: "重新命名",
-                        onSelect: () =>
-                          setDialog({
-                            kind: "renameFolder",
-                            id: f.id,
-                            name: f.name,
-                          }),
-                      },
-                      {
-                        icon: <Trash2 className="h-4 w-4" />,
-                        label: "刪除",
-                        destructive: true,
-                        onSelect: () =>
-                          setDialog({
-                            kind: "deleteFolder",
-                            id: f.id,
-                            name: f.name,
-                          }),
-                      },
-                    ]}
-                  />
-                )}
+                {/* 「新增文件」開放給所有人；資料夾的結構性操作（新增子資料夾／
+                    重新命名／刪除）仍限管理者，所以這兩組條件式組出來的項目清單。 */}
+                <RowMenu
+                  items={[
+                    {
+                      icon: <FilePlus className="h-4 w-4" />,
+                      label: "新增文件",
+                      onSelect: () =>
+                        setDialog({ kind: "newPage", folderId: f.id }),
+                    },
+                    ...(canManage
+                      ? [
+                          {
+                            icon: <FolderPlus className="h-4 w-4" />,
+                            label: "新增子資料夾",
+                            onSelect: () =>
+                              setDialog({ kind: "newFolder", parentId: f.id }),
+                          },
+                          {
+                            icon: <Pencil className="h-4 w-4" />,
+                            label: "重新命名",
+                            onSelect: () =>
+                              setDialog({
+                                kind: "renameFolder",
+                                id: f.id,
+                                name: f.name,
+                              }),
+                          },
+                          {
+                            icon: <Trash2 className="h-4 w-4" />,
+                            label: "刪除",
+                            destructive: true,
+                            onSelect: () =>
+                              setDialog({
+                                kind: "deleteFolder",
+                                id: f.id,
+                                name: f.name,
+                              }),
+                          },
+                        ]
+                      : []),
+                  ]}
+                />
               </div>
               {isOpen && renderLevel(f.id, depth + 1)}
             </div>
@@ -994,16 +998,20 @@ export function DocsWorkspace({
           )}
         </div>
 
-        {canManage && !q && (
+        {!q && (
           <div className="flex gap-1.5">
-            <Button
-              size="sm"
-              variant="outline"
-              className="flex-1"
-              onClick={() => setDialog({ kind: "newFolder", parentId: null })}
-            >
-              <FolderPlus className="h-4 w-4" /> 資料夾
-            </Button>
+            {/* 資料夾結構仍限管理者維護；新增文件開放給組織內所有人，公司文件庫
+                希望大家都能貢獻內容。 */}
+            {canManage && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1"
+                onClick={() => setDialog({ kind: "newFolder", parentId: null })}
+              >
+                <FolderPlus className="h-4 w-4" /> 資料夾
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -1056,15 +1064,11 @@ export function DocsWorkspace({
           ) : isEmpty ? (
             <div className="text-muted-foreground px-2 py-8 text-center text-sm">
               <BookOpen className="mx-auto mb-2 h-6 w-6 opacity-50" />
-              {canManage ? (
-                <p>
-                  還沒有任何文件。
-                  <br />
-                  用上方按鈕建立第一個資料夾或文件。
-                </p>
-              ) : (
-                <p>目前尚無教育訓練文件。</p>
-              )}
+              <p>
+                還沒有任何文件。
+                <br />
+                用上方按鈕建立第一份文件{canManage && "或資料夾"}。
+              </p>
             </div>
           ) : (
             <div

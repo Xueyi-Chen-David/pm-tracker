@@ -146,8 +146,14 @@ const PageCreate = z.object({
   content: z.string().max(200_000).optional(),
 });
 
+/**
+ * 新增文件：刻意開放給組織內任何成員（不只 OWNER/ADMIN）——公司文件庫希望
+ * 大家都能貢獻內容，結構性操作（資料夾、重新命名、刪除、搬移、權限設定）才
+ * 保留給管理者。建立者自動進自己這份文件的編輯白名單（editorUserIds），
+ * 不然剛新增完、內容都還沒寫，非管理者的自己反而編輯不了。
+ */
 export async function createDocPage(input: z.input<typeof PageCreate>) {
-  const { org, user } = await requireDocEditor();
+  const { org, user } = await requireActiveOrg();
   const d = PageCreate.parse(input);
 
   const folderId = d.folderId ?? null;
@@ -170,6 +176,7 @@ export async function createDocPage(input: z.input<typeof PageCreate>) {
       sortOrder: (max._max.sortOrder ?? 0) + 1,
       createdById: user.id,
       updatedById: user.id,
+      editorUserIds: [user.id],
     },
     select: { id: true },
   });
