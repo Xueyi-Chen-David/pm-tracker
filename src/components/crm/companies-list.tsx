@@ -139,7 +139,7 @@ export function CompaniesList({
                   </div>
                   {isOpen && (
                     <div className="bg-muted/20 flex flex-col gap-3 border-t p-3">
-                      <div className="h-64">
+                      <div className="h-96">
                         <CompanyProfileCard company={c.company} />
                       </div>
                       <div className="flex flex-col gap-3 lg:flex-row">

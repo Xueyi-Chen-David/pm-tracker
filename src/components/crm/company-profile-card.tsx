@@ -177,7 +177,7 @@ export function CompanyProfileCard({ company }: { company: string }) {
             還沒有這家公司的基本資料，點右上「新增資料」開始建立。
           </p>
         ) : (
-          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 lg:grid-cols-4">
             <Fact label="產業類別" value={profile?.industry} />
             <Fact label="產品類型" value={profile?.productCategory} />
             <Fact label="地點" value={profile?.location} />
@@ -208,7 +208,7 @@ export function CompanyProfileCard({ company }: { company: string }) {
             <Fact label="電商平台" value={profile?.ecommercePlatform} />
             <Fact label="優先級" value={profile?.grade} />
             {profile?.website && (
-              <div className="col-span-2 flex flex-col gap-0.5">
+              <div className="col-span-full flex flex-col gap-0.5 sm:col-span-1">
                 <span className="text-muted-foreground text-[11px]">官網</span>
                 <a
                   href={/^https?:\/\//.test(profile.website) ? profile.website : `https://${profile.website}`}
@@ -221,16 +221,18 @@ export function CompanyProfileCard({ company }: { company: string }) {
                 </a>
               </div>
             )}
-            <div className="col-span-2">
+            {/* 長文字說明類的欄位橫向鋪滿，並排兩兩一組（夠寬才並排，避免每段話都
+                被硬擠成兩欄、每行反而更短更難讀）。 */}
+            <div className="col-span-full">
               <Fact label="販賣的產品／業務內容" value={profile?.products} />
             </div>
-            <div className="col-span-2">
+            <div className="col-span-full lg:col-span-2">
               <Fact label="公司介紹" value={profile?.companyIntro} />
             </div>
-            <div className="col-span-2">
+            <div className="col-span-full lg:col-span-2">
               <Fact label="切入點" value={profile?.entryHook} />
             </div>
-            <div className="col-span-2">
+            <div className="col-span-full">
               <Fact label="備註" value={profile?.note} />
             </div>
           </div>
