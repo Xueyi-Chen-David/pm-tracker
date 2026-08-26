@@ -407,7 +407,7 @@ function CompanyProfileEditDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[85vh] max-w-6xl overflow-y-auto">
+      <DialogContent className="max-h-[85vh] sm:max-w-6xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{company}｜公司資料</DialogTitle>
         </DialogHeader>
@@ -709,7 +709,7 @@ export function AddCompanyDialog({ trigger }: { trigger: React.ReactElement }) {
           })
         : trigger}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-h-[85vh] max-w-6xl overflow-y-auto">
+        <DialogContent className="max-h-[85vh] sm:max-w-6xl overflow-y-auto">
           <DialogHeader>
             <DialogTitle>新增公司</DialogTitle>
           </DialogHeader>
