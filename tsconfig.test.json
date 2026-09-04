@@ -1,0 +1,17 @@
+{
+  // 測試用的編譯設定：把純邏輯（規則引擎、模組閘門）編成 CommonJS，
+  // 交給 node --test 跑。刻意不引入測試框架——這些都是純函式，
+  // node 內建的 test runner 就夠，也不必為了測試多裝一包相依。
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "rootDir": ".",
+    "outDir": ".test-build",
+    "declaration": false,
+    "incremental": false,
+    "types": ["node"]
+  },
+  "include": ["src/lib/foodlabel/**/*.ts", "src/lib/modules.ts", "tests/**/*.ts"]
+}

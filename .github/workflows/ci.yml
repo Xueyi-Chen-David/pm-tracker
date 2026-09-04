@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      # prisma.config.ts 在載入時就要求有連線字串（沒有會直接 throw），
+      # 而 postinstall 的 prisma generate 會載入它。generate 不會真的連線，
+      # 這裡給一個假的字串讓它跑得過即可——CI 不需要資料庫。
+      DATABASE_URL: "postgresql://ci:ci@127.0.0.1:5432/ci"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      # 規則引擎與模組閘門的純函式測試（node 內建 test runner，無測試框架相依）。
+      - name: Test
+        run: bun run test

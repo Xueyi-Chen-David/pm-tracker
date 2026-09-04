@@ -40,6 +40,8 @@
 4. 模組的 server action 開頭加 `await requireInstalledModule("<key>")`。
 5. 要預設安裝就讓它進 `DEFAULT_INSTALLED_MODULES`（目前規則：非「垂直應用」分類者預設安裝）。
 6. 若模組要有自己的資料表，照常加 Prisma model（記得帶 `organizationId`）。
+7. 模組若有純邏輯（計算 / 規則判定），放在 `src/lib/<key>/` 並在 `tests/` 補測試——
+   保持「純函式、不相依資料庫」才測得動，也才能在 server action 與 UI 之間共用同一份。
 
 ## 技術
 
@@ -83,11 +85,31 @@ bun run dev             # http://localhost:3000
 |------|------|
 | `bun run dev` | 開發伺服器 |
 | `bun run build` | 正式打包（會先 `prisma generate`） |
-| `bun run check` | ESLint + TypeScript 型別檢查（唯一的程式碼把關） |
+| `bun run check` | ESLint + 型別檢查 + 測試（程式碼把關，CI 跑的也是這三項） |
+| `bun run test` | 純函式測試（規則引擎、模組閘門） |
 | `bun run db:migrate` | 建立 / 套用 migration（本機開發） |
 | `bun run db:deploy` | 套用既有 migration（正式環境用） |
 | `bun run db:studio` | Prisma Studio 看資料 |
 | `bun run db:seed` | 植入範例資料（已存在則略過；`--force` 可重置） |
+
+### 測試
+
+沒有引入測試框架——目前測的都是純函式，`tsc` 編譯 + node 內建的 test runner 就夠，
+不必為此多一包相依。`tsconfig.test.json` 把要測的檔案編成 CommonJS 放進 `.test-build/`，
+再交給 `node --test` 跑。
+
+涵蓋範圍（`tests/`）：
+
+| 檔案 | 測什麼 |
+|------|--------|
+| `foodlabel-engine.test.ts` | 日本標示 → 台灣營養標示的換算：欄位辨識、標示基準、食鹽相當量換算鈉、糖質＋食物繊維、數值修整、得以 0 標示、每日參考值、合規缺口與邏輯檢查 |
+| `modules-access.test.ts` | 模組可見性的三層閘門：組織已安裝 → 成員可見 → 具備權限，以及安裝清單的設定（core / adminOnly / 預設安裝） |
+
+要測的邏輯請盡量留在 `src/lib/` 底下、不要相依資料庫；碰 DB 或 React 的部分目前
+不在測試範圍內（會需要另外引入測試框架，屆時再評估）。
+
+> 食品標示的規則引擎另有一份原型在 `jp2tw-food-label/`（獨立的 Next.js 專案）。
+> **這裡的 `src/lib/foodlabel/` 才是正本**，兩邊已經分家，修規則請改這裡。
 
 ---
 
