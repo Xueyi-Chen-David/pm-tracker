@@ -7,6 +7,7 @@ import { getCurrentUser, requireUser } from "./auth-helpers";
 import {
   canSeeModule,
   firstAllowedHref,
+  getModule,
   isAdminRole,
   type ModuleKey,
 } from "@/lib/modules";
@@ -25,6 +26,11 @@ export type ModuleAccess = {
   permissions: PermissionKey[];
   /** 供進一步 hasPermission 判定的角色 permissions 原料。 */
   roleDefs: { permissions: string[] }[];
+  /**
+   * 組織層閘門：本組織已安裝且已啟用的模組 key（見 OrganizationModule 資料表）。
+   * core 模組不受此限制。由 resolveAccess 一併查出後注入。
+   */
+  installedModules: string[];
 };
 
 /** 記住「目前組織」的 cookie 名稱。 */
@@ -66,6 +72,19 @@ export const getMyMemberships = cache(async (userId: string) => {
 });
 
 export type MyMembership = Awaited<ReturnType<typeof getMyMemberships>>[number];
+
+/**
+ * 本組織已安裝且已啟用的模組 key。以 React cache 於單一請求內去重
+ * （版面 + 頁面 + 各 requireModuleAccess 都會問到）。
+ * 沒有資料列＝未安裝；enabled=false＝已安裝但停用，兩者都視為不可用。
+ */
+export const getInstalledModuleKeys = cache(async (orgId: string) => {
+  const rows = await db.organizationModule.findMany({
+    where: { organizationId: orgId, enabled: true },
+    select: { moduleKey: true },
+  });
+  return rows.map((r) => r.moduleKey);
+});
 
 type SessionUser = NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
 
@@ -165,14 +184,17 @@ export async function getViewAsEmployee(): Promise<boolean> {
   return (await getViewAs()).mode === "employee";
 }
 
-/** 一般員工的存取（無任何角色 / 白名單 / 權限）。 */
-const EMPLOYEE_ACCESS: ModuleAccess = {
-  role: "MEMBER",
-  isBoss: false,
-  allowedModules: [],
-  permissions: [],
-  roleDefs: [],
-};
+/** 一般員工的存取（無任何角色 / 白名單 / 權限）。組織安裝狀態仍需帶入。 */
+function employeeAccess(installedModules: string[]): ModuleAccess {
+  return {
+    role: "MEMBER",
+    isBoss: false,
+    allowedModules: [],
+    permissions: [],
+    roleDefs: [],
+    installedModules,
+  };
+}
 
 /**
  * 由「已指派角色的可見頁面」推得成員的有效頁面白名單（給 canSeeModule 用；空＝可見全部）。
@@ -191,7 +213,10 @@ function allowedModulesFromRoles(
 }
 
 /** 真實身分的有效存取（含自訂角色權限聯集 + 角色頁面可見性）。 */
-export function selfAccess(m: MyMembership): ModuleAccess {
+export function selfAccess(
+  m: MyMembership,
+  installedModules: string[],
+): ModuleAccess {
   const roleDefs = m.roleDefs.map((r) => ({ permissions: r.permissions }));
   const allowedModules = allowedModulesFromRoles(
     m.roleDefs.map((r) => r.visibleModules),
@@ -203,14 +228,15 @@ export function selfAccess(m: MyMembership): ModuleAccess {
     allowedModules,
     permissions: [...resolvePermissions({ role: m.role, roleDefs })],
     roleDefs,
+    installedModules,
   };
 }
 
 /** 以「單一自訂角色」視角的存取（一般員工 + 該角色權限 + 該角色可見頁面）。 */
-function roleAccess(role: {
-  permissions: string[];
-  visibleModules: string[];
-}): ModuleAccess {
+function roleAccess(
+  role: { permissions: string[]; visibleModules: string[] },
+  installedModules: string[],
+): ModuleAccess {
   return {
     role: "MEMBER",
     isBoss: false,
@@ -218,6 +244,7 @@ function roleAccess(role: {
     allowedModules: role.visibleModules,
     permissions: [...resolvePermissions({ role: "MEMBER", roleDefs: [role] })],
     roleDefs: [{ permissions: role.permissions }],
+    installedModules,
   };
 }
 
@@ -237,17 +264,26 @@ export type ResolvedAccess = {
 export async function resolveAccess(
   ctx: ActiveOrgContext,
 ): Promise<ResolvedAccess> {
-  const view = await getViewAs();
+  const [view, installedModules] = await Promise.all([
+    getViewAs(),
+    // 組織層閘門的原料：預覽他人視角時同樣沿用本組織的安裝狀態
+    //（安裝與否是組織的事，不隨視角改變）。
+    getInstalledModuleKeys(ctx.org.id),
+  ]);
   const manager = isManagerOrBoss(ctx.membership);
   if (view.mode === "self" || !manager) {
     return {
-      access: selfAccess(ctx.membership),
+      access: selfAccess(ctx.membership, installedModules),
       previewing: false,
       preview: { mode: "self" },
     };
   }
   if (view.mode === "employee") {
-    return { access: EMPLOYEE_ACCESS, previewing: true, preview: view };
+    return {
+      access: employeeAccess(installedModules),
+      previewing: true,
+      preview: view,
+    };
   }
   // 角色視角：載入該角色（限本組織）；角色已不存在則退回員工視角。
   const role = await db.orgRoleDef.findFirst({
@@ -255,10 +291,14 @@ export async function resolveAccess(
     select: { name: true, permissions: true, visibleModules: true },
   });
   if (!role) {
-    return { access: EMPLOYEE_ACCESS, previewing: true, preview: { mode: "employee" } };
+    return {
+      access: employeeAccess(installedModules),
+      previewing: true,
+      preview: { mode: "employee" },
+    };
   }
   return {
-    access: roleAccess(role),
+    access: roleAccess(role, installedModules),
     previewing: true,
     preview: view,
     previewRoleName: role.name,
@@ -281,6 +321,27 @@ export async function requireModuleAccess(
   const { access } = await resolveAccess(ctx);
   if (!canSeeModule(access, key)) {
     redirect(firstAllowedHref(access));
+  }
+  return ctx;
+}
+
+/**
+ * 伺服器端 action 用：要求**本組織已安裝並啟用**某模組，否則丟錯。
+ *
+ * 組織層閘門不能只擋頁面導覽——不然把模組移除之後，舊分頁上的表單、或直接打 action
+ * 的請求還是寫得進去。所有屬於某模組的 action 都應該先過這一關（core 模組免）。
+ */
+export async function requireInstalledModule(
+  key: ModuleKey,
+): Promise<ActiveOrgContext> {
+  const ctx = await requireActiveOrg();
+  const mod = getModule(key);
+  if (!mod) throw new Error("未知的模組。");
+  if (!mod.core) {
+    const installed = await getInstalledModuleKeys(ctx.org.id);
+    if (!installed.includes(key)) {
+      throw new Error(`本組織尚未安裝「${mod.label}」，或已停用。`);
+    }
   }
   return ctx;
 }

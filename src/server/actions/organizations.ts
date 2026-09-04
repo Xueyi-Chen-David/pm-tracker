@@ -12,6 +12,7 @@ import {
   ACTIVE_ORG_COOKIE,
   ACTIVE_ORG_COOKIE_OPTS,
 } from "@/server/org";
+import { DEFAULT_INSTALLED_MODULES } from "@/lib/modules";
 
 /**
  * 切換目前組織：驗證是我的組織 → 寫 cookie → 進 dashboard。
@@ -54,6 +55,16 @@ export async function createOrganizationAction(
           role: "OWNER",
           isBoss: true,
         },
+      },
+      // 新組織預設安裝的應用程式（見 src/lib/modules.ts 的 DEFAULT_INSTALLED_MODULES）。
+      // 垂直應用（如食品標示）預設不裝，由管理員自己到「應用程式」頁決定。
+      // 與組織同一筆 create 寫入：不會出現「組織建好了但一個模組都沒裝」的中間狀態。
+      modules: {
+        create: DEFAULT_INSTALLED_MODULES.map((moduleKey) => ({
+          moduleKey,
+          enabled: true,
+          installedById: user.id,
+        })),
       },
     },
   });

@@ -12,6 +12,34 @@
 - **總覽 Dashboard**：所有任務的當週狀態一覽，自動標出「需要關注」「需老闆決策」「本週未更新」。
 - **時程藍圖（甘特風）**：各專案**理想時程**（淺色橫條）對比**現實進度**（深色填充），里程碑顯示計畫日 vs 實際達成日、目標 ★、今日線。
 - **一鍵週報**：仿儀表板樣式的週報頁，可切換週次，瀏覽器「列印 / 存成 PDF」即得 A4 橫向報告。
+- **應用程式安裝**：管理者可自行決定公司要開哪些模組（見下方「應用程式（模組）系統」）。
+- **食品標示（垂直應用）**：把日本商品的「栄養成分表示」轉換成台灣的營養標示，並列出台灣強制標示的缺口；可掛在 CRM 商機底下。
+
+## 應用程式（模組）系統
+
+側欄的每一頁都是一個**模組**，模組的可見性有三層閘門，三層是 AND 關係：
+
+| 層 | 誰決定 | 存在哪 |
+|---|---|---|
+| 平台 | 開發 / 部署 | `src/lib/modules.ts` 的 `MODULES`（這個版本存在哪些模組） |
+| **組織** | **OWNER / ADMIN** | `OrganizationModule` 資料表，於 `/apps`「應用程式」頁安裝 / 停用 |
+| 成員 | ADMIN / 自訂角色 | `OrganizationMember.allowedModules`、`OrgRoleDef.visibleModules`、權限 |
+
+組織沒安裝的模組，**連 OWNER 都看不到**——他要先去「應用程式」頁安裝。這樣「側欄有沒有這一頁」
+才會等於「公司有沒有開這個模組」，而不是各人權限拼湊出來的結果。
+
+- 標記 `core: true` 的模組（總覽 / 每日報告 / 待辦 / 打卡 / 個人資料 / 應用程式）不吃組織層閘門，永遠可用。
+- 停用（`enabled: false`）與移除安裝**都不會刪掉模組的資料**，重新安裝即回復。
+- 組織層閘門同時擋頁面與寫入：模組的 server action 一律先過 `requireInstalledModule(key)`。
+
+### 新增一個模組
+
+1. `src/lib/modules.ts`：`ModuleKey` 加一個 key，`MODULES` 加一筆（含 `description` / `category`，供安裝頁顯示）。
+2. `src/components/app-sidebar.tsx`：`NAV_SECTIONS` 加一個側欄項目。
+3. `src/app/(app)/<key>/layout.tsx`：`await requireModuleAccess("<key>")`。
+4. 模組的 server action 開頭加 `await requireInstalledModule("<key>")`。
+5. 要預設安裝就讓它進 `DEFAULT_INSTALLED_MODULES`（目前規則：非「垂直應用」分類者預設安裝）。
+6. 若模組要有自己的資料表，照常加 Prisma model（記得帶 `organizationId`）。
 
 ## 技術
 

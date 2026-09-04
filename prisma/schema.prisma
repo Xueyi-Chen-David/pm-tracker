@@ -177,45 +177,49 @@ model Organization {
   // 委派」把服務帳戶的用戶端 ID 授權 https://www.googleapis.com/auth/calendar 範圍。
   googleCalendarImpersonateUser String?
 
-  members             OrganizationMember[]
-  emailChangeRequests EmailChangeRequest[]
-  projects            Project[]
-  projectViews        ProjectView[]
-  weeklyReports       WeeklyReport[]
-  reportImages        ReportImage[]
-  meetings            Meeting[]
-  attendanceRecords   AttendanceRecord[]
-  memberEvents        MemberEvent[]
-  objectives          Objective[]
-  dailyReports        DailyReport[]
-  notifications       Notification[]
-  checkIns            CheckIn[]
-  checkInCorrections  CheckInCorrection[]
-  trainingCourses     TrainingCourse[]
-  trainingAssignments TrainingAssignment[]
-  trainingDocFolders  TrainingDocFolder[]
-  trainingDocPages    TrainingDocPage[]
-  crmContacts         CrmContact[]
-  crmDeals            CrmDeal[]
-  dealStages          DealStage[]
-  dealStageChanges    DealStageChange[]
-  crmEvents           CrmEvent[]
-  crmCompanyNotes     CrmCompanyNote[]
-  crmCompanyProfiles  CrmCompanyProfile[]
-  crmViews            CrmView[]
-  todoItems           TodoItem[]
-  pomodoroSessions    PomodoroSession[]
+  members              OrganizationMember[]
+  emailChangeRequests  EmailChangeRequest[]
+  projects             Project[]
+  projectViews         ProjectView[]
+  weeklyReports        WeeklyReport[]
+  reportImages         ReportImage[]
+  meetings             Meeting[]
+  attendanceRecords    AttendanceRecord[]
+  memberEvents         MemberEvent[]
+  objectives           Objective[]
+  dailyReports         DailyReport[]
+  notifications        Notification[]
+  checkIns             CheckIn[]
+  checkInCorrections   CheckInCorrection[]
+  trainingCourses      TrainingCourse[]
+  trainingAssignments  TrainingAssignment[]
+  trainingDocFolders   TrainingDocFolder[]
+  trainingDocPages     TrainingDocPage[]
+  crmContacts          CrmContact[]
+  crmDeals             CrmDeal[]
+  dealStages           DealStage[]
+  dealStageChanges     DealStageChange[]
+  crmEvents            CrmEvent[]
+  crmCompanyNotes      CrmCompanyNote[]
+  crmCompanyProfiles   CrmCompanyProfile[]
+  crmViews             CrmView[]
+  todoItems            TodoItem[]
+  pomodoroSessions     PomodoroSession[]
   // 人資：自訂角色 / 假別 / 薪資設定 / 薪資單。
-  roleDefs            OrgRoleDef[]
-  leaveTypes          LeaveType[]
-  salaryProfiles      SalaryProfile[]
-  payslips            Payslip[]
-  leaveApprovalSteps  LeaveApprovalStep[]
-  leaveRequests       LeaveRequest[]
-  payrollSetting      PayrollSetting?
-  insuranceBrackets   InsuranceBracket[]
-  salaryItemDefs      SalaryItemDef[]
-  payslipAdjustments  PayslipAdjustment[]
+  roleDefs             OrgRoleDef[]
+  leaveTypes           LeaveType[]
+  salaryProfiles       SalaryProfile[]
+  payslips             Payslip[]
+  leaveApprovalSteps   LeaveApprovalStep[]
+  leaveRequests        LeaveRequest[]
+  payrollSetting       PayrollSetting?
+  insuranceBrackets    InsuranceBracket[]
+  salaryItemDefs       SalaryItemDef[]
+  payslipAdjustments   PayslipAdjustment[]
+  // 應用程式（模組）安裝狀態，與各模組自己的資料。
+  modules              OrganizationModule[]
+  foodLabelProducts    FoodLabelProduct[]
+  foodLabelConversions FoodLabelConversion[]
 }
 
 /**
@@ -1119,11 +1123,13 @@ model CrmDeal {
   sortOrder         Int       @default(0) // 同一階段內排序
   createdById       String?
 
-  activities   CrmActivity[]
-  stageChanges DealStageChange[]
-  contactLinks CrmDealContact[]
-  ownerLinks   CrmDealOwner[]
-  viewCells    CrmViewCellValue[]
+  activities        CrmActivity[]
+  stageChanges      DealStageChange[]
+  contactLinks      CrmDealContact[]
+  ownerLinks        CrmDealOwner[]
+  viewCells         CrmViewCellValue[]
+  // 食品標示模組：掛在這個商機底下的輸台商品（未安裝該模組時恆為空）。
+  foodLabelProducts FoodLabelProduct[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -1813,4 +1819,95 @@ model PayslipAdjustment {
   createdAt   DateTime @default(now())
 
   @@index([organizationId, memberId, periodYear, periodMonth])
+}
+
+// ─────────────────────────────────────────────
+// 應用程式（模組）安裝
+// ─────────────────────────────────────────────
+
+/// 組織已安裝的應用程式（模組）。
+///
+/// 三層模組模型的中間層：
+///  1. 平台層：`src/lib/modules.ts` 的 MODULES 決定「這個版本有哪些模組」（程式碼決定）。
+///  2. 組織層：**這張表**決定「本組織啟用了哪些」——等同 Odoo 的 app install，只有
+///     OWNER / ADMIN 能動。
+///  3. 成員層：OrganizationMember.allowedModules / OrgRoleDef.visibleModules / 權限
+///     決定「誰看得到、能做什麼」。
+///
+/// 語意：沒有資料列＝未安裝；有列且 enabled=true＝已啟用；enabled=false＝已安裝但停用
+/// （資料保留，只是進不去）。核心模組（AppModule.core）不吃這張表，永遠可用。
+/// 移除安裝只刪這一列，**不會**刪掉模組自己的資料表內容——重新安裝即回復。
+model OrganizationModule {
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// 對應 src/lib/modules.ts 的 ModuleKey。刻意存字串而非 enum：新增模組不必動 migration。
+  moduleKey      String
+  enabled        Boolean      @default(true)
+  /// 模組自己的組織級設定（各模組自行定義結構）。
+  settings       Json?
+  installedAt    DateTime     @default(now())
+  /// 安裝者（User.id）。不設 FK，使用者被刪除時保留稽核痕跡。
+  installedById  String?
+  updatedAt      DateTime     @updatedAt
+
+  @@id([organizationId, moduleKey])
+  @@index([organizationId])
+}
+
+// ─────────────────────────────────────────────
+// 食品標示模組（foodlabel）
+// ─────────────────────────────────────────────
+
+/// 輸台商品：一支要從日本進口到台灣的 SKU。
+/// 轉換用的規則引擎在 src/lib/foodlabel/（純函式、無 DB 依賴）。
+model FoodLabelProduct {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name        String // 商品名（通常是日文原名）
+  nameZh      String? // 中文品名（台灣標示用）
+  supplier    String? // 日本供應商 / 製造商
+  /// "solid"＝固體（公克）；"liquid"＝液體（毫升）。決定標示用「每100公克」或「每100毫升」。
+  state       String  @default("solid")
+  servingSize Float? // 每一份量
+  packageSize Float? // 包裝總淨重 / 容量
+
+  /// 選填：關聯到 CRM 商機——讓合規缺口能回到業務流程（這支商品是哪一案的交付物）。
+  crmDealId String?
+  crmDeal   CrmDeal? @relation(fields: [crmDealId], references: [id], onDelete: SetNull)
+
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  conversions FoodLabelConversion[]
+
+  @@index([organizationId])
+  @@index([crmDealId])
+}
+
+/// 一次轉換紀錄：日本標示原文 → 台灣營養標示 + 合規檢查結果。
+/// 保留原文與完整結果，法規版本改版後可重跑比對。
+model FoodLabelConversion {
+  id             String           @id @default(cuid())
+  organizationId String
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  productId      String
+  product        FoodLabelProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  /// 日本營養成分表示原文（貼上或 OCR 結果）。
+  sourceText   String @db.Text
+  /// 套用的法規版本 id（src/lib/foodlabel/regulations.ts）。
+  regulationId String
+  /// 完整 ConversionResult（標示列、合規問題、換算過程、未修整數值）。
+  resultJson   Json
+  errorCount   Int    @default(0)
+  warningCount Int    @default(0)
+
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([productId])
 }

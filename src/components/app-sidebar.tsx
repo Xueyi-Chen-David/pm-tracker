@@ -24,6 +24,8 @@ import {
   Menu,
   LogOut,
   Plus,
+  Tags,
+  LayoutGrid,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { displayInitial } from "@/lib/display";
@@ -95,10 +97,13 @@ const NAV_SECTIONS: NavSection[] = [
       { key: "payroll", href: "/payroll", label: "薪資", icon: Wallet },
     ],
   },
-  // 業務：客戶關係。
+  // 業務：客戶關係，以及掛在案件底下的垂直合規工具（食品標示）。
   {
     title: "業務",
-    items: [{ key: "crm", href: "/crm", label: "CRM", icon: Handshake }],
+    items: [
+      { key: "crm", href: "/crm", label: "CRM", icon: Handshake },
+      { key: "foodlabel", href: "/foodlabel", label: "食品標示", icon: Tags },
+    ],
   },
   // 個人：每個人自己的資料。
   {
@@ -108,6 +113,13 @@ const NAV_SECTIONS: NavSection[] = [
       { key: "todo", href: "/todo", label: "待辦 / 番茄鐘", icon: ListTodo },
       { key: "checkin", href: "/checkin", label: "打卡 / 出勤", icon: Fingerprint },
       { key: "me", href: "/me", label: "個人資料", icon: CircleUser },
+    ],
+  },
+  // 設定：應用程式安裝（adminOnly，一般成員的 moduleKeys 篩不到，整區會自動略過）。
+  {
+    title: "設定",
+    items: [
+      { key: "apps", href: "/apps", label: "應用程式", icon: LayoutGrid },
     ],
   },
 ];
