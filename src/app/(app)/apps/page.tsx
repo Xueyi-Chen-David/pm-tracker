@@ -11,7 +11,7 @@ export default async function AppsPage() {
 
   const rows = await db.organizationModule.findMany({
     where: { organizationId: org.id },
-    select: { moduleKey: true, enabled: true, installedAt: true },
+    select: { moduleKey: true, enabled: true },
   });
   const stateByKey = new Map(rows.map((r) => [r.moduleKey, r]));
 
@@ -25,10 +25,11 @@ export default async function AppsPage() {
         href: m.href,
         description: m.description ?? "",
         dependsOn: m.dependsOn ?? [],
-        status: !row ? ("uninstalled" as const)
-          : row.enabled ? ("enabled" as const)
-          : ("disabled" as const),
-        installedAt: row?.installedAt?.toISOString() ?? null,
+        status: !row
+          ? ("uninstalled" as const)
+          : row.enabled
+            ? ("enabled" as const)
+            : ("disabled" as const),
       };
     }),
   }));

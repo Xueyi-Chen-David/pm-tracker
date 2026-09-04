@@ -23,7 +23,6 @@ export type AppsManagerModule = {
   description: string;
   dependsOn: string[];
   status: ModuleStatus;
-  installedAt: string | null;
 };
 
 export type AppsManagerGroup = {
@@ -44,13 +43,13 @@ export function AppsManager({
   canManage: boolean;
 }) {
   return (
-    <div className="space-y-8">
+    <div className="space-y-5">
       {groups.map((group) => (
         <section key={group.category}>
-          <h2 className="text-muted-foreground mb-3 text-xs font-semibold tracking-wide uppercase">
+          <h2 className="text-muted-foreground mb-2 text-[11px] font-semibold tracking-wide uppercase">
             {group.category}
           </h2>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
             {group.modules.map((m) => (
               <ModuleCard key={m.key} module={m} canManage={canManage} />
             ))}
@@ -94,47 +93,51 @@ function ModuleCard({
     });
   }
 
-  const installed = status !== "uninstalled";
-
   return (
     <div
       className={cn(
-        "flex flex-col rounded-lg border p-4 transition-colors",
+        "flex flex-col rounded-md border p-2.5 transition-colors",
         status === "enabled" ? "bg-card" : "bg-muted/30",
       )}
     >
-      <div className="mb-1.5 flex items-start justify-between gap-2">
-        <h3 className="font-semibold">{m.label}</h3>
+      <div className="mb-1 flex items-start justify-between gap-1.5">
+        <h3 className="text-[13px] leading-tight font-semibold">{m.label}</h3>
         <StatusBadge status={status} />
       </div>
-      <p className="text-muted-foreground flex-1 text-sm">{m.description}</p>
+      {/* 說明限兩行：卡片高度才會整齊，滑鼠移上去看完整內容。 */}
+      <p
+        className="text-muted-foreground line-clamp-2 flex-1 text-[11px] leading-snug"
+        title={m.description}
+      >
+        {m.description}
+      </p>
 
       {m.dependsOn.length > 0 && (
-        <p className="text-muted-foreground mt-2 text-xs">
+        <p className="text-muted-foreground mt-1 text-[11px]">
           需先安裝：{m.dependsOn.join("、")}
         </p>
       )}
 
-      <div className="mt-4 flex flex-wrap items-center gap-2">
+      <div className="mt-2 flex items-center gap-1">
         {!canManage ? (
-          <span className="text-muted-foreground text-xs">
-            僅組織擁有者 / 管理員可變更
-          </span>
+          <span className="text-muted-foreground text-[11px]">僅管理員可變更</span>
         ) : status === "uninstalled" ? (
           <Button
             size="sm"
+            className="h-6 px-2 text-[11px]"
             disabled={pending}
             onClick={() =>
               run(() => installModule(m.key), "enabled", `已安裝「${m.label}」`)
             }
           >
-            <Download className="h-4 w-4" /> 安裝
+            <Download className="h-3 w-3" /> 安裝
           </Button>
         ) : (
           <>
             <Button
               size="sm"
               variant={status === "enabled" ? "outline" : "default"}
+              className="h-6 px-2 text-[11px]"
               disabled={pending}
               onClick={() =>
                 run(
@@ -146,14 +149,15 @@ function ModuleCard({
                 )
               }
             >
-              <Power className="h-4 w-4" />
+              <Power className="h-3 w-3" />
               {status === "enabled" ? "停用" : "啟用"}
             </Button>
             <Button
               size="sm"
               variant="ghost"
               disabled={pending}
-              className="text-muted-foreground hover:text-destructive"
+              title="移除安裝（資料保留）"
+              className="text-muted-foreground hover:text-destructive h-6 w-6 p-0"
               onClick={() => {
                 if (
                   !confirm(
@@ -168,7 +172,7 @@ function ModuleCard({
                 );
               }}
             >
-              <Trash2 className="h-4 w-4" /> 移除
+              <Trash2 className="h-3 w-3" />
             </Button>
           </>
         )}
@@ -176,18 +180,12 @@ function ModuleCard({
         {status === "enabled" && (
           <Link
             href={m.href}
-            className="text-muted-foreground hover:text-foreground ml-auto inline-flex items-center gap-1 text-xs"
+            className="text-muted-foreground hover:text-foreground ml-auto inline-flex items-center gap-0.5 text-[11px]"
           >
-            前往 <ExternalLink className="h-3 w-3" />
+            前往 <ExternalLink className="h-2.5 w-2.5" />
           </Link>
         )}
       </div>
-
-      {installed && m.installedAt && (
-        <p className="text-muted-foreground mt-2 text-[11px]">
-          安裝於 {new Date(m.installedAt).toLocaleDateString("zh-TW")}
-        </p>
-      )}
     </div>
   );
 }
@@ -195,20 +193,20 @@ function ModuleCard({
 function StatusBadge({ status }: { status: ModuleStatus }) {
   if (status === "enabled") {
     return (
-      <Badge variant="secondary" className="shrink-0 gap-1">
-        <Check className="h-3 w-3" /> 已啟用
+      <Badge variant="secondary" className="h-4 shrink-0 gap-0.5 px-1.5 text-[10px]">
+        <Check className="h-2.5 w-2.5" /> 已啟用
       </Badge>
     );
   }
   if (status === "disabled") {
     return (
-      <Badge variant="outline" className="shrink-0">
+      <Badge variant="outline" className="h-4 shrink-0 px-1.5 text-[10px]">
         已停用
       </Badge>
     );
   }
   return (
-    <Badge variant="outline" className="text-muted-foreground shrink-0">
+    <Badge variant="outline" className="text-muted-foreground h-4 shrink-0 px-1.5 text-[10px]">
       未安裝
     </Badge>
   );

@@ -6,6 +6,11 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/server/db";
 import { requireInstalledModule } from "@/server/org";
 import { convert } from "@/lib/foodlabel/engine";
+import {
+  extractFoodLabel,
+  validateImageDataUrl,
+  type FoodLabelOcrFields,
+} from "@/server/gemini";
 import { DEFAULT_REGULATION_ID, REGULATIONS } from "@/lib/foodlabel/regulations";
 
 /**
@@ -137,4 +142,22 @@ export async function deleteConversion(id: string): Promise<void> {
     where: { id, organizationId: org.id },
   });
   revalidatePath("/foodlabel");
+}
+
+/**
+ * 包裝照片 OCR：讀出商品名、供應商、内容量與「栄養成分表示」原文，供前端自動填表。
+ *
+ * 注意分工：OCR 只把包裝上的字讀出來，換算與合規判定仍然全部走
+ * src/lib/foodlabel 的規則引擎。不讓 AI 去算法規——那樣的結果無法稽核、
+ * 也沒辦法跟著法規版本走。
+ */
+export async function extractFoodLabelFields(
+  dataUrl: string,
+): Promise<
+  { ok: true; fields: FoodLabelOcrFields } | { ok: false; error: string }
+> {
+  await requireInstalledModule("foodlabel");
+  const v = validateImageDataUrl(dataUrl, "包裝照片");
+  if (!v.ok) return { ok: false, error: v.error };
+  return extractFoodLabel(dataUrl);
 }

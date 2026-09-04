@@ -10,6 +10,8 @@ import { JP_FIELD_LABELS } from "@/lib/foodlabel/nutrients";
 import { REGULATIONS, DEFAULT_REGULATION_ID } from "@/lib/foodlabel/regulations";
 import type { JpNutrientKey } from "@/lib/foodlabel/types";
 import { saveConversion } from "@/server/actions/foodlabel";
+import type { FoodLabelOcrFields } from "@/server/gemini";
+import { PackageUploader } from "@/components/foodlabel/package-uploader";
 import { NutritionLabel } from "@/components/foodlabel/nutrition-label";
 import { IssueList } from "@/components/foodlabel/issue-list";
 import { Button } from "@/components/ui/button";
@@ -36,7 +38,14 @@ const NONE = "__none__";
  * 預覽在瀏覽器端跑同一份純函式引擎（即時、不用來回伺服器）；按下「轉換並存檔」時
  * 伺服器會**重新算一次**才寫入資料庫——合規結論不能由瀏覽器決定。
  */
-export function FoodLabelWorkbench({ deals }: { deals: DealOption[] }) {
+export function FoodLabelWorkbench({
+  deals,
+  aiEnabled,
+}: {
+  deals: DealOption[];
+  /** 有設定 GOOGLE_API_KEY 才顯示包裝照片 OCR。 */
+  aiEnabled: boolean;
+}) {
   const router = useRouter();
   const [pending, start] = useTransition();
 
@@ -80,6 +89,19 @@ export function FoodLabelWorkbench({ deals }: { deals: DealOption[] }) {
 
   const errorCount = result?.issues.filter((i) => i.level === "error").length ?? 0;
   const warnCount = result?.issues.filter((i) => i.level === "warning").length ?? 0;
+
+  /**
+   * OCR 回填。原則同名片辨識：**只填空欄位**，不覆蓋使用者已經打過的內容；
+   * 只有「栄養成分表示」原文會直接帶入（那是這次上傳的主要目的）。
+   */
+  function applyOcr(f: FoodLabelOcrFields) {
+    if (f.nutritionText) setSourceText(f.nutritionText);
+    if (f.productName && !name.trim()) setName(f.productName);
+    if (f.supplier && !supplier.trim()) setSupplier(f.supplier);
+    if (f.netContent && !packageSize.trim()) setPackageSize(String(f.netContent));
+    if (f.state) setState(f.state);
+    // 基準覆寫是人工判斷用的逃生口，OCR 不要碰。
+  }
 
   function loadSample(i: number) {
     const s = SAMPLES[i];
@@ -134,6 +156,8 @@ export function FoodLabelWorkbench({ deals }: { deals: DealOption[] }) {
         <section className="bg-card rounded-lg border p-4">
           <h2 className="mb-3 text-sm font-semibold">1. 商品資訊</h2>
           <div className="space-y-3">
+            {/* 包裝照片 OCR：讀出商品資訊與「栄養成分表示」原文，一次填好下面兩區。 */}
+            <PackageUploader aiEnabled={aiEnabled} onExtracted={applyOcr} />
             <Field label="商品名稱（日文原名）" required>
               <Input
                 value={name}

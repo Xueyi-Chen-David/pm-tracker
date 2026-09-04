@@ -1,5 +1,6 @@
 import { db } from "@/server/db";
 import { requireActiveOrg, getInstalledModuleKeys } from "@/server/org";
+import { isAiEnabled } from "@/server/gemini";
 import type { ConversionResult } from "@/lib/foodlabel/types";
 import { PageHeader } from "@/components/page-header";
 import { FoodLabelWorkbench } from "@/components/foodlabel/workbench";
@@ -79,7 +80,7 @@ export default async function FoodLabelPage() {
             : `共 ${rows.length} 支輸台商品，其中 ${blocked} 支尚有強制項目未補齊。`
         }
       />
-      <FoodLabelWorkbench deals={deals} />
+      <FoodLabelWorkbench deals={deals} aiEnabled={isAiEnabled()} />
       <h2 className="mt-8 mb-3 text-sm font-semibold">輸台商品</h2>
       <ProductList products={rows} />
     </div>
