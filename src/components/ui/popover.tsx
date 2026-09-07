@@ -10,7 +10,15 @@ function Popover({ ...props }: PopoverPrimitive.Root.Props) {
 }
 
 function PopoverTrigger({ ...props }: PopoverPrimitive.Trigger.Props) {
-  return <PopoverPrimitive.Trigger data-slot="popover-trigger" {...props} />
+  // suppressHydrationWarning：預設渲染成 <button>，一樣會被 LastPass 等擴充套件插入
+  // fdprocessedid 而觸發假的 hydration 警告，見 ui/button.tsx 同款註解。
+  return (
+    <PopoverPrimitive.Trigger
+      data-slot="popover-trigger"
+      suppressHydrationWarning
+      {...props}
+    />
+  )
 }
 
 function PopoverContent({

@@ -281,7 +281,9 @@ export default async function MemberProfilePage({
             <CardHeader>
               <div className="flex items-center justify-between gap-2">
                 <CardTitle>{isSelf ? "我的資料" : "個人資料"}</CardTitle>
-                {!isSelf && canEditHr && (
+                {/* 具人事管理權限者一律看得到這個連結——包含看自己的頁面時（例如身兼人資角色）。
+                    人事資料（到職 / 離職日、在職狀態、角色…）只在「人事」頁揭露，這裡只負責導過去。 */}
+                {canEditHr && (
                   <Link
                     href={`/hr?expand=${m.id}`}
                     className="text-primary inline-flex items-center gap-1 text-sm hover:underline"

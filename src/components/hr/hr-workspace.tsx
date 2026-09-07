@@ -19,6 +19,7 @@ import {
   setMemberJobTitle,
   setMemberDepartment,
   setMemberHireDate,
+  setMemberResignDate,
   setMemberManager,
   setMemberSecondaryManagers,
   setMemberActive,
@@ -281,7 +282,7 @@ export function HrWorkspace({
                           })
                         )}
                       </span>
-                      <span className="flex w-16 shrink-0 justify-center">
+                      <span className="flex w-20 shrink-0 flex-col items-center justify-center gap-0.5">
                         {m.active ? (
                           <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-700">
                             在職
@@ -289,6 +290,12 @@ export function HrWorkspace({
                         ) : (
                           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
                             停用
+                          </span>
+                        )}
+                        {/* 不論在職 / 停用都顯示——已排定離職日但尚未停用（交接期間）也看得到。 */}
+                        {m.resignDate && (
+                          <span className="text-muted-foreground text-[10px] tabular-nums">
+                            {fmtDate(m.resignDate)}
                           </span>
                         )}
                       </span>
@@ -538,6 +545,7 @@ function MemberEditor({
   const [jobTitle, setJobTitle] = useState(m.jobTitle ?? "");
   const [department, setDepartment] = useState(m.department ?? "");
   const [hireDate, setHireDate] = useState(m.hireDate ?? "");
+  const [resignDate, setResignDate] = useState(m.resignDate ?? "");
   const [orgEmail, setOrgEmail] = useState(m.orgEmail ?? "");
 
   const otherManagers = managerOptions.filter((o) => o.membershipId !== m.membershipId);
@@ -729,6 +737,21 @@ function MemberEditor({
                 <span>填入到職日後可自動計算年資與法定特休。</span>
               )}
             </div>
+          </Field>
+          <Field label="離職日">
+            <input
+              type="date"
+              className={inputCls}
+              value={resignDate}
+              disabled={pending}
+              onChange={(e) => {
+                setResignDate(e.target.value);
+                run(() => setMemberResignDate(m.id, e.target.value), "已更新離職日");
+              }}
+            />
+            <p className="text-muted-foreground text-[11px]">
+              僅供人資記錄，不會自動改變上方「在職」開關，請視需要一併關閉在職狀態。
+            </p>
           </Field>
           <div className="rounded-md border border-red-200 bg-red-50/40 px-3 py-2">
             <div className="flex items-center justify-between gap-2">

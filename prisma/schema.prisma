@@ -240,6 +240,7 @@ model OrganizationMember {
   jobTitle        String? // 職稱（顯示用）
   department      String? // 部門（顯示 / 分組用；組織架構頁可就地設定）
   hireDate        DateTime? @db.Date // 到職日：特休年資（勞基法§38）與年資顯示用
+  resignDate      DateTime? @db.Date // 離職日：僅供人資記錄，不會自動變更下方的 active（在職）欄位
   isBoss          Boolean   @default(false) // 老闆：週報「需要決策」收件對象
   active          Boolean   @default(true) // 是否在職 / 啟用（於此組織）
   allowedModules  String[]  @default([]) // 細分權限：空陣列＝可見全部；非空＝只可見列出的模組

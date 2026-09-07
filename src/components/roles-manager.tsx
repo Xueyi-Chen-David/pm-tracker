@@ -12,6 +12,10 @@ import {
 import { permissionsByGroup, type PermissionKey } from "@/lib/permissions";
 import { ROLE_VISIBLE_MODULES } from "@/lib/modules";
 import type { OrgRoleEntry } from "@/server/queries";
+import type { NameSource } from "@/lib/display";
+import { MemberName } from "@/components/member-name";
+import { displayInitial } from "@/lib/display";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -46,19 +50,61 @@ type Editing =
   | { mode: "edit"; role: OrgRoleEntry }
   | null;
 
+type AdminMember = NameSource & {
+  id: string;
+  image: string | null;
+  role: "OWNER" | "ADMIN";
+};
+
 /**
  * 自訂角色（人資 / 會計…）管理：新增 / 編輯 / 刪除，並勾選各角色權限。管理者專用。
+ * 上方另外附一份唯讀的「目前管理者」名單——管理者天生擁有全部權限、不受下方角色限制，
+ * 這裡只是讓「誰是管理者」在同一頁一眼看到；要調整名單請到「成員」分頁右上角「管理者」按鈕。
  */
-export function RolesManager({ roles }: { roles: OrgRoleEntry[] }) {
+export function RolesManager({
+  roles,
+  admins,
+}: {
+  roles: OrgRoleEntry[];
+  admins: AdminMember[];
+}) {
   const [editing, setEditing] = useState<Editing>(null);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
+      <div className="space-y-2 rounded-xl border p-3">
+        <div className="flex items-center gap-1.5 text-sm font-medium">
+          <ShieldCheck className="h-4 w-4" /> 管理者（擁有者 / 管理員）
+        </div>
+        <p className="text-muted-foreground text-xs">
+          天生擁有全部權限（含下面所有自訂角色的權限總和），不需要、也不受自訂角色限制。
+          要新增 / 移除管理者，到「成員」分頁右上角「管理者」按鈕設定。
+        </p>
+        <div className="flex flex-wrap gap-2">
+          {admins.map((a) => (
+            <span
+              key={a.id}
+              className="bg-muted/40 inline-flex items-center gap-1.5 rounded-full border py-1 pr-2.5 pl-1"
+            >
+              <Avatar className="h-5 w-5 shrink-0">
+                {a.image && <AvatarImage src={a.image} alt="" />}
+                <AvatarFallback className="text-[9px]">
+                  {displayInitial(a)}
+                </AvatarFallback>
+              </Avatar>
+              <MemberName u={a} className="text-xs font-medium" />
+              <span className="text-muted-foreground text-[10px]">
+                {a.role === "OWNER" ? "擁有者" : "管理員"}
+              </span>
+            </span>
+          ))}
+        </div>
+      </div>
+
       <div className="flex items-start justify-between gap-3">
         <p className="text-muted-foreground text-sm">
-          先定義職能角色（如 人資、會計），再勾選各角色可用的權限。一位成員可指派多個角色，權限取聯集。
-          <br />
-          管理者（擁有者 / 管理員）天生擁有全部權限，不需指派角色。
+          自訂角色（如 人資、會計）：先定義職能角色，再勾選各角色可用的權限與可見頁面。
+          一位成員可指派多個角色，權限取聯集。
         </p>
         <Button onClick={() => setEditing({ mode: "create" })} className="shrink-0 gap-1.5">
           <Plus className="h-4 w-4" /> 新增角色

@@ -8,6 +8,15 @@
 -- ADDITIVE ONLY: it deliberately does NOT touch PushSubscription /
 -- DailyReportReaction / Task.description (features that live on `main` and
 -- exist in the shared DB). Do not fold destructive drops into this file.
+--
+-- 2026-09-07 補註：`20260715150000_remove_hr_module` 那個檔案本身後來被刪掉了（此檔
+-- 案上面提到的「context」已無local對照），導致 `prisma migrate dev` 從空白資料庫
+-- 重播全部 migration 時，會在這個檔案重播到 add_hr_roles_payroll 已建立過的
+-- FK 約束時炸掉（Postgres 的 ADD CONSTRAINT 不支援 IF NOT EXISTS）。下面 9 個
+-- AddForeignKey 一律改包 DO $$ ... EXCEPTION WHEN duplicate_object 讓它可重複執行。
+-- 這個檔案在真實 Neon DB 早就 apply 過且已記錄在案，`prisma migrate deploy` 只看
+-- migration 名稱是否已在 _prisma_migrations，不會重新比對內容，所以這裡改內容
+-- 對既有環境是安全的，純粹是為了讓 `migrate dev` 的影子資料庫重播能重新走通。
 
 -- AlterTable: leave-type reference on attendance rows
 ALTER TABLE "AttendanceRecord" ADD COLUMN IF NOT EXISTS "leaveTypeId" TEXT;
@@ -136,29 +145,65 @@ CREATE INDEX IF NOT EXISTS "_MemberRoles_B_index" ON "_MemberRoles"("B");
 -- CreateIndex
 CREATE INDEX IF NOT EXISTS "AttendanceRecord_leaveTypeId_idx" ON "AttendanceRecord"("leaveTypeId");
 
--- AddForeignKey
-ALTER TABLE "AttendanceRecord" ADD CONSTRAINT "AttendanceRecord_leaveTypeId_fkey" FOREIGN KEY ("leaveTypeId") REFERENCES "LeaveType"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+-- AddForeignKey（冪等：約束可能已由 add_hr_roles_payroll 建立過）
+DO $$ BEGIN
+    ALTER TABLE "AttendanceRecord" ADD CONSTRAINT "AttendanceRecord_leaveTypeId_fkey" FOREIGN KEY ("leaveTypeId") REFERENCES "LeaveType"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "OrgRoleDef" ADD CONSTRAINT "OrgRoleDef_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+    ALTER TABLE "OrgRoleDef" ADD CONSTRAINT "OrgRoleDef_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "LeaveType" ADD CONSTRAINT "LeaveType_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+    ALTER TABLE "LeaveType" ADD CONSTRAINT "LeaveType_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "SalaryProfile" ADD CONSTRAINT "SalaryProfile_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+    ALTER TABLE "SalaryProfile" ADD CONSTRAINT "SalaryProfile_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "SalaryProfile" ADD CONSTRAINT "SalaryProfile_memberId_fkey" FOREIGN KEY ("memberId") REFERENCES "OrganizationMember"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+    ALTER TABLE "SalaryProfile" ADD CONSTRAINT "SalaryProfile_memberId_fkey" FOREIGN KEY ("memberId") REFERENCES "OrganizationMember"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "Payslip" ADD CONSTRAINT "Payslip_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+    ALTER TABLE "Payslip" ADD CONSTRAINT "Payslip_organizationId_fkey" FOREIGN KEY ("organizationId") REFERENCES "Organization"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "Payslip" ADD CONSTRAINT "Payslip_memberId_fkey" FOREIGN KEY ("memberId") REFERENCES "OrganizationMember"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+    ALTER TABLE "Payslip" ADD CONSTRAINT "Payslip_memberId_fkey" FOREIGN KEY ("memberId") REFERENCES "OrganizationMember"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "_MemberRoles" ADD CONSTRAINT "_MemberRoles_A_fkey" FOREIGN KEY ("A") REFERENCES "OrgRoleDef"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+    ALTER TABLE "_MemberRoles" ADD CONSTRAINT "_MemberRoles_A_fkey" FOREIGN KEY ("A") REFERENCES "OrgRoleDef"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
 
 -- AddForeignKey
-ALTER TABLE "_MemberRoles" ADD CONSTRAINT "_MemberRoles_B_fkey" FOREIGN KEY ("B") REFERENCES "OrganizationMember"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+DO $$ BEGIN
+    ALTER TABLE "_MemberRoles" ADD CONSTRAINT "_MemberRoles_B_fkey" FOREIGN KEY ("B") REFERENCES "OrganizationMember"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;

@@ -49,6 +49,11 @@ function Button({
   return (
     <ButtonPrimitive
       data-slot="button"
+      // 瀏覽器擴充套件（常見如 LastPass）會在 hydrate 前替表單附近的按鈕插入
+      // fdprocessedid 屬性，造成 SSR/CSR 屬性不符的假警告——跟按鈕本身無關，
+      // 全站共用的按鈕元件就地壓下一次即可，不用每個呼叫端各自加。
+      // 個別呼叫端仍可用 suppressHydrationWarning={false} 覆寫（{...props} 蓋在後面）。
+      suppressHydrationWarning
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     />

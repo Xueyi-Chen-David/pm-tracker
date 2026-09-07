@@ -251,6 +251,28 @@ export async function setMemberHireDate(userId: string, hireDate: string) {
   return { ok: true as const };
 }
 
+/**
+ * 更新成員離職日（人事頁）。yyyy-mm-dd；空＝清除。需 hr.manage_employment。
+ * 純記錄用途，不會自動連動「在職」開關——離職當天要不要立刻停用帳號由人資另行決定
+ * （例如需保留在職到交接完成），故兩者刻意分開欄位、各自手動維護。
+ */
+export async function setMemberResignDate(userId: string, resignDate: string) {
+  const { org } = await requireOrgPermission("hr.manage_employment");
+  const v = resignDate.trim();
+  if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+    return { ok: false as const, error: "離職日格式錯誤。" };
+  }
+  const res = await db.organizationMember.updateMany({
+    where: { organizationId: org.id, userId },
+    data: { resignDate: v ? new Date(`${v}T00:00:00.000Z`) : null },
+  });
+  if (res.count === 0) throw new Error("該成員不屬於目前組織。");
+  revalidatePath("/hr");
+  revalidatePath("/team");
+  revalidatePath(`/me/${userId}`);
+  return { ok: true as const };
+}
+
 /** 覆蓋成員的自訂角色指派（人事頁）。只接受本組織的角色 id。需 hr.manage_roles。 */
 export async function setMemberRoles(userId: string, roleIds: string[]) {
   const { org } = await requireOrgPermission("hr.manage_roles");

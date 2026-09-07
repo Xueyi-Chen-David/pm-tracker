@@ -354,6 +354,96 @@ export async function reviewCheckInCorrection(
   return { ok: true as const };
 }
 
+const ImportHolidaysInput = z.object({
+  year: z.number().int().min(2000).max(2100),
+  dates: z
+    .array(
+      z.object({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日期格式錯誤"),
+        name: z.string().trim().max(40).optional(),
+      }),
+    )
+    .min(1)
+    .max(60),
+});
+
+/**
+ * 年度假日匯入（需 attendance.manage）：把一批日期一次登記為「所有納入追蹤的在職成員」
+ * 當天的休假，取代逐一點格子、逐人登記的做法。常見用途＝每年開春把國定假日一次建檔
+ * （固定日期的部分由畫面用 lib/tw-holidays 自動帶出；農曆假期由人資另行輸入日期）。
+ * 與 setAttendance 的單一登記一樣一律覆蓋當天原本的登記，之後仍可個別調整。
+ */
+export async function importYearlyHolidays(
+  input: z.input<typeof ImportHolidaysInput>,
+) {
+  const { user: me, org } = await requireOrgPermission("attendance.manage");
+  const d = ImportHolidaysInput.parse(input);
+
+  const members = await db.organizationMember.findMany({
+    where: { organizationId: org.id, active: true, trackAttendance: true },
+    select: { userId: true },
+  });
+  if (members.length === 0) {
+    return {
+      ok: false as const,
+      error: "尚未設定任何追蹤成員，請先在「追蹤成員」勾選要記錄出席的人。",
+    };
+  }
+
+  // 同一天可能重複勾選（如手動新增了跟固定假日相同的日期），去重避免重複寫入。
+  const uniqueDates = Array.from(
+    new Map(d.dates.map((x) => [x.date, x])).values(),
+  );
+
+  await Promise.all(
+    uniqueDates.flatMap((h) => {
+      const date = toUtcDate(h.date);
+      const reason = h.name?.trim() || null;
+      return members.map((m) =>
+        db.attendanceRecord.upsert({
+          where: {
+            organizationId_userId_date: {
+              organizationId: org.id,
+              userId: m.userId,
+              date,
+            },
+          },
+          update: {
+            present: false,
+            reason,
+            offsite: false,
+            holiday: true,
+            leave: false,
+            leaveHours: null,
+            leaveTypeId: null,
+            cleared: false,
+            auto: false,
+            createdById: me.id,
+          },
+          create: {
+            organizationId: org.id,
+            userId: m.userId,
+            date,
+            present: false,
+            reason,
+            holiday: true,
+            auto: false,
+            createdById: me.id,
+          },
+        }),
+      );
+    }),
+  );
+
+  revalidatePath("/attendance");
+  revalidatePath("/payroll");
+  return {
+    ok: true as const,
+    memberCount: members.length,
+    dateCount: uniqueDates.length,
+  };
+}
+
 /** 設定某成員是否納入出席追蹤（月曆是否顯示他；限本組織、需出勤管理權限）。 */
 export async function setTrackAttendance(userId: string, on: boolean) {
   const { org } = await requireOrgPermission("attendance.manage");

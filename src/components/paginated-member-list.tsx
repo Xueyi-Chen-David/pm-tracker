@@ -157,6 +157,9 @@ export function PaginatedMemberList({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="relative w-full max-w-xs">
           <Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2" />
+          {/* suppressHydrationWarning：這頁原生表單元素多，瀏覽器擴充套件（常見如
+              LastPass）會在 hydrate 前插入 fdprocessedid 造成假的 hydration 警告，
+              跟這些欄位本身無關，見 ui/button.tsx 同款註解。下方其餘原生元素同理。 */}
           <input
             value={q}
             onChange={(e) => {
@@ -165,6 +168,7 @@ export function PaginatedMemberList({
             }}
             placeholder="搜尋姓名 / Email / 部門 / 職稱…"
             className="border-input h-9 w-full rounded-md border bg-transparent pr-3 pl-8 text-sm outline-none focus:border-ring"
+            suppressHydrationWarning
           />
         </div>
         <label className="text-muted-foreground flex shrink-0 items-center gap-1.5 text-xs">
@@ -177,6 +181,7 @@ export function PaginatedMemberList({
               setPage(0);
             }}
             className="border-input h-8 rounded-md border bg-transparent px-2 text-sm outline-none focus:border-ring"
+            suppressHydrationWarning
           >
             <option value="auto">自動</option>
             {PAGE_SIZE_OPTIONS.map((n) => (
@@ -197,6 +202,7 @@ export function PaginatedMemberList({
               type="button"
               onClick={() => setSelected(new Set())}
               className="text-muted-foreground hover:text-foreground inline-flex items-center gap-0.5 text-xs"
+              suppressHydrationWarning
             >
               <X className="h-3.5 w-3.5" /> 清除
             </button>
@@ -253,6 +259,7 @@ export function PaginatedMemberList({
                 disabled={pending}
                 onChange={(e) => setManagerSel(e.target.value)}
                 className="border-input h-7 max-w-[10rem] rounded-md border bg-transparent px-2 text-xs outline-none focus:border-ring"
+                suppressHydrationWarning
               >
                 <option value="">指派主管…</option>
                 <option value="__clear__">（清除上級主管）</option>
@@ -441,6 +448,7 @@ export function PaginatedMemberList({
                 "hover:bg-muted inline-flex h-7 items-center gap-1 rounded-md border px-2",
                 safePage === 0 && "opacity-40",
               )}
+              suppressHydrationWarning
             >
               <ChevronLeft className="h-4 w-4" /> 上一頁
             </button>
@@ -455,6 +463,7 @@ export function PaginatedMemberList({
                 "hover:bg-muted inline-flex h-7 items-center gap-1 rounded-md border px-2",
                 safePage >= totalPages - 1 && "opacity-40",
               )}
+              suppressHydrationWarning
             >
               下一頁 <ChevronRight className="h-4 w-4" />
             </button>
@@ -497,6 +506,7 @@ function BulkBtn({
       onClick={onClick}
       disabled={disabled}
       className="bg-background hover:bg-muted inline-flex h-7 items-center gap-1 rounded-md border px-2 text-xs disabled:opacity-50"
+      suppressHydrationWarning
     >
       {children}
     </button>

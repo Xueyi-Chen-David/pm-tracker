@@ -21,6 +21,7 @@ import {
   CircleUser,
   Handshake,
   Wallet,
+  UserCog,
   Menu,
   LogOut,
   Plus,
@@ -86,12 +87,13 @@ const NAV_SECTIONS: NavSection[] = [
       { key: "training", href: "/training", label: "公司文件", icon: Library },
     ],
   },
-  // 人資 / 會計：出席 → 請假 → 薪資（差勤資料一路流到薪資計算的順序）。
-  // 三項都是 requiresPermission（見 src/lib/modules.ts），一般帳號沒有任一權限時
+  // 人資 / 會計：人事（任職資料）→ 出席 → 請假 → 薪資（差勤資料一路流到薪資計算的順序）。
+  // 四項都是 requiresPermission（見 src/lib/modules.ts），一般帳號沒有任一權限時
   // moduleKeys 篩不出東西，整個區塊（含標題）會自動略過——不會出現在一般帳號的側欄。
   {
     title: "人資/會計",
     items: [
+      { key: "hr", href: "/hr", label: "人事", icon: UserCog },
       { key: "attendance", href: "/attendance", label: "出席狀況", icon: UserCheck },
       { key: "leave", href: "/leave", label: "請假簽核", icon: ClipboardCheck },
       { key: "payroll", href: "/payroll", label: "薪資", icon: Wallet },

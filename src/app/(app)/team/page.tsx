@@ -43,6 +43,23 @@ export default async function TeamPage({
     canManage ? getOrgRoles(org.id) : Promise.resolve([]),
   ]);
 
+  // 管理者（擁有者 / 管理員）：天生擁有全部權限，不受下方自訂角色限制。
+  // 「角色權限」分頁除了自訂角色（人資 / 會計…），也要能一眼看到目前管理者名單。
+  const admins = directory
+    .filter(
+      (d): d is typeof d & { role: "OWNER" | "ADMIN" } =>
+        d.role === "OWNER" || d.role === "ADMIN",
+    )
+    .map((d) => ({
+      id: d.id,
+      name: d.name,
+      nickname: d.nickname,
+      useNickname: d.useNickname,
+      email: d.email,
+      image: d.image,
+      role: d.role,
+    }));
+
   return (
     <div>
       <PageHeader
@@ -80,7 +97,7 @@ export default async function TeamPage({
       </div>
 
       {tab === "roles" ? (
-        <RolesManager roles={roles} />
+        <RolesManager roles={roles} admins={admins} />
       ) : tab === "members" ? (
         <div className="space-y-3">
           <div className="flex justify-end">

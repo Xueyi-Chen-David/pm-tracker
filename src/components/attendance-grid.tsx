@@ -247,7 +247,7 @@ function StaticCell({
     !isHoliday && !isLeave && mark?.leaveHours ? ` · 請假 ${mark.leaveHours} 小時` : "";
   return (
     <div
-      title={`${label}${isHoliday ? " · 休假" : isLeave ? ` · ${mark?.leaveTypeName ?? "請假"}` : weekend && !mark ? " · 放假" : ""}${(isAbsent || isOffsite || isLeave) && mark?.reason ? ` · ${mark.reason}` : ""}${hourlyNote}`}
+      title={`${label}${isHoliday ? " · 休假" : isLeave ? ` · ${mark?.leaveTypeName ?? "請假"}` : weekend && !mark ? " · 放假" : ""}${(isAbsent || isOffsite || isLeave || isHoliday) && mark?.reason ? ` · ${mark.reason}` : ""}${hourlyNote}`}
       className={cn(
         "relative mx-auto flex h-7 w-7 items-center justify-center rounded-md border text-xs",
         isPresent && "border-emerald-300 bg-emerald-100 text-emerald-700",
@@ -383,7 +383,7 @@ function AttendanceCell({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        title={`${label}${isHoliday ? " · 休假" : isLeave ? ` · ${state?.leaveTypeName ?? "請假"}` : weekend && !state ? " · 放假" : ""}${(isAbsent || isOffsite || isLeave) && state?.reason ? ` · ${state.reason}` : ""}${hourlyNote}`}
+        title={`${label}${isHoliday ? " · 休假" : isLeave ? ` · ${state?.leaveTypeName ?? "請假"}` : weekend && !state ? " · 放假" : ""}${(isAbsent || isOffsite || isLeave || isHoliday) && state?.reason ? ` · ${state.reason}` : ""}${hourlyNote}`}
         className={cn(
           "relative mx-auto flex h-7 w-7 items-center justify-center rounded-md border text-xs transition-colors",
           isPresent && "border-emerald-300 bg-emerald-100 text-emerald-700",

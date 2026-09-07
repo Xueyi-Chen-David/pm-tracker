@@ -21,6 +21,7 @@ import { PageHeader } from "@/components/page-header";
 import { AttendanceGrid } from "@/components/attendance-grid";
 import { AttendanceMonthNav } from "@/components/attendance-month-nav";
 import { AttendanceTrackManager } from "@/components/attendance-track-manager";
+import { AttendanceHolidayImport } from "@/components/attendance-holiday-import";
 import { AttendanceExportButton } from "@/components/attendance-export-button";
 import {
   AttendanceExportPngButton,
@@ -187,6 +188,7 @@ export default async function AttendancePage({
           />
         )}
         {canManageAtt && <AttendanceTrackManager members={trackable} />}
+        {canManageAtt && <AttendanceHolidayImport thisYear={thisMonth.year} />}
       </PageHeader>
 
       {/* 打卡了卻沒被追蹤的人，出席不會出現在下表——這最容易被誤會成「打卡壞了」，
