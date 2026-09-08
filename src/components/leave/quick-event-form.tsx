@@ -85,7 +85,7 @@ export function QuickEventForm({
       <CardHeader>
         <CardTitle>登記出差 / 事件</CardTitle>
         <CardDescription>
-          出差 / 在家工作會即時反映到出席月曆；外出、其他等不影響出勤紀錄。
+          出差會即時反映到出席月曆；外出、其他等不影響出勤紀錄。
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">

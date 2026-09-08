@@ -223,7 +223,7 @@ export default async function AttendancePage({
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="inline-flex h-4 w-4 shrink-0 rounded-full border border-sky-400 bg-sky-100" />
-            出差 / 在家工作
+            出差
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="inline-flex h-4 w-4 shrink-0 rounded border border-pink-300 bg-pink-100" />
@@ -240,7 +240,7 @@ export default async function AttendancePage({
         </div>
         <span>
           {canManageAtt
-            ? "· 具出勤管理權限者可點格子登記；請假 / 出差 / 在家工作 由請假簽核頁的事件自動帶入；週末預設放假，皆不列入缺席統計；打卡與補打卡審核請至「打卡 / 出勤」頁"
+            ? "· 具出勤管理權限者可點格子登記；請假 / 出差 由請假簽核頁的事件自動帶入；週末預設放假，皆不列入缺席統計；打卡與補打卡審核請至「打卡 / 出勤」頁"
             : "· 出缺勤以打卡為準（唯讀）；打卡、補打卡與自己的打卡紀錄請至「打卡 / 出勤」頁；請假 / 出差請至請假簽核頁"}
           {checkInEnabled &&
             "；開啟打卡後，平日未打卡者於次日起自動標記缺席"}

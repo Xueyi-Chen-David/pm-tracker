@@ -138,7 +138,6 @@ export function meetingCategoryBadge(category: string): string {
 export const MEMBER_EVENT_TYPES = [
   "請假",
   "出差",
-  "在家工作",
   "外出",
   "其他",
 ];

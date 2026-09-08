@@ -428,7 +428,7 @@ function AttendanceCell({
           {label}
           {weekend && " · 放假"}
         </div>
-        {/* 上排：出席 / 缺席 / 休假 / 清除 / 出差 / 在家工作 */}
+        {/* 上排：出席 / 缺席 / 休假 / 清除 / 出差 */}
         <div className="grid grid-cols-2 gap-1.5">
           <button
             type="button"
@@ -470,13 +470,6 @@ function AttendanceCell({
             className="rounded-md border border-sky-300 bg-sky-50 py-1 text-xs font-medium text-sky-700 hover:bg-sky-100"
           >
             出差
-          </button>
-          <button
-            type="button"
-            onClick={() => apply("offsite", { offsiteReason: "在家工作" })}
-            className="rounded-md border border-sky-300 bg-sky-50 py-1 text-xs font-medium text-sky-700 hover:bg-sky-100"
-          >
-            在家工作
           </button>
         </div>
 
