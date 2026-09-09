@@ -6,7 +6,7 @@ import { db } from "@/server/db";
 import { requireActiveOrg, requireOrgPermission } from "@/server/org";
 import { recomputeAttendance, weekdaysInRange } from "@/lib/attendance-sync";
 import { resolveApprovalChain, countWorkdays } from "@/lib/leave-approval";
-import { fmtDate } from "@/lib/date";
+import { fmtDate, taipeiTodayUtc } from "@/lib/date";
 import { displayName } from "@/lib/display";
 import { validateAttachment } from "@/lib/attachment";
 import { createNotification } from "@/server/notify";
@@ -86,9 +86,11 @@ async function notify(opts: {
  * 並把假別帶到當範圍的請假紀錄上（供薪資扣薪）。
  *
  * 時數請假（hourly 有值）是例外路徑：不建立「請假」成員事件（那會被 recomputeAttendance
- * 判成整天缺席／請假，蓋掉這天原本的出勤），而是直接把時數疊加到當天 AttendanceRecord.leaveHours，
- * 出席狀態維持不動。標記 auto:false（人工性質），避免日後其他事件觸發 recomputeAttendance
- * 重算同一天時，因為找不到對應成員事件而被整筆刪除。
+ * 判成整天缺席／請假，蓋掉這天原本的出勤），而是直接把時數疊加到當天 AttendanceRecord.leaveHours。
+ * 出席狀態：這天原本就有紀錄（已打卡 / 已登記）則維持不動，只加時數；原本完全沒紀錄則不能
+ * 假設 present:true——未來日期還沒到，樂觀當作出席，今天／過去日期沒紀錄代表還沒打卡，
+ * 先當未出席，等真的打卡再翻正（見下方 isFutureDate）。標記 auto:false（人工性質），避免
+ * 日後其他事件觸發 recomputeAttendance 重算同一天時，因為找不到對應成員事件而被整筆刪除。
  */
 async function materializeApprovedLeave(opts: {
   orgId: string;
@@ -135,15 +137,22 @@ async function materializeApprovedLeave(opts: {
       select: { id: true, leaveHours: true, cleared: true },
     });
     const reasonLabel = `請假 ${hourly.startTime}–${hourly.endTime}`;
+    // 這天還沒有任何出勤紀錄（沒打卡、沒被登記過）時，不能把 present 直接假設成 true——
+    // 那等於「還沒打卡就先蓋章出席」，之後就算真的沒打卡，這天也永遠顯示綠勾（見成員
+    // 回報：先請假沒打卡，右上角時數之外還多顯示一個不該有的綠勾）。未來日期（還沒到、
+    // 本來就無從打卡）維持樂觀假設 present:true；今天／過去日期則先當未出席，等真的
+    // 打卡（checkin.ts）或人工登記時再把 present 翻成 true，leaveHours 不會被動到。
+    const isFutureDate = startDate.getTime() > taipeiTodayUtc().getTime();
     if (existing) {
       await db.attendanceRecord.update({
         where: { id: existing.id },
         data: {
           leaveHours: (existing.leaveHours ?? 0) + hourly.hours,
           leaveTypeId: leaveTypeId ?? undefined,
-          // 若這天原本被人工「清除」（墓碑）：核准的請假仍要看得見，順帶恢復出席狀態。
+          // 若這天原本被人工「清除」（墓碑）：核准的請假仍要看得見，順帶恢復出席狀態
+          // （出席與否比照下面新建紀錄的同一套判斷，不再無條件蓋成 true）。
           ...(existing.cleared
-            ? { cleared: false, present: true, reason: reasonLabel }
+            ? { cleared: false, present: isFutureDate, reason: reasonLabel }
             : {}),
         },
       });
@@ -153,7 +162,7 @@ async function materializeApprovedLeave(opts: {
           organizationId: orgId,
           userId,
           date: startDate,
-          present: true,
+          present: isFutureDate,
           leaveHours: hourly.hours,
           leaveTypeId,
           reason: reasonLabel,
