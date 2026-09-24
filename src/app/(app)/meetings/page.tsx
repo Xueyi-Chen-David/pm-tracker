@@ -11,6 +11,11 @@ import { MeetingCard } from "@/components/meeting-card";
 import { CopyLinkButton } from "@/components/copy-link-button";
 import type { NoteImage } from "@/components/meeting-notes-canvas";
 import { ViewportScroll } from "@/components/viewport-scroll";
+import {
+  MeetingCollapseAllButton,
+  MeetingCollapseProvider,
+} from "@/components/meeting-body";
+import { isAiEnabled } from "@/server/gemini";
 import { Button, buttonVariants } from "@/components/ui/button";
 
 export const metadata = { title: "會議記錄 · Project Pulse" };
@@ -22,9 +27,10 @@ export default async function MeetingsPage({
 }) {
   const { org, user } = await requireActiveOrg();
   const { cat } = await searchParams;
-  const [all, members] = await Promise.all([
+  const [all, members, aiEnabled] = await Promise.all([
     getMeetings(org.id),
     getOrgMemberUsers(org.id),
+    isAiEnabled(org.id),
   ]);
   const nameById = new Map(members.map((m) => [m.id, displayName(m)]));
   const categories = Array.from(new Set(all.map((m) => m.category)));
@@ -45,7 +51,8 @@ export default async function MeetingsPage({
         />
       </PageHeader>
 
-      {categories.length > 0 && (
+      <MeetingCollapseProvider ids={meetings.map((m) => m.id)}>
+      {(categories.length > 0 || meetings.length > 0) && (
         <div className="mb-4 flex flex-wrap items-center gap-1.5">
           <Chip href="/meetings" active={!cat} label="全部" />
           {categories.map((c) => (
@@ -56,6 +63,9 @@ export default async function MeetingsPage({
               label={c}
             />
           ))}
+          <div className="ml-auto">
+            <MeetingCollapseAllButton />
+          </div>
         </div>
       )}
 
@@ -80,6 +90,7 @@ export default async function MeetingsPage({
                 meeting={m}
                 nameById={nameById}
                 memberCount={members.length}
+                aiEnabled={aiEnabled}
                 actions={
                   <>
                     <CopyLinkButton path={`/meetings/${m.id}`} />
@@ -113,6 +124,7 @@ export default async function MeetingsPage({
           })}
         </ViewportScroll>
       )}
+      </MeetingCollapseProvider>
     </div>
   );
 }

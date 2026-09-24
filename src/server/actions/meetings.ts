@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/server/db";
 import { requireActiveOrg } from "@/server/org";
 import { NOTE_IMG_CLASS } from "@/lib/meeting-notes";
+import { generateText } from "@/server/gemini";
 
 /**
  * 會議記錄的 notes 是使用者用 contentEditable 打的 HTML（圖片內嵌、文字環繞，見
@@ -139,4 +140,68 @@ export async function deleteMeeting(id: string) {
   await db.meeting.deleteMany({ where: { id, organizationId: org.id } });
   revalidatePath("/meetings");
   revalidatePath("/report");
+}
+
+/** 會議記錄 HTML → 純文字（給 AI 總結用；圖片略過）。 */
+function notesToText(html: string): string {
+  return html
+    .replace(/<(br|\/p|\/div|\/li|\/h[1-6])\s*\/?>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "- ")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+const SUMMARY_MAX_INPUT = 30_000; // 約上萬字的記錄；再長就截斷，避免單次成本失控
+
+/**
+ * 用組織自備的 Gemini key 替一場會議產生 AI 總結並存下（可重新產生，會覆蓋舊的）。
+ * 用量記在 AiUsage（feature=meeting_summary）。
+ */
+export async function generateMeetingSummary(id: string) {
+  const { org, user } = await requireActiveOrg();
+  const meeting = await db.meeting.findFirst({
+    where: { id, organizationId: org.id },
+    select: { title: true, category: true, date: true, notes: true },
+  });
+  if (!meeting) return { ok: false as const, error: "找不到這場會議。" };
+  const text = notesToText(meeting.notes ?? "");
+  if (text.length < 20) {
+    return { ok: false as const, error: "會議記錄內容太少，無法總結。" };
+  }
+
+  const prompt = `你是會議記錄整理助手。以下是一場會議的原始記錄，請用繁體中文整理成精簡的總結，使用 Markdown，依序包含：
+## 重點摘要
+（3–6 點條列）
+## 決議事項
+（條列；沒有就寫「無」）
+## 待辦事項
+（條列，格式「- 事項（負責人，期限）」；記錄裡沒寫負責人或期限就省略括號內對應部分；沒有就寫「無」）
+## 待確認 / 未決問題
+（條列；沒有就寫「無」）
+
+規則：只根據記錄內容整理，不要自行補充或推測記錄裡沒有的資訊；人名、數字、日期照原文。
+
+會議：${meeting.title}（${meeting.category}，${meeting.date.toISOString().slice(0, 10)}）
+---
+${text.slice(0, SUMMARY_MAX_INPUT)}`;
+
+  const res = await generateText(
+    { orgId: org.id, userId: user.id, feature: "meeting_summary" },
+    prompt,
+    2048,
+  );
+  if (!res.ok) return res;
+
+  await db.meeting.update({
+    where: { id },
+    data: { aiSummary: res.text, aiSummaryAt: new Date() },
+  });
+  revalidatePath("/meetings");
+  revalidatePath(`/meetings/${id}`);
+  return { ok: true as const };
 }

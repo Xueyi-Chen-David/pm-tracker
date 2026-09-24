@@ -4,6 +4,7 @@ import { meetingCategoryBadge } from "@/lib/constants";
 import { fmtDate } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import { MeetingNotesCanvas, type NoteImage } from "@/components/meeting-notes-canvas";
+import { MeetingBody } from "@/components/meeting-body";
 
 /** 可點的安全連結：有 http(s) 直接用；看起來像網域就補 https；否則回 null（不連）。 */
 export function safeLink(url: string): string | null {
@@ -27,11 +28,14 @@ export function MeetingCard({
   nameById,
   memberCount,
   actions,
+  aiEnabled = false,
 }: {
   meeting: MeetingRow;
   nameById: Map<string, string>;
   memberCount: number;
   actions?: React.ReactNode;
+  /** 組織有設定 Gemini key：可產生 AI 總結。 */
+  aiEnabled?: boolean;
 }) {
   const names = m.attendeeIds
     .map((id) => nameById.get(id))
@@ -65,16 +69,21 @@ export function MeetingCard({
             </span>
           </div>
           <h3 className="font-semibold">{m.title}</h3>
-          {attendeeText && (
-            <div className="text-muted-foreground mt-1 inline-flex items-start gap-1 text-xs">
-              <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span className="whitespace-pre-wrap">{attendeeText}</span>
-            </div>
-          )}
-          {recorderName && (
-            <div className="text-muted-foreground mt-1 inline-flex items-center gap-1 text-xs">
-              <PencilLine className="h-3.5 w-3.5 shrink-0" />
-              記錄：{recorderName}
+          {(attendeeText || recorderName) && (
+            // 與會者與記錄人同一行時要有間距，不能黏在一起。
+            <div className="text-muted-foreground mt-1 flex flex-wrap items-start gap-x-4 gap-y-1 text-xs">
+              {attendeeText && (
+                <span className="inline-flex items-start gap-1">
+                  <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span className="whitespace-pre-wrap">{attendeeText}</span>
+                </span>
+              )}
+              {recorderName && (
+                <span className="inline-flex items-center gap-1">
+                  <PencilLine className="h-3.5 w-3.5 shrink-0" />
+                  記錄：{recorderName}
+                </span>
+              )}
             </div>
           )}
           {m.link &&
@@ -102,11 +111,14 @@ export function MeetingCard({
           <div className="flex shrink-0 items-center gap-1">{actions}</div>
         )}
       </div>
-      {(m.notes || images.length > 0) && (
-        <div className="mt-2 border-t pt-2">
-          <MeetingNotesCanvas editable={false} defaultNotes={m.notes} legacyImages={images} />
-        </div>
-      )}
+      <MeetingBody
+        meetingId={m.id}
+        hasNotes={!!m.notes || images.length > 0}
+        notes={<MeetingNotesCanvas editable={false} defaultNotes={m.notes} legacyImages={images} />}
+        summary={m.aiSummary}
+        summaryAt={m.aiSummaryAt?.toISOString() ?? null}
+        aiEnabled={aiEnabled}
+      />
     </div>
   );
 }

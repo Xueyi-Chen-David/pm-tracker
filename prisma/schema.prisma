@@ -563,23 +563,26 @@ model ReportImage {
 
 /// 會議記錄（全體會議 / 研發部會議 等）。依日期歸入對應週、顯示在該週週報。
 model Meeting {
-  id           String   @id @default(cuid())
-  date         DateTime @db.Date
+  id           String    @id @default(cuid())
+  date         DateTime  @db.Date
   category     String // 例：全體會議 / 研發部會議
   title        String
   attendeeIds  String[] // 與會成員（User id；「全體」＝全部成員）
-  attendees    String?  @db.Text // 其他與會者（非系統成員，自由文字）
-  link         String?  @db.Text // 會議連結（Google Meet / 會議文件…；可能很長）
+  attendees    String?   @db.Text // 其他與會者（非系統成員，自由文字）
+  link         String?   @db.Text // 會議連結（Google Meet / 會議文件…；可能很長）
   // 會議記錄 / 決議：一段 HTML（圖片以 <img> 內嵌、文字環繞排版，像 Word 插入圖片）。
   // 送出前後端都會用 sanitize-html 過白名單，見 server/actions/meetings.ts。
-  notes        String?  @db.Text
+  notes        String?   @db.Text
   // 舊版「筆記畫布」留下的浮動圖片：[{id,url,xPct,yPct,wPct,hPct}] 或 [{id,url}]（不同代改版）。
   // 新資料一律不寫這欄——圖片已內嵌進 notes 的 HTML 裡；只保留給改版前的舊紀錄顯示 fallback 用。
   noteImages   Json?
   createdById  String?
   recordedById String? // 記錄人；新增時預設帶入建立者，可事後改成別人
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  // AI 總結（Markdown）：由組織自備的 Gemini key 依 notes 產生，可重新產生；notes 改了不會自動更新。
+  aiSummary    String?   @db.Text
+  aiSummaryAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   organizationId String
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
