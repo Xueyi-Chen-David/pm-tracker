@@ -629,9 +629,13 @@ export type ProjectOverview = Awaited<
 >[number];
 
 /** 合併「專案與任務」頁用：本組織未封存專案 + 底下任務（含任務負責人）。 */
-export async function getProjectsWithTasks(orgId: string, archived = false) {
+/** archived：false＝未封存（預設）、true＝只看封存、"all"＝不分。 */
+export async function getProjectsWithTasks(
+  orgId: string,
+  archived: boolean | "all" = false,
+) {
   return db.project.findMany({
-    where: { archived, organizationId: orgId },
+    where: { organizationId: orgId, ...(archived === "all" ? {} : { archived }) },
     orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }],
     include: {
       owner: { select: userIdentitySelect },

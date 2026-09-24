@@ -1,6 +1,4 @@
 import { Plus } from "lucide-react";
-import type { ProjectView } from "@prisma/client";
-import { db } from "@/server/db";
 import { requireActiveOrg, isManagerOrBoss } from "@/server/org";
 import {
   getProjectsWithTasks,
@@ -24,15 +22,13 @@ import { NewProjectButton } from "@/components/new-project-button";
 import { Button } from "@/components/ui/button";
 import { ProjectViewTabs } from "@/components/project-view-tabs";
 import { ProjectsToolbar } from "@/components/projects-toolbar";
+import { CollapseAllButton } from "@/components/projects/collapse-all-button";
 import {
   ProjectManageCard,
   type ProjectManageView,
 } from "@/components/projects/project-manage-card";
 
 export const metadata = { title: "專案與任務 · Project Pulse" };
-
-/** 「封存」是內建虛擬視窗（非 DB 中的 ProjectView）：顯示 archived=true 的專案。 */
-const ARCHIVED_VIEW_ID = "archived";
 
 function ymd(d: Date | null): string | null {
   return d ? d.toISOString().slice(0, 10) : null;
@@ -47,48 +43,23 @@ export default async function ProjectsPage({
   const canManage = isManagerOrBoss(membership);
   const sp = await searchParams;
 
-  const isArchivedView = sp.board === ARCHIVED_VIEW_ID;
-  const [rows, members, views, archivedCount] = await Promise.all([
-    getProjectsWithTasks(org.id),
+  // 這頁不再有「封存」分頁：以前封存過的專案一併列出，依狀態落在各分頁（完成 / 暫停…）。
+  const [rows, members, views] = await Promise.all([
+    getProjectsWithTasks(org.id, "all"),
     getOrgMemberUsers(org.id),
     getProjectViews(org.id),
-    db.project.count({ where: { organizationId: org.id, archived: true } }),
   ]);
-  // 封存視窗才另外撈 archived=true 的專案（含任務 / 里程碑）。
-  const archivedRows = isArchivedView
-    ? await getProjectsWithTasks(org.id, true)
-    : [];
 
-  // 視窗（tabs）：以 status / type 篩出該視窗的專案；封存視窗直接用 archivedRows。
-  const activeView = isArchivedView
-    ? null
-    : (views.find((v) => v.id === sp.board) ??
-      views.find((v) => v.isSystem) ??
-      views[0]);
-  const currentName = isArchivedView ? "封存" : (activeView?.name ?? "");
-  const viewProjects = isArchivedView
-    ? archivedRows
-    : activeView
-      ? filterByView(rows, activeView)
-      : rows;
+  // 視窗（tabs）：以 status / type 篩出該視窗的專案。
+  const activeView =
+    views.find((v) => v.id === sp.board) ??
+    views.find((v) => v.isSystem) ??
+    views[0];
+  const currentName = activeView?.name ?? "";
+  const viewProjects = activeView ? filterByView(rows, activeView) : rows;
   const counts: Record<string, number> = Object.fromEntries(
     views.map((v) => [v.id, filterByView(rows, v).length]),
   );
-  counts[ARCHIVED_VIEW_ID] = archivedCount;
-
-  // 內建「封存」虛擬視窗，接在使用者的視窗後面。
-  const archivedView: ProjectView = {
-    id: ARCHIVED_VIEW_ID,
-    name: "封存",
-    statuses: [],
-    types: [],
-    exclude: false,
-    isSystem: true,
-    sortOrder: 9999,
-    createdAt: new Date(0),
-    organizationId: org.id,
-  };
-  const tabViews = [...views, archivedView];
 
   // 工具列篩選 / 排序（套在視窗結果之上）。
   const filters = parseFilters(sp);
@@ -101,9 +72,9 @@ export default async function ProjectsPage({
   );
   const filtered = hasActiveFilters(filters);
 
-  // 手動排序（上/下移）只在「預設順序」且非封存視窗時提供——此時畫面順序才等同 sortOrder；
+  // 手動排序（上/下移）只在「預設順序」時提供——此時畫面順序才等同 sortOrder；
   // 其餘排序方式下手動搬移沒有意義，故隱藏控制項。限管理者 / 老闆。
-  const canReorder = canManage && sort === "default" && !isArchivedView;
+  const canReorder = canManage && sort === "default";
 
   // 負責人下拉：取實際出現在專案中的負責人（去重）。
   const ownerOptions = Array.from(
@@ -202,7 +173,7 @@ export default async function ProjectsPage({
         />
       </PageHeader>
 
-      {rows.length === 0 && archivedCount === 0 ? (
+      {rows.length === 0 ? (
         <div className="text-muted-foreground rounded-xl border border-dashed py-16 text-center">
           目前還沒有任何專案。
           <br />
@@ -211,20 +182,25 @@ export default async function ProjectsPage({
       ) : (
         <>
           <ProjectViewTabs
-            views={tabViews}
+            views={views}
             counts={counts}
-            activeId={isArchivedView ? ARCHIVED_VIEW_ID : (activeView?.id ?? "")}
+            activeId={activeView?.id ?? ""}
             viewMode="card"
           />
-          <ProjectsToolbar owners={ownerOptions} />
+          <ProjectsToolbar owners={ownerOptions}>
+            {projects.length > 0 && (
+              <CollapseAllButton
+                ids={projects.map((p) => p.id)}
+                allCollapsed={projects.every((p) => !isExpanded(p.id))}
+              />
+            )}
+          </ProjectsToolbar>
 
           {projects.length === 0 ? (
             <div className="text-muted-foreground rounded-xl border border-dashed py-16 text-center">
-              {isArchivedView
-                ? "目前沒有封存的專案。"
-                : viewProjects.length === 0
-                  ? `「${currentName}」視窗目前沒有專案。`
-                  : "沒有符合條件的專案，試試調整或清除篩選。"}
+              {viewProjects.length === 0
+                ? `「${currentName}」視窗目前沒有專案。`
+                : "沒有符合條件的專案，試試調整或清除篩選。"}
             </div>
           ) : (
             <div className="space-y-3">

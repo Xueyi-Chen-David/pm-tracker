@@ -55,7 +55,14 @@ function FilterSelect({
   );
 }
 
-export function ProjectsToolbar({ owners }: { owners: OwnerOption[] }) {
+export function ProjectsToolbar({
+  owners,
+  children,
+}: {
+  owners: OwnerOption[];
+  /** 靠右放的額外動作（例如「全部收合 / 展開」）。 */
+  children?: React.ReactNode;
+}) {
   const { params, setParams, pending } = useListParams();
 
   const get = (key: string) => params.get(key) ?? "";
@@ -200,6 +207,8 @@ export function ProjectsToolbar({ owners }: { owners: OwnerOption[] }) {
       >
         <span className="border-muted-foreground/40 border-t-foreground inline-block h-3.5 w-3.5 animate-spin rounded-full border-2" />
       </span>
+
+      {children ? <div className="ml-auto flex items-center gap-2">{children}</div> : null}
     </div>
   );
 }

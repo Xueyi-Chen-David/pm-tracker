@@ -12,8 +12,6 @@ import {
   Loader2,
   PauseCircle,
   Plus,
-  Archive,
-  ArchiveRestore,
   Trash2,
   Check,
   XCircle,
@@ -29,7 +27,6 @@ import { createTask, reorderTasks } from "@/server/actions/tasks";
 import {
   setProjectStatusHealth,
   setProjectCountInProgress,
-  setProjectArchived,
   deleteProject,
   updateProjectCore,
   reorderProjects,
@@ -629,12 +626,6 @@ export function ProjectManageCard({
                         checked ? "已計入完成度" : "已排除於完成度",
                       )
                     }
-                    onArchive={() =>
-                      runAction(
-                        () => setProjectArchived(project.id, !project.archived),
-                        project.archived ? "已取消封存" : "已封存",
-                      )
-                    }
                     onSave={(v) =>
                       runAction(
                         () => updateProjectCore({ projectId: project.id, ...v }),
@@ -698,7 +689,6 @@ function ProjectSettingsForm({
   pending,
   onSave,
   onQuickCount,
-  onArchive,
 }: {
   project: ProjectManageView;
   members: OwnerLite[];
@@ -715,7 +705,6 @@ function ProjectSettingsForm({
     color?: string | null;
   }) => void;
   onQuickCount: (checked: boolean) => void;
-  onArchive: () => void;
 }) {
   const [name, setName] = useState(project.name);
   const [type, setType] = useState<ProjectType>(project.type);
@@ -871,13 +860,6 @@ function ProjectSettingsForm({
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t pt-3">
         <div className="flex gap-2">
-          <Button variant="outline" size="sm" disabled={pending} onClick={onArchive}>
-            {project.archived ? (
-              <><ArchiveRestore className="h-4 w-4" /> 取消封存</>
-            ) : (
-              <><Archive className="h-4 w-4" /> 封存</>
-            )}
-          </Button>
           <Button
             variant="destructive"
             size="sm"
