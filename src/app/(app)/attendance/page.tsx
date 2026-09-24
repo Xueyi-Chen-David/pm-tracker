@@ -119,11 +119,26 @@ export default async function AttendancePage({
     orgHolidays,
   });
 
-  // 有打卡、卻沒被納入出席追蹤的人數（他們的出席不會出現在下面的月曆）。
+  // 有打卡、卻沒被納入出席追蹤的人（他們的出席不會出現在下面的月曆）。
+  // 只算「目前在職、沒有已過的離職日、也不是免打卡」的成員——停用 / 已離職的人本來就不必追蹤，
+  // 停用的人甚至不在「追蹤成員」清單裡，算進來會變成一個永遠消不掉的提醒。
   const trackedIds = new Set(members.map((m) => m.id));
-  const untrackedPunchers = monthPunchers.filter(
-    (p) => !trackedIds.has(p.userId),
-  ).length;
+  const untrackedIds = monthPunchers
+    .map((p) => p.userId)
+    .filter((id) => !trackedIds.has(id));
+  const untrackedPunchers =
+    untrackedIds.length === 0
+      ? []
+      : await db.organizationMember.findMany({
+          where: {
+            organizationId: org.id,
+            userId: { in: untrackedIds },
+            active: true,
+            checkInExempt: false,
+            OR: [{ resignDate: null }, { resignDate: { gte: today } }],
+          },
+          select: { user: { select: { id: true, name: true, nickname: true, useNickname: true, email: true } } },
+        });
 
   // 每人打卡時間：只在具備權限時才查（沒權限就連資料都不撈到伺服器記憶體）。
   let memberTimecards: MemberTimecard[] = [];
@@ -196,12 +211,14 @@ export default async function AttendancePage({
 
       {/* 打卡了卻沒被追蹤的人，出席不會出現在下表——這最容易被誤會成「打卡壞了」，
           所以直接講清楚，並指向右上角的「追蹤成員」。 */}
-      {untrackedPunchers > 0 && (
+      {untrackedPunchers.length > 0 && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/25 dark:bg-amber-950/40 dark:text-amber-100">
           <Users className="mt-px h-4 w-4 shrink-0" />
           <span>
-            本月有 {untrackedPunchers} 位成員有打卡紀錄，但未納入出席追蹤，
-            所以他們的出席不會顯示在下面的月曆。請用右上角「追蹤成員」把他們勾選進來。
+            本月有 {untrackedPunchers.length} 位成員（
+            {untrackedPunchers.map((m) => displayName(m.user)).join("、")}
+            ）有打卡紀錄，但未納入出席追蹤，所以他們的出席不會顯示在下面的月曆。需要的話請用右上角「追蹤成員」把他們勾選進來；
+            不需要打卡的人可以到人事頁設成「免打卡」，這裡就不會再提醒。
           </span>
         </div>
       )}
