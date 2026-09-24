@@ -6,21 +6,11 @@ import type { ProjectStatus } from "@prisma/client";
 import { Check, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Switch } from "@/components/ui/switch";
+import {
+  TIMELINE_STATUS_OPTIONS as OPTIONS,
+  TIMELINE_DEFAULT_STATUSES as DEFAULT,
+} from "@/lib/timeline-filter";
 
-/** 時程藍圖可勾選的專案狀態（依序顯示）。 */
-const OPTIONS: { value: ProjectStatus; label: string }[] = [
-  { value: "ACTIVE", label: "進行中" },
-  { value: "COMPLETED", label: "已完成" },
-  { value: "CANCELLED", label: "已取消" },
-];
-const DEFAULT: ProjectStatus[] = ["ACTIVE"];
-
-/** ?status=ACTIVE,COMPLETED → 狀態清單；沒帶或全無效時用預設（只看進行中）。 */
-export function parseTimelineStatuses(raw: string | undefined): ProjectStatus[] {
-  if (raw === undefined) return DEFAULT;
-  const valid = new Set(OPTIONS.map((o) => o.value));
-  return raw.split(",").filter((s): s is ProjectStatus => valid.has(s as ProjectStatus));
-}
 
 /**
  * 時程藍圖 / 週報的篩選列：勾選要帶入的專案狀態，以及是否帶入所有已完成的里程碑。

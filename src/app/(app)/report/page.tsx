@@ -32,10 +32,8 @@ import { ReportToolbar } from "@/components/report-toolbar";
 import { ReportSheet } from "@/components/report-sheet";
 import { ReportSummaryEditor } from "@/components/report-summary-editor";
 import { RoadmapChart } from "@/components/roadmap-chart";
-import {
-  TimelineFilters,
-  parseTimelineStatuses,
-} from "@/components/timeline-filters";
+import { TimelineFilters } from "@/components/timeline-filters";
+import { parseTimelineStatuses } from "@/lib/timeline-filter";
 import { HealthBadge, StatusBadge, TypeBadge } from "@/components/badges";
 import { ProgressBar } from "@/components/progress-bar";
 

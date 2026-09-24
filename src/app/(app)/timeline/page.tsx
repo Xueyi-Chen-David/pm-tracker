@@ -7,10 +7,8 @@ import { MilestoneStatusBadge } from "@/components/badges";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fmtDate } from "@/lib/date";
 import { Star } from "lucide-react";
-import {
-  TimelineFilters,
-  parseTimelineStatuses,
-} from "@/components/timeline-filters";
+import { TimelineFilters } from "@/components/timeline-filters";
+import { parseTimelineStatuses } from "@/lib/timeline-filter";
 
 export const metadata = { title: "時程藍圖 · Project Pulse" };
 
