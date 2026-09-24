@@ -1,213 +1,55 @@
-"use client";
-
-import { useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { toast } from "sonner";
-import { Plus, X } from "lucide-react";
-import type { ProjectView } from "@prisma/client";
-import {
-  createProjectViewAction,
-  deleteProjectView,
-  type ViewActionState,
-} from "@/server/actions/views";
-import { PROJECT_STATUS_OPTIONS, PROJECT_TYPE_OPTIONS } from "@/lib/constants";
-import { describeView } from "@/lib/project-filter";
+import type { ProjectStatus } from "@prisma/client";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from "@/components/ui/dialog";
 
-function ChipGroup({
-  label,
-  name,
-  options,
-}: {
-  label: string;
-  name: string;
-  options: { value: string; label: string }[];
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label>{label}</Label>
-      <div className="flex flex-wrap gap-1.5">
-        {options.map((o) => (
-          <label
-            key={o.value}
-            className="has-[:checked]:border-primary has-[:checked]:bg-primary/10 has-[:checked]:text-primary flex cursor-pointer items-center gap-1 rounded-md border px-2.5 py-1 text-xs transition-colors"
-          >
-            <input type="checkbox" name={name} value={o.value} className="sr-only" />
-            {o.label}
-          </label>
-        ))}
-      </div>
-    </div>
-  );
+/** 專案與任務的分頁：固定五個狀態，不能自訂。 */
+export const PROJECT_STATUS_TABS: { status: ProjectStatus; label: string }[] = [
+  { status: "ACTIVE", label: "進行中" },
+  { status: "NOT_STARTED", label: "未開始" },
+  { status: "ON_HOLD", label: "暫停" },
+  { status: "COMPLETED", label: "已完成" },
+  { status: "CANCELLED", label: "已取消" },
+];
+
+/** ?board=STATUS → 狀態；沒帶或不認得（例如舊的自訂視窗 id）就回進行中。 */
+export function parseStatusTab(board: string | undefined): ProjectStatus {
+  return PROJECT_STATUS_TABS.find((t) => t.status === board)?.status ?? "ACTIVE";
 }
 
 export function ProjectViewTabs({
-  views,
+  active,
   counts,
-  activeId,
-  viewMode,
 }: {
-  views: ProjectView[];
-  counts: Record<string, number>;
-  activeId: string;
-  viewMode: "list" | "card";
+  active: ProjectStatus;
+  counts: Record<ProjectStatus, number>;
 }) {
-  const router = useRouter();
-  const [open, setOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, start] = useTransition();
-
-  function hrefFor(id: string) {
-    return `/projects?view=${viewMode}&board=${id}`;
-  }
-
-  function handleAdd(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const fd = new FormData(e.currentTarget);
-    start(async () => {
-      const res: ViewActionState = await createProjectViewAction(null, fd);
-      if (res?.ok && res.id) {
-        setOpen(false);
-        toast.success("已新增視窗");
-        router.push(hrefFor(res.id));
-        router.refresh();
-      } else {
-        setError(res?.error ?? "新增失敗");
-      }
-    });
-  }
-
-  function handleDelete(v: ProjectView) {
-    if (!confirm(`刪除視窗「${v.name}」？（裡面的專案不會被刪除）`)) return;
-    start(async () => {
-      try {
-        const res = await deleteProjectView(v.id);
-        if (!res.ok) {
-          toast.error(res.error);
-          return;
-        }
-        toast.success("已刪除視窗");
-        router.push(`/projects?view=${viewMode}`);
-        router.refresh();
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : "刪除失敗");
-      }
-    });
-  }
-
   return (
     <div className="mb-3 flex items-center gap-1 overflow-x-auto border-b">
-      {views.map((v) => {
-        const active = v.id === activeId;
+      {PROJECT_STATUS_TABS.map((t) => {
+        const on = t.status === active;
         return (
-          <div key={v.id} className="relative flex items-center">
-            <Link
-              href={hrefFor(v.id)}
-              title={describeView(v)}
+          <Link
+            key={t.status}
+            href={`/projects?view=card&board=${t.status}`}
+            className={cn(
+              "flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+              on
+                ? "border-primary text-foreground"
+                : "text-muted-foreground hover:text-foreground border-transparent",
+            )}
+          >
+            {t.label}
+            <span
               className={cn(
-                "flex items-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors",
-                active
-                  ? "border-primary text-foreground"
-                  : "text-muted-foreground hover:text-foreground border-transparent",
+                "rounded-full px-1.5 text-[11px] tabular-nums",
+                on ? "bg-primary/10 text-primary" : "bg-muted",
               )}
             >
-              {v.name}
-              <span
-                className={cn(
-                  "rounded-full px-1.5 text-[11px] tabular-nums",
-                  active ? "bg-primary/10 text-primary" : "bg-muted",
-                )}
-              >
-                {counts[v.id] ?? 0}
-              </span>
-            </Link>
-            {active && !v.isSystem && (
-              <button
-                type="button"
-                title="刪除此視窗"
-                disabled={pending}
-                onClick={() => handleDelete(v)}
-                className="text-muted-foreground hover:text-destructive -ml-1 mr-1 rounded p-0.5"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
+              {counts[t.status] ?? 0}
+            </span>
+          </Link>
         );
       })}
-
-      <button
-        type="button"
-        title="新增視窗"
-        onClick={() => {
-          setError(null);
-          setOpen(true);
-        }}
-        className="text-muted-foreground hover:text-foreground ml-1 shrink-0 rounded p-1.5"
-      >
-        <Plus className="h-4 w-4" />
-      </button>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>新增視窗</DialogTitle>
-            <DialogDescription>
-              依狀態 / 類型把專案分到不同視窗。兩者皆留空＝顯示全部。
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleAdd} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="v-name">名稱</Label>
-              <Input id="v-name" name="name" required placeholder="例：進行中 / 我的專案" />
-            </div>
-
-            <ChipGroup label="狀態（可複選，留空＝不限）" name="statuses" options={PROJECT_STATUS_OPTIONS} />
-            <ChipGroup label="類型（可複選，留空＝不限）" name="types" options={PROJECT_TYPE_OPTIONS} />
-
-            <label className="bg-muted/40 flex items-start gap-2 rounded-md px-3 py-2 text-sm">
-              <input
-                type="checkbox"
-                name="exclude"
-                className="accent-primary mt-0.5 h-4 w-4"
-              />
-              <span>
-                反向（排除）：顯示「<strong className="font-semibold">不符合</strong>
-                」上述條件的專案。
-                <br />
-                <span className="text-muted-foreground text-xs">
-                  例：勾「完成、暫停」並開啟反向＝只看「進行中等其餘」專案。
-                </span>
-              </span>
-            </label>
-            {error && (
-              <p className="bg-destructive/10 text-destructive rounded-md px-3 py-2 text-sm">
-                {error}
-              </p>
-            )}
-            <DialogFooter>
-              <Button type="button" variant="ghost" onClick={() => setOpen(false)} disabled={pending}>
-                取消
-              </Button>
-              <Button type="submit" disabled={pending}>
-                {pending ? "新增中…" : "新增視窗"}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

@@ -3,12 +3,10 @@ import { requireActiveOrg, isManagerOrBoss } from "@/server/org";
 import {
   getProjectsWithTasks,
   getOrgMemberUsers,
-  getProjectViews,
   distinctOwners,
 } from "@/server/queries";
 import { getProjectDetailBundle } from "@/server/project-bundle";
 import {
-  filterByView,
   filterProjects,
   hasActiveFilters,
   parseDir,
@@ -20,7 +18,12 @@ import { primaryName } from "@/lib/display";
 import { PageHeader } from "@/components/page-header";
 import { NewProjectButton } from "@/components/new-project-button";
 import { Button } from "@/components/ui/button";
-import { ProjectViewTabs } from "@/components/project-view-tabs";
+import {
+  PROJECT_STATUS_TABS,
+  ProjectViewTabs,
+  parseStatusTab,
+} from "@/components/project-view-tabs";
+import type { ProjectStatus } from "@prisma/client";
 import { ProjectsToolbar } from "@/components/projects-toolbar";
 import { CollapseAllButton } from "@/components/projects/collapse-all-button";
 import {
@@ -44,22 +47,19 @@ export default async function ProjectsPage({
   const sp = await searchParams;
 
   // 這頁不再有「封存」分頁：以前封存過的專案一併列出，依狀態落在各分頁（完成 / 暫停…）。
-  const [rows, members, views] = await Promise.all([
+  const [rows, members] = await Promise.all([
     getProjectsWithTasks(org.id, "all"),
     getOrgMemberUsers(org.id),
-    getProjectViews(org.id),
   ]);
 
-  // 視窗（tabs）：以 status / type 篩出該視窗的專案。
-  const activeView =
-    views.find((v) => v.id === sp.board) ??
-    views.find((v) => v.isSystem) ??
-    views[0];
-  const currentName = activeView?.name ?? "";
-  const viewProjects = activeView ? filterByView(rows, activeView) : rows;
-  const counts: Record<string, number> = Object.fromEntries(
-    views.map((v) => [v.id, filterByView(rows, v).length]),
-  );
+  // 分頁固定五個狀態（進行中 / 未開始 / 暫停 / 已完成 / 已取消），不能自訂。
+  const activeStatus = parseStatusTab(sp.board);
+  const currentName =
+    PROJECT_STATUS_TABS.find((t) => t.status === activeStatus)?.label ?? "";
+  const viewProjects = rows.filter((p) => p.status === activeStatus);
+  const counts = Object.fromEntries(
+    PROJECT_STATUS_TABS.map((t) => [t.status, rows.filter((p) => p.status === t.status).length]),
+  ) as Record<ProjectStatus, number>;
 
   // 工具列篩選 / 排序（套在視窗結果之上）。
   const filters = parseFilters(sp);
@@ -181,12 +181,7 @@ export default async function ProjectsPage({
         </div>
       ) : (
         <>
-          <ProjectViewTabs
-            views={views}
-            counts={counts}
-            activeId={activeView?.id ?? ""}
-            viewMode="card"
-          />
+          <ProjectViewTabs active={activeStatus} counts={counts} />
           <ProjectsToolbar owners={ownerOptions}>
             {projects.length > 0 && (
               <CollapseAllButton
@@ -199,7 +194,7 @@ export default async function ProjectsPage({
           {projects.length === 0 ? (
             <div className="text-muted-foreground rounded-xl border border-dashed py-16 text-center">
               {viewProjects.length === 0
-                ? `「${currentName}」視窗目前沒有專案。`
+                ? `目前沒有「${currentName}」的專案。`
                 : "沒有符合條件的專案，試試調整或清除篩選。"}
             </div>
           ) : (
