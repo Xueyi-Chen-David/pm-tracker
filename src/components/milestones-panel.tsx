@@ -16,6 +16,7 @@ import { toDateInput } from "@/lib/date";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 
 type MilestoneStatus = "PLANNED" | "IN_PROGRESS" | "DONE" | "MISSED";
 type Milestone = {
@@ -165,38 +166,42 @@ export function MilestonesPanel({
                   </select>
                   <label className="text-muted-foreground flex items-center gap-1 text-[10px]">
                     理想
-                    <input
-                      type="date"
+                    <DatePicker
                       defaultValue={toDateInput(m.plannedDate)}
                       disabled={pending}
-                      onChange={(e) =>
+                      size="sm"
+                      placeholder="未設定"
+                      ariaLabel="理想完成日"
+                      className="w-[9rem]"
+                      onChange={(v) =>
                         run(() =>
                           updateMilestone({
                             id: m.id,
                             projectId,
-                            plannedDate: e.target.value,
+                            plannedDate: v,
                           }),
                         )
                       }
-                      className={dateInput}
                     />
                   </label>
                   <label className="text-muted-foreground flex items-center gap-1 text-[10px]">
                     實際
-                    <input
-                      type="date"
+                    <DatePicker
                       defaultValue={toDateInput(m.actualDate)}
                       disabled={pending}
-                      onChange={(e) =>
+                      size="sm"
+                      placeholder="未設定"
+                      ariaLabel="實際完成日"
+                      className="w-[9rem]"
+                      onChange={(v) =>
                         run(() =>
                           updateMilestone({
                             id: m.id,
                             projectId,
-                            actualDate: e.target.value,
+                            actualDate: v,
                           }),
                         )
                       }
-                      className={dateInput}
                     />
                   </label>
                   <Button
@@ -245,12 +250,13 @@ export function MilestonesPanel({
             onChange={(e) => setTitle(e.target.value)}
             className="h-9 min-w-40 flex-1"
           />
-          <input
-            type="date"
+          <DatePicker
             value={planned}
-            onChange={(e) => setPlanned(e.target.value)}
+            onChange={setPlanned}
             title="理想完成日"
-            className={dateInput + " h-9"}
+            ariaLabel="理想完成日"
+            placeholder="理想完成日"
+            className="w-[11rem]"
           />
           <label className="text-muted-foreground flex items-center gap-1 text-xs">
             <input

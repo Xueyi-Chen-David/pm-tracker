@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { DatePicker } from "@/components/ui/date-picker";
 
 type ReleaseStatus = "PLANNED" | "RELEASED";
 
@@ -234,12 +235,14 @@ function ReleaseForm({
           <option value="RELEASED">已發布</option>
           <option value="PLANNED">規劃中</option>
         </select>
-        <input
-          type="date"
+        <DatePicker
           value={releasedAt}
-          onChange={(e) => setReleasedAt(e.target.value)}
-          className={inputSm}
+          onChange={setReleasedAt}
+          size="sm"
           title="發布日期"
+          ariaLabel="發布日期"
+          placeholder="發布日期"
+          className="w-[9rem]"
         />
       </div>
       <Input

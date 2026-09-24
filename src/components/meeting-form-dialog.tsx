@@ -13,6 +13,7 @@ import { toDateInput } from "@/lib/date";
 import { displayName, type NameSource } from "@/lib/display";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
@@ -116,11 +117,10 @@ export function MeetingFormDialog({
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="m-date">日期</Label>
-                <Input
+                <DatePicker
                   id="m-date"
                   name="date"
-                  type="date"
-                  required
+                  clearable={false}
                   defaultValue={values?.date ?? toDateInput(new Date())}
                 />
               </div>

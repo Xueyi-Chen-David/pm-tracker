@@ -78,7 +78,7 @@ const selectCls =
 const dateCls =
   "border-input bg-transparent dark:bg-input/30 h-8 rounded-md border px-2 text-xs outline-none focus-visible:border-ring";
 // 快速新增列的日期鈕：跟旁邊的 select 一樣矮，寬度剛好放得下 yyyy/MM/dd。
-const datePickerCls = "h-8 w-[8.5rem] text-xs";
+const datePickerCls = "w-[9rem]";
 // popover 在手機上不能比視窗還寬（w-72＝288px 對 320px 的機器已經頂到邊）。
 const popoverCls = "w-[min(18rem,calc(100vw-2rem))]";
 
@@ -267,6 +267,7 @@ function TodoList({
               onChange={setStartDate}
               placeholder="未設定"
               ariaLabel="開始日"
+              size="sm"
               className={datePickerCls}
             />
           </div>
@@ -278,6 +279,7 @@ function TodoList({
               onChange={setDueDate}
               placeholder="未設定"
               ariaLabel="結束 / 到期日"
+              size="sm"
               className={datePickerCls}
             />
           </div>
@@ -615,7 +617,7 @@ function TodoRow({
                 onChange={setStartDate}
                 placeholder="未設定"
                 ariaLabel="開始日"
-                className="h-8 min-w-0 text-xs"
+                size="sm"
               />
             </div>
             <div className="min-w-0 space-y-1">
@@ -627,7 +629,7 @@ function TodoRow({
                 onChange={setDueDate}
                 placeholder="未設定"
                 ariaLabel="結束 / 到期日"
-                className="h-8 min-w-0 text-xs"
+                size="sm"
               />
             </div>
           </div>
@@ -992,13 +994,28 @@ function PomodoroRow({
           </div>
           <div className="space-y-1">
             <div className="text-muted-foreground text-xs">開始時間</div>
-            <input
-              type="datetime-local"
-              value={startedAt}
-              disabled={pending}
-              onChange={(e) => setStartedAt(e.target.value)}
-              className={dateCls + " w-full"}
-            />
+            <div className="flex gap-2">
+              <DatePicker
+                value={startedAt.slice(0, 10)}
+                disabled={pending}
+                clearable={false}
+                size="sm"
+                ariaLabel="開始日期"
+                className="flex-1"
+                onChange={(d) => setStartedAt(`${d}T${startedAt.slice(11, 16) || "09:00"}`)}
+              />
+              <input
+                type="time"
+                aria-label="開始時刻"
+                value={startedAt.slice(11, 16)}
+                disabled={pending}
+                onChange={(e) =>
+                  e.target.value &&
+                  setStartedAt(`${startedAt.slice(0, 10)}T${e.target.value}`)
+                }
+                className={dateCls + " w-24"}
+              />
+            </div>
           </div>
           <div className="flex justify-end gap-2 pt-1">
             <Button

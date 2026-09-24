@@ -17,6 +17,7 @@ import {
 import { displayName } from "@/lib/display";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 
@@ -200,19 +201,19 @@ export function ProjectForm({
         </Field>
 
         <Field label="開始日" htmlFor="startDate">
-          <Input
+          <DatePicker
             id="startDate"
             name="startDate"
-            type="date"
+            placeholder="未設定"
             defaultValue={values?.startDate}
           />
         </Field>
 
         <Field label="預計完成日（理想）" htmlFor="targetDate">
-          <Input
+          <DatePicker
             id="targetDate"
             name="targetDate"
-            type="date"
+            placeholder="未設定"
             defaultValue={values?.targetDate}
           />
         </Field>

@@ -808,11 +808,13 @@ function ActivitySection({
           </Button>
         </div>
         {type === "task" && (
-          <input
+          <DatePicker
             name="dueDate"
-            type="date"
+            size="sm"
             title="待辦到期日"
-            className="border-input h-8 rounded-md border bg-transparent px-2 text-xs"
+            ariaLabel="待辦到期日"
+            placeholder="到期日（選填）"
+            className="w-[10rem]"
           />
         )}
       </form>

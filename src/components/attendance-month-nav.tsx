@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { MonthPicker } from "@/components/ui/date-picker";
 
 /** yyyy-MM 月份切換：上個月 / 月份選擇器 / 下個月 / 本月。 */
 export function AttendanceMonthNav({
@@ -41,15 +42,7 @@ export function AttendanceMonthNav({
       >
         <ChevronLeft className="h-4 w-4" />
       </Button>
-      <input
-        type="month"
-        value={month}
-        onChange={(e) => {
-          const v = e.currentTarget.value;
-          if (v) go(v);
-        }}
-        className="border-input h-8 rounded-md border bg-transparent px-2 text-sm"
-      />
+      <MonthPicker value={month} onChange={go} />
       <Button
         variant="outline"
         size="icon"

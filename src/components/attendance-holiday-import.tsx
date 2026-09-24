@@ -10,6 +10,7 @@ import { inputCls } from "@/components/leave/form-field";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Dialog,
   DialogContent,
@@ -135,11 +136,12 @@ export function AttendanceHolidayImport({ thisYear }: { thisYear: number }) {
                 checked={r.checked}
                 onChange={(e) => updateRow(i, { checked: e.currentTarget.checked })}
               />
-              <input
-                type="date"
-                className={cn(inputCls, "h-8 flex-1 px-1.5 text-xs")}
+              <DatePicker
+                size="sm"
+                clearable={false}
+                className="flex-1"
                 value={r.date}
-                onChange={(e) => updateRow(i, { date: e.currentTarget.value })}
+                onChange={(v) => updateRow(i, { date: v })}
               />
               <input
                 type="text"

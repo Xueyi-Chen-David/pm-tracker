@@ -53,6 +53,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { DatePicker } from "@/components/ui/date-picker";
 import { TaskRow, type TaskView } from "@/components/tasks/task-row";
 import { ProjectDetailTabs } from "@/components/project-detail-tabs";
 import type { OwnerLite } from "@/components/okr/key-result-row";
@@ -803,19 +804,21 @@ function ProjectSettingsForm({
           />
         </Field>
         <Field label="開始日">
-          <input
-            type="date"
+          <DatePicker
             value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            className={selectSm + " w-full"}
+            onChange={setStartDate}
+            size="sm"
+            placeholder="未設定"
+            ariaLabel="開始日"
           />
         </Field>
         <Field label="預計完成日">
-          <input
-            type="date"
+          <DatePicker
             value={targetDate}
-            onChange={(e) => setTargetDate(e.target.value)}
-            className={selectSm + " w-full"}
+            onChange={setTargetDate}
+            size="sm"
+            placeholder="未設定"
+            ariaLabel="預計完成日"
           />
         </Field>
         <Field label="顏色" className="sm:col-span-2">

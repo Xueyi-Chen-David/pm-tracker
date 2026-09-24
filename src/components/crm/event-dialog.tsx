@@ -18,6 +18,7 @@ import { CRM_EVENT_TYPES } from "@/lib/crm";
 import { toDateInput } from "@/lib/date";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -110,11 +111,10 @@ export function CrmEventDialog({
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="ev-date">日期</Label>
-                <Input
+                <DatePicker
                   id="ev-date"
                   name="date"
-                  type="date"
-                  required
+                  clearable={false}
                   defaultValue={event?.date ?? toDateInput(new Date())}
                 />
               </div>

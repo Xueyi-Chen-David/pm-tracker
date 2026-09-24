@@ -14,6 +14,7 @@ import { cn } from "@/lib/utils";
 import { displayInitial } from "@/lib/display";
 import { MemberName } from "@/components/member-name";
 import { HealthDot } from "@/components/badges";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   Popover,
@@ -390,12 +391,13 @@ export function KeyResultRow({
               </div>
               <div className="space-y-1">
                 <div className="text-muted-foreground text-xs">到期日</div>
-                <input
-                  type="date"
+                <DatePicker
                   defaultValue={kr.dueDate ?? ""}
                   disabled={pending}
-                  onChange={(e) => patch({ dueDate: e.currentTarget.value || null })}
-                  className={inputCls}
+                  size="sm"
+                  placeholder="未設定"
+                  ariaLabel="到期日"
+                  onChange={(v) => patch({ dueDate: v || null })}
                 />
               </div>
             </div>

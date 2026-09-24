@@ -35,6 +35,7 @@ import { MemberDeleteButton } from "@/components/member-delete-button";
 import { AttendanceMonthNav } from "@/components/attendance-month-nav";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Switch } from "@/components/ui/switch";
+import { DatePicker } from "@/components/ui/date-picker";
 
 type RoleOption = { id: string; name: string; color: string | null };
 type ManagerOption = { membershipId: string; label: string };
@@ -716,14 +717,14 @@ function MemberEditor({
             />
           </div>
           <Field label="到職日">
-            <input
-              type="date"
-              className={inputCls}
+            <DatePicker
               value={hireDate}
               disabled={pending}
-              onChange={(e) => {
-                setHireDate(e.target.value);
-                run(() => setMemberHireDate(m.id, e.target.value), "已更新到職日");
+              placeholder="尚未設定"
+              ariaLabel="到職日"
+              onChange={(v) => {
+                setHireDate(v);
+                run(() => setMemberHireDate(m.id, v), v ? "已更新到職日" : "已清除到職日");
               }}
             />
             <div className="text-muted-foreground flex items-center gap-1.5 text-xs">
@@ -739,14 +740,15 @@ function MemberEditor({
             </div>
           </Field>
           <Field label="離職日">
-            <input
-              type="date"
-              className={inputCls}
+            <DatePicker
               value={resignDate}
               disabled={pending}
-              onChange={(e) => {
-                setResignDate(e.target.value);
-                run(() => setMemberResignDate(m.id, e.target.value), "已更新離職日");
+              placeholder="未離職"
+              ariaLabel="離職日"
+              min={hireDate || undefined}
+              onChange={(v) => {
+                setResignDate(v);
+                run(() => setMemberResignDate(m.id, v), v ? "已更新離職日" : "已清除離職日");
               }}
             />
             <p className="text-muted-foreground text-[11px]">

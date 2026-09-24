@@ -78,6 +78,7 @@ import { Label } from "@/components/ui/label";
 import { CopyTextButton } from "@/components/crm/copy-text-button";
 import { DealDialog } from "@/components/crm/deal-dialog";
 import { ViewColumnsDialog } from "@/components/crm/view-manager";
+import { DatePicker } from "@/components/ui/date-picker";
 import type { OwnerLite } from "@/components/okr/key-result-row";
 import type { CrmCompanyProfileRow } from "@/server/queries";
 import type {
@@ -1094,11 +1095,12 @@ function ViewCell({
 
   if (column.type === "DATE") {
     return (
-      <input
-        type="date"
+      <DatePicker
         value={value ?? ""}
-        onChange={(e) => onCellChange(e.target.value || null)}
-        className="border-input focus-visible:ring-ring/50 h-7 w-32 rounded-md border bg-transparent px-1.5 text-xs outline-none focus-visible:ring-2"
+        onChange={(v) => onCellChange(v || null)}
+        size="xs"
+        placeholder="—"
+        className="w-[8.5rem]"
       />
     );
   }
@@ -1180,12 +1182,14 @@ function MailCell({
               />
               寄
             </label>
-            <input
-              type="date"
+            <DatePicker
               title="寄送日期"
+              ariaLabel="寄送日期"
               value={value.sentDate ?? ""}
-              onChange={(e) => onChange({ ...value, sentDate: e.target.value || null })}
-              className="border-input focus-visible:ring-ring/50 h-7 w-28 rounded-md border bg-transparent px-1 text-xs outline-none focus-visible:ring-2"
+              onChange={(v) => onChange({ ...value, sentDate: v || null })}
+              size="xs"
+              placeholder="—"
+              className="w-[8rem]"
             />
           </div>
           <div className="flex items-center gap-1.5">
@@ -1205,12 +1209,14 @@ function MailCell({
               />
               讀
             </label>
-            <input
-              type="date"
+            <DatePicker
               title="已讀日期"
+              ariaLabel="已讀日期"
               value={value.readDate ?? ""}
-              onChange={(e) => onChange({ ...value, readDate: e.target.value || null })}
-              className="border-input focus-visible:ring-ring/50 h-7 w-28 rounded-md border bg-transparent px-1 text-xs outline-none focus-visible:ring-2"
+              onChange={(v) => onChange({ ...value, readDate: v || null })}
+              size="xs"
+              placeholder="—"
+              className="w-[8rem]"
             />
           </div>
           {trackText && (

@@ -9,6 +9,7 @@ import { HEALTH_OPTIONS } from "@/lib/constants";
 import { displayName, type NameSource } from "@/lib/display";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -164,13 +165,11 @@ export function WeeklyUpdateDialog({
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="weekStart">週次（該週任一天）</Label>
-                <input
+                <DatePicker
                   id="weekStart"
                   name="weekStart"
-                  type="date"
-                  required
+                  clearable={false}
                   defaultValue={existing?.weekStart ?? defaultWeekStart}
-                  className={selectClass}
                 />
                 {existing && (
                   <p className="text-muted-foreground text-[11px]">

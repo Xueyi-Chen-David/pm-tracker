@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Dialog,
   DialogContent,
@@ -284,13 +285,13 @@ function RequestDialog() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
                 <Label htmlFor="c-date">日期</Label>
-                <input
+                <DatePicker
                   id="c-date"
-                  type="date"
                   max={todayStr()}
                   value={date}
-                  onChange={(e) => setDate(e.target.value)}
-                  className={cn(inputCls, "w-full")}
+                  onChange={setDate}
+                  clearable={false}
+                  size="sm"
                 />
               </div>
               <div className="space-y-1">

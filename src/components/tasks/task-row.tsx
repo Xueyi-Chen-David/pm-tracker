@@ -28,6 +28,7 @@ import { MemberName } from "@/components/member-name";
 import { HealthDot } from "@/components/badges";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Dialog,
   DialogContent,
@@ -327,28 +328,26 @@ export function TaskRow({
             <PopoverContent align="start" className={popoverCls}>
             <div className="space-y-1">
               <div className="text-muted-foreground text-xs">開始日</div>
-              <input
-                type="date"
+              <DatePicker
                 defaultValue={task.startDate ?? ""}
-                max={task.dueDate ?? undefined}
+                max={task.dueDate}
                 disabled={pending}
-                onChange={(e) =>
-                  patch({ startDate: e.currentTarget.value || null })
-                }
-                className={inputCls}
+                size="sm"
+                placeholder="未設定"
+                ariaLabel="開始日"
+                onChange={(v) => patch({ startDate: v || null })}
               />
             </div>
             <div className="mt-2 space-y-1">
               <div className="text-muted-foreground text-xs">結束 / 到期日</div>
-              <input
-                type="date"
+              <DatePicker
                 defaultValue={task.dueDate ?? ""}
-                min={task.startDate ?? undefined}
+                min={task.startDate}
                 disabled={pending}
-                onChange={(e) =>
-                  patch({ dueDate: e.currentTarget.value || null })
-                }
-                className={inputCls}
+                size="sm"
+                placeholder="未設定"
+                ariaLabel="結束 / 到期日"
+                onChange={(v) => patch({ dueDate: v || null })}
               />
             </div>
 
