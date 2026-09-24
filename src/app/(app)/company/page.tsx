@@ -77,13 +77,12 @@ export default async function CompanyPage() {
   const annualViews = annualRows.map(toView);
   const quarterViews = quarterRows.map(toView);
 
-  // 年份＝使用者建立的年份 ∪ 既有目標用到的年份 ∪ 今年；新的在上面。
+  // 年份＝使用者建立的年份 ∪ 既有目標用到的年份；新的在上面。今年不會自動出現，要自己新增。
   const years = Array.from(
     new Set([
       ...periods.map((p) => String(p.year)),
       ...annualViews.map((o) => cycleYear(o.cycle)),
       ...quarterViews.map((o) => cycleYear(o.cycle)),
-      thisYear,
     ]),
   )
     .filter((y) => /^\d{4}$/.test(y))
@@ -122,15 +121,21 @@ export default async function CompanyPage() {
               共 {years.length} 個年份 · {annualViews.length} 個年度目標 · {quarterViews.length} 個季度目標
             </p>
           </div>
-          <AddOkrYearButton suggested={Math.max(...years.map(Number)) + 1} />
+          <AddOkrYearButton
+            suggested={years.length ? Math.max(...years.map(Number)) + 1 : Number(thisYear)}
+          />
         </div>
 
+        {years.length === 0 && (
+          <div className="text-muted-foreground rounded-xl border border-dashed py-10 text-center text-sm">
+            還沒有任何年份。按右上「新增年份」開始規劃。
+          </div>
+        )}
         {years.map((year) => (
           <YearBlock
             key={year}
             year={year}
             isOpen={Number(year) >= Number(thisYear)}
-            isCurrent={year === thisYear}
             allYears={years}
             quarters={Array.from(quartersByYear.get(year) ?? []).sort()}
             byCycle={byCycle}
@@ -150,7 +155,6 @@ type Projects = React.ComponentProps<typeof ObjectiveCard>["projects"];
 function YearBlock({
   year,
   isOpen,
-  isCurrent,
   allYears,
   quarters,
   byCycle,
@@ -159,7 +163,6 @@ function YearBlock({
 }: {
   year: string;
   isOpen: boolean;
-  isCurrent: boolean;
   allYears: string[];
   quarters: number[];
   byCycle: Map<string, ObjectiveView[]>;
@@ -169,8 +172,6 @@ function YearBlock({
   const annual = byCycle.get(year) ?? [];
   const quarterCycles = quarters.map((q) => quarterCycle(year, q));
   const quarterCount = quarterCycles.reduce((s, c) => s + (byCycle.get(c)?.length ?? 0), 0);
-  // 今年一律會顯示，刪了也會再出現，所以不提供刪除。
-  const isEmpty = annual.length === 0 && quarterCount === 0 && !isCurrent;
 
   return (
     <details open={isOpen} className="group bg-card rounded-xl border">
@@ -200,9 +201,6 @@ function YearBlock({
                   </Button>
                 }
               />
-              {isEmpty && (
-                <DeleteOkrPeriodButton year={Number(year)} quarter={0} label={`${year} 年`} />
-              )}
             </div>
           </div>
           {annual.length === 0 ? (
@@ -262,9 +260,7 @@ function YearBlock({
                           </Button>
                         }
                       />
-                      {objs.length === 0 && (
-                        <DeleteOkrPeriodButton year={Number(year)} quarter={q} label={`${year} Q${q}`} />
-                      )}
+                      <DeleteOkrPeriodButton year={Number(year)} quarter={q} label={`${year} Q${q}`} />
                     </div>
                   </div>
                   {objs.length === 0 ? (
@@ -288,6 +284,10 @@ function YearBlock({
               );
             })
           )}
+        </div>
+
+        <div className="flex justify-end border-t pt-3">
+          <DeleteOkrPeriodButton year={Number(year)} quarter={0} label={`${year} 年`} withText />
         </div>
       </div>
     </details>

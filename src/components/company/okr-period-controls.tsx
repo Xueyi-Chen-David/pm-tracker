@@ -112,17 +112,20 @@ export function DeleteOkrPeriodButton({
   year,
   quarter,
   label,
+  withText = false,
 }: {
   year: number;
   quarter: number;
   label: string;
+  /** 顯示「刪除這個年份」文字（預設只有垃圾桶圖示）。 */
+  withText?: boolean;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   return (
     <Button
       variant="ghost"
-      size="icon-sm"
+      size={withText ? "sm" : "icon-sm"}
       title={`刪除${label}`}
       disabled={pending}
       className="text-muted-foreground hover:text-destructive"
@@ -140,6 +143,7 @@ export function DeleteOkrPeriodButton({
       }}
     >
       {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+      {withText && `刪除 ${label}`}
     </Button>
   );
 }

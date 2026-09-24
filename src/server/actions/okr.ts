@@ -87,7 +87,10 @@ export async function deleteOkrPeriod(year: number, quarter: number) {
   if (count > 0) {
     return {
       ok: false as const,
-      error: quarter === 0 ? "這個年份底下還有目標，無法刪除。" : "這一季還有目標，無法刪除。",
+      error:
+        quarter === 0
+          ? `這個年份底下還有 ${count} 個目標（含季度），請先刪除或移到其他年份。`
+          : `這一季還有 ${count} 個目標，請先刪除或移到其他季度。`,
     };
   }
   await db.okrPeriod.deleteMany({

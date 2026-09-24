@@ -16,7 +16,8 @@ import { Markdown } from "@/lib/markdown";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-// ── 清單頁「全部收合 / 展開」：Provider 記錄被收合的會議 id；沒有 Provider（單筆分享頁）一律展開。
+// ── 清單頁「全部收合 / 展開」：Provider 記錄「被展開」的會議 id，預設全部收合；
+//    沒有 Provider（單筆分享頁）一律展開。
 
 type CollapseCtx = {
   collapsed: Set<string>;
@@ -34,18 +35,18 @@ export function MeetingCollapseProvider({
   ids: string[];
   children: React.ReactNode;
 }) {
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const value: CollapseCtx = {
-    collapsed,
+    collapsed: new Set(ids.filter((id) => !expanded.has(id))),
     ids,
     toggle: (id) =>
-      setCollapsed((prev) => {
+      setExpanded((prev) => {
         const next = new Set(prev);
         if (next.has(id)) next.delete(id);
         else next.add(id);
         return next;
       }),
-    setAll: (collapse) => setCollapsed(collapse ? new Set(ids) : new Set()),
+    setAll: (collapse) => setExpanded(collapse ? new Set() : new Set(ids)),
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
