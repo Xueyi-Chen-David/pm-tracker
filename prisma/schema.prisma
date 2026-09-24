@@ -227,6 +227,7 @@ model Organization {
   foodLabelConversions FoodLabelConversion[]
   holidays             OrgHoliday[]
   aiUsages             AiUsage[]
+  okrPeriods           OkrPeriod[]
 }
 
 /**
@@ -731,6 +732,19 @@ enum KrStatus {
 enum OkrLevel {
   ANNUAL // 年度 OKR（cycle＝年份，如 "2026"）
   QUARTERLY // 季度 OKR（cycle＝季別，如 "2026 Q3"）
+}
+
+/// 公司 OKR 的年份 / 季度（使用者自行新增，可以先建空的再加目標）。quarter=0 代表「年份本身」，
+/// 1–4 代表該年的 Q1–Q4。Objective 仍以 cycle 字串（"2026" / "2026 Q3"）歸屬，這張表只決定畫面上有哪些年份 / 季度。
+model OkrPeriod {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  year           Int
+  quarter        Int          @default(0)
+  createdAt      DateTime     @default(now())
+
+  @@unique([organizationId, year, quarter])
 }
 
 /// 目標（Objective）＝公司營運頁的策略層 OKR。依組織 + 層級(level) + 週期(cycle) 分組，底下掛多條 KeyResult。

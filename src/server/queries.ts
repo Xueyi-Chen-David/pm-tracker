@@ -840,6 +840,14 @@ export type KeyResultRow = ObjectiveWithKrs["keyResults"][number];
  * 某層級「所有週期」的目標 + KR（年度 OKR 用：一次取回全部年份，於頁面依 cycle 分組）。
  * 回傳結構與 getObjectives 相同，可共用 toView。
  */
+/** 公司 OKR 已建立的年份 / 季度（quarter=0＝年份）。 */
+export async function getOkrPeriods(orgId: string) {
+  return db.okrPeriod.findMany({
+    where: { organizationId: orgId },
+    select: { year: true, quarter: true },
+  });
+}
+
 export async function getObjectivesByLevel(orgId: string, level: OkrLevel) {
   return db.objective.findMany({
     where: { organizationId: orgId, level, archived: false },

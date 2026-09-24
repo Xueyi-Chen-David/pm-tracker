@@ -17,6 +17,86 @@ function revalidate() {
   revalidatePath("/company");
 }
 
+// ── 年份 / 季度（OkrPeriod）─────────────────────
+
+/** "2026" → {2026,0}；"2026 Q3" → {2026,3}；其他格式回 null。 */
+function parseCycle(cycle: string): { year: number; quarter: number } | null {
+  const m = /^(\d{4})(?: Q([1-4]))?$/.exec(cycle.trim());
+  if (!m) return null;
+  return { year: Number(m[1]), quarter: m[2] ? Number(m[2]) : 0 };
+}
+
+/** 確保某個 cycle 的年份（與季度）存在；建立 / 修改目標時呼叫，畫面才會出現對應區塊。 */
+async function ensurePeriodsForCycle(orgId: string, cycle: string) {
+  const p = parseCycle(cycle);
+  if (!p) return;
+  const keys = p.quarter ? [0, p.quarter] : [0];
+  await db.okrPeriod.createMany({
+    data: keys.map((quarter) => ({ organizationId: orgId, year: p.year, quarter })),
+    skipDuplicates: true,
+  });
+}
+
+const YearInput = z.number().int().min(2000, "年份不正確").max(2100, "年份不正確");
+
+/** 新增年份。 */
+export async function addOkrYear(year: number) {
+  const { org } = await requireActiveOrg();
+  const y = YearInput.safeParse(year);
+  if (!y.success) return { ok: false as const, error: y.error.issues[0]?.message ?? "年份不正確" };
+  await db.okrPeriod.createMany({
+    data: [{ organizationId: org.id, year: y.data, quarter: 0 }],
+    skipDuplicates: true,
+  });
+  revalidate();
+  return { ok: true as const };
+}
+
+/** 在某年份底下新增季度（Q1–Q4）；年份不存在會一併建立。 */
+export async function addOkrQuarter(year: number, quarter: number) {
+  const { org } = await requireActiveOrg();
+  const y = YearInput.safeParse(year);
+  if (!y.success || ![1, 2, 3, 4].includes(quarter)) {
+    return { ok: false as const, error: "年份或季度不正確" };
+  }
+  await db.okrPeriod.createMany({
+    data: [
+      { organizationId: org.id, year: y.data, quarter: 0 },
+      { organizationId: org.id, year: y.data, quarter },
+    ],
+    skipDuplicates: true,
+  });
+  revalidate();
+  return { ok: true as const };
+}
+
+/**
+ * 刪除空的年份或季度（quarter=0＝年份）。底下還有目標就不能刪；
+ * 刪年份時連同它的季度一起刪，但任何一季有目標也不行。
+ */
+export async function deleteOkrPeriod(year: number, quarter: number) {
+  const { org } = await requireActiveOrg();
+  const prefix = String(year);
+  const cycles =
+    quarter === 0
+      ? { startsWith: prefix }
+      : { equals: `${prefix} Q${quarter}` };
+  const count = await db.objective.count({
+    where: { organizationId: org.id, archived: false, cycle: cycles },
+  });
+  if (count > 0) {
+    return {
+      ok: false as const,
+      error: quarter === 0 ? "這個年份底下還有目標，無法刪除。" : "這一季還有目標，無法刪除。",
+    };
+  }
+  await db.okrPeriod.deleteMany({
+    where: { organizationId: org.id, year, ...(quarter === 0 ? {} : { quarter }) },
+  });
+  revalidate();
+  return { ok: true as const };
+}
+
 // ── Objective ──────────────────────────────────
 
 const ObjectiveInput = z.object({
@@ -47,6 +127,7 @@ export async function createObjective(input: z.input<typeof ObjectiveInput>) {
       sortOrder: (max._max.sortOrder ?? 0) + 1,
     },
   });
+  await ensurePeriodsForCycle(org.id, d.cycle);
   revalidate();
 }
 
@@ -78,6 +159,7 @@ export async function updateObjective(
       ...(p.archived !== undefined ? { archived: p.archived } : {}),
     },
   });
+  if (p.cycle !== undefined) await ensurePeriodsForCycle(org.id, p.cycle);
   revalidate();
 }
 
