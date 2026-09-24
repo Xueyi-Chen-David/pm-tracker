@@ -15,10 +15,12 @@ import { LEAVE_EVENT_TYPES } from "@/lib/constants";
 // 里程碑 / 任務 / 活動）不帶 organizationId，改用關聯過濾 project.organizationId。
 
 /**
- * 確保某組織的「全體」系統視窗 + 各狀態預設分頁存在。
- * 「全體」設為「排除未開始 / 暫停」——這兩種狀態的專案只在各自分頁顯示，不混進全體。
+ * 確保某組織的「進行中」系統視窗 + 各狀態預設分頁存在。
+ * 系統視窗只列「進行中」的專案——未開始 / 暫停 / 完成 / 取消都只在各自分頁顯示。
+ * （舊版叫「全體」、只排除未開始 / 暫停；讀取時偵測到舊設定會自動改成這個。）
  */
-const EXCLUDED_FROM_ALL: ProjectStatus[] = ["NOT_STARTED", "ON_HOLD"];
+const SYSTEM_VIEW_NAME = "進行中";
+const SYSTEM_VIEW_STATUSES: ProjectStatus[] = ["ACTIVE"];
 
 function sameStatusSet(a: string[], b: string[]) {
   if (a.length !== b.length) return false;
@@ -26,14 +28,18 @@ function sameStatusSet(a: string[], b: string[]) {
   return a.every((x) => setB.has(x));
 }
 
-/** 系統「全體」是否已是「排除未開始 / 暫停」的設定。 */
+/** 系統視窗是否已是「只列進行中」的設定。 */
 function isAllConfigured(v: {
+  name: string;
   statuses: string[];
   types: string[];
   exclude: boolean;
 }) {
   return (
-    v.exclude && v.types.length === 0 && sameStatusSet(v.statuses, EXCLUDED_FROM_ALL)
+    v.name === SYSTEM_VIEW_NAME &&
+    !v.exclude &&
+    v.types.length === 0 &&
+    sameStatusSet(v.statuses, SYSTEM_VIEW_STATUSES)
   );
 }
 
@@ -42,7 +48,7 @@ export async function ensureProjectViews(orgId: string) {
   if (count === 0) {
     await db.projectView.createMany({
       data: [
-        { organizationId: orgId, name: "全體", isSystem: true, sortOrder: 0, statuses: EXCLUDED_FROM_ALL, exclude: true },
+        { organizationId: orgId, name: SYSTEM_VIEW_NAME, isSystem: true, sortOrder: 0, statuses: SYSTEM_VIEW_STATUSES },
         { organizationId: orgId, name: "未開始", statuses: ["NOT_STARTED"], sortOrder: 1 },
         { organizationId: orgId, name: "暫停", statuses: ["ON_HOLD"], sortOrder: 2 },
         { organizationId: orgId, name: "完成", statuses: ["COMPLETED"], sortOrder: 3 },
@@ -51,18 +57,18 @@ export async function ensureProjectViews(orgId: string) {
     return;
   }
 
-  // 1) 確保系統「全體」存在，且維持「排除未開始 / 暫停」
+  // 1) 確保系統「進行中」視窗存在，且維持「只列進行中」
   const sys = await db.projectView.findFirst({
     where: { isSystem: true, organizationId: orgId },
   });
   if (!sys) {
     await db.projectView.create({
-      data: { organizationId: orgId, name: "全體", isSystem: true, sortOrder: -1, statuses: EXCLUDED_FROM_ALL, exclude: true },
+      data: { organizationId: orgId, name: SYSTEM_VIEW_NAME, isSystem: true, sortOrder: -1, statuses: SYSTEM_VIEW_STATUSES },
     });
   } else if (!isAllConfigured(sys)) {
     await db.projectView.update({
       where: { id: sys.id },
-      data: { statuses: EXCLUDED_FROM_ALL, types: [], exclude: true },
+      data: { name: SYSTEM_VIEW_NAME, statuses: SYSTEM_VIEW_STATUSES, types: [], exclude: false },
     });
   }
 
@@ -92,13 +98,14 @@ const PROJECT_VIEW_ORDER = [
 ];
 
 /**
- * 系統分頁的不變條件是否已滿足（分頁存在、「全體」設定正確、有「未開始」分頁）。
+ * 系統分頁的不變條件是否已滿足（分頁存在、「進行中」設定正確、有「未開始」分頁）。
  * 只有回 true 時才需要跑「含寫入」的 ensureProjectViews 修補——避免每次讀取都多打
  * count + findFirst + findMany 三個查詢。
  */
 function projectViewsNeedRepair(
   views: {
     isSystem: boolean;
+    name: string;
     exclude: boolean;
     statuses: string[];
     types: string[];
@@ -119,7 +126,7 @@ function projectViewsNeedRepair(
 }
 
 export async function getProjectViews(orgId: string) {
-  // 常見情況（分頁已建好且系統「全體」設定正確）→ 只要一次查詢就回傳。
+  // 常見情況（分頁已建好且系統「進行中」設定正確）→ 只要一次查詢就回傳。
   // 只有偵測到缺分頁 / 設定跑掉時，才跑會寫入的 ensureProjectViews 修補。
   const views = await db.projectView.findMany({
     where: { organizationId: orgId },
