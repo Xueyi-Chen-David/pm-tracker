@@ -29,8 +29,15 @@ type RProject = {
  * 路線圖：水平時間軸 + 里程碑 / 目標卡片（交錯）+ 下方「主要業務推進」泳道。
  * 純呈現用，資料來自各專案與其里程碑。
  */
-export function RoadmapChart({ projects }: { projects: RProject[] }) {
-  const milestones = projects
+export function RoadmapChart({
+  projects,
+  extraProjects = [],
+}: {
+  projects: RProject[];
+  /** 只帶入里程碑、不畫泳道的專案（例如沒被勾選狀態、但有已完成里程碑的專案）。 */
+  extraProjects?: RProject[];
+}) {
+  const milestones = [...projects, ...extraProjects]
     .flatMap((p) =>
       p.milestones.map((m) => ({
         id: m.id,

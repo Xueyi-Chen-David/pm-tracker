@@ -7,16 +7,35 @@ import { MilestoneStatusBadge } from "@/components/badges";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fmtDate } from "@/lib/date";
 import { Star } from "lucide-react";
+import {
+  TimelineFilters,
+  parseTimelineStatuses,
+} from "@/components/timeline-filters";
 
 export const metadata = { title: "時程藍圖 · Project Pulse" };
 
-export default async function TimelinePage() {
+export default async function TimelinePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | undefined>>;
+}) {
   const { org } = await requireActiveOrg();
+  const sp = await searchParams;
   const all = await getTimelineData(org.id);
-  // 時間線不顯示未開始 / 暫停的專案
-  const projects = all.filter(
-    (p) => p.status !== "NOT_STARTED" && p.status !== "ON_HOLD",
-  );
+
+  // 要帶入哪些狀態的專案（?status=ACTIVE,COMPLETED；預設只看進行中）。
+  const statuses = parseTimelineStatuses(sp.status);
+  // 已完成的里程碑預設一律帶入（?done=0 關閉）——就算所屬專案沒被勾選也顯示。
+  const includeDone = sp.done !== "0";
+
+  const projects = all.filter((p) => statuses.includes(p.status));
+  const selectedIds = new Set(projects.map((p) => p.id));
+  const doneOnly = includeDone
+    ? all
+        .filter((p) => !selectedIds.has(p.id))
+        .map((p) => ({ ...p, milestones: p.milestones.filter((m) => m.status === "DONE") }))
+        .filter((p) => p.milestones.length > 0)
+    : [];
 
   const rows = projects.map((p) => ({
     id: p.id,
@@ -38,7 +57,7 @@ export default async function TimelinePage() {
     })),
   }));
 
-  const allMilestones = projects
+  const allMilestones = [...projects, ...doneOnly]
     .flatMap((p) =>
       p.milestones.map((m) => ({ project: p, m })),
     )
@@ -55,13 +74,15 @@ export default async function TimelinePage() {
         description="各專案的理想時程（淺色橫條）對比現實進度（深色填充），里程碑顯示計畫日 vs 實際達成日。"
       />
 
-      {rows.length > 0 && (
+      <TimelineFilters statuses={statuses} includeDone={includeDone} />
+
+      {(rows.length > 0 || doneOnly.length > 0) && (
         <Card className="mb-5">
           <CardHeader>
             <CardTitle>路線圖（里程碑 / 目標）</CardTitle>
           </CardHeader>
           <CardContent>
-            <RoadmapChart projects={projects} />
+            <RoadmapChart projects={projects} extraProjects={doneOnly} />
           </CardContent>
         </Card>
       )}
@@ -73,7 +94,9 @@ export default async function TimelinePage() {
         <CardContent>
           {rows.length === 0 ? (
             <p className="text-muted-foreground py-10 text-center text-sm">
-              還沒有專案。建立專案並設定開始日 / 完成日後即可看到時程。
+              {all.length === 0
+                ? "還沒有專案。建立專案並設定開始日 / 完成日後即可看到時程。"
+                : "目前勾選的狀態沒有專案。"}
             </p>
           ) : (
             <>
