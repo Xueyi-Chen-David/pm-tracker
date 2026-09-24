@@ -6,18 +6,27 @@ import { AppsManager } from "@/components/apps-manager";
 import { AiSettingsCard } from "@/components/ai-settings-card";
 import { getAiSettingsSummary, getOrgMemberUsers } from "@/server/queries";
 import { displayName } from "@/lib/display";
+import { taipeiTodayUtc } from "@/lib/date";
 
 export const metadata = { title: "應用程式 · Project Pulse" };
 
-export default async function AppsPage() {
+export default async function AppsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ month?: string }>;
+}) {
   const { org, canManage } = await requireManageContext();
+  const sp = await searchParams;
+  // AI 用量的月份（台灣時間）；?month=yyyy-MM，沒帶或格式不對就看本月。
+  const thisMonth = taipeiTodayUtc().toISOString().slice(0, 7);
+  const month = sp.month && /^\d{4}-(0[1-9]|1[0-2])$/.test(sp.month) ? sp.month : thisMonth;
 
   const [rows, aiSummary, members] = await Promise.all([
     db.organizationModule.findMany({
       where: { organizationId: org.id },
       select: { moduleKey: true, enabled: true },
     }),
-    getAiSettingsSummary(org.id),
+    getAiSettingsSummary(org.id, month),
     getOrgMemberUsers(org.id),
   ]);
   const memberNames = Object.fromEntries(members.map((u) => [u.id, displayName(u)]));
@@ -50,7 +59,12 @@ export default async function AppsPage() {
         title="應用程式"
         description={`本組織已啟用 ${enabledCount} / ${INSTALLABLE_MODULES.length} 個應用程式。安裝後還要在「團隊 → 角色」決定哪些成員看得到。`}
       />
-      <AiSettingsCard summary={aiSummary} canManage={canManage} memberNames={memberNames} />
+      <AiSettingsCard
+        summary={aiSummary}
+        canManage={canManage}
+        memberNames={memberNames}
+        thisMonth={thisMonth}
+      />
       <AppsManager groups={groups} canManage={canManage} />
     </div>
   );

@@ -2291,57 +2291,87 @@ export type CrmCompanyProfileRow = Awaited<
 >[number];
 
 /**
- * AI 設定與用量（應用程式頁）：key 是否設定（只回末四碼）、本月與近 30 天各功能用量。
- * 月份以台灣時間為準（UTC+8）。
+ * AI 設定與用量（應用程式頁）：key 是否設定（只回末四碼）、指定月份（yyyy-MM，台灣時間）
+ * 各功能用量與費用、該月逐筆明細（最多 500 筆），以及近 6 個月的費用走勢。
  */
-export async function getAiSettingsSummary(orgId: string) {
-  const now = new Date();
-  const tw = new Date(now.getTime() + 8 * 3_600_000);
-  const monthStart = new Date(Date.UTC(tw.getUTCFullYear(), tw.getUTCMonth(), 1) - 8 * 3_600_000);
-  const [org, byFeature, recent] = await Promise.all([
+export async function getAiSettingsSummary(orgId: string, month: string) {
+  const TZ = 8 * 3_600_000;
+  const [y, m] = month.split("-").map(Number) as [number, number];
+  const monthStart = new Date(Date.UTC(y, m - 1, 1) - TZ);
+  const monthEnd = new Date(Date.UTC(y, m, 1) - TZ);
+  const trendStart = new Date(Date.UTC(y, m - 6, 1) - TZ);
+
+  const [org, byFeature, failed, records, trendRows] = await Promise.all([
     db.organization.findUnique({
       where: { id: orgId },
       select: { geminiApiKeyEncrypted: true, geminiApiKeyLast4: true },
     }),
     db.aiUsage.groupBy({
       by: ["feature"],
-      where: { organizationId: orgId, createdAt: { gte: monthStart } },
+      where: { organizationId: orgId, createdAt: { gte: monthStart, lt: monthEnd } },
       _count: { _all: true },
-      _sum: { inputTokens: true, outputTokens: true, totalTokens: true },
+      _sum: { inputTokens: true, outputTokens: true, totalTokens: true, costUsd: true },
+    }),
+    db.aiUsage.groupBy({
+      by: ["feature"],
+      where: { organizationId: orgId, createdAt: { gte: monthStart, lt: monthEnd }, ok: false },
+      _count: { _all: true },
     }),
     db.aiUsage.findMany({
-      where: { organizationId: orgId },
+      where: { organizationId: orgId, createdAt: { gte: monthStart, lt: monthEnd } },
       orderBy: { createdAt: "desc" },
-      take: 20,
+      take: 500,
       select: {
         id: true,
         feature: true,
+        model: true,
         totalTokens: true,
+        costUsd: true,
         ok: true,
         error: true,
         createdAt: true,
         userId: true,
       },
     }),
+    db.aiUsage.findMany({
+      where: { organizationId: orgId, createdAt: { gte: trendStart, lt: monthEnd } },
+      select: { createdAt: true, costUsd: true },
+    }),
   ]);
-  const failed = await db.aiUsage.groupBy({
-    by: ["feature"],
-    where: { organizationId: orgId, createdAt: { gte: monthStart }, ok: false },
-    _count: { _all: true },
-  });
   const failedBy = new Map(failed.map((f) => [f.feature, f._count._all]));
+
+  // 近 6 個月（含所選月份）每月費用。
+  const trend = Array.from({ length: 6 }, (_, k) => {
+    const d = new Date(Date.UTC(y, m - 6 + k, 1));
+    return { month: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`, costUsd: 0, calls: 0 };
+  });
+  for (const r of trendRows) {
+    const t = new Date(r.createdAt.getTime() + TZ);
+    const key = `${t.getUTCFullYear()}-${String(t.getUTCMonth() + 1).padStart(2, "0")}`;
+    const slot = trend.find((x) => x.month === key);
+    if (slot) {
+      slot.costUsd += r.costUsd;
+      slot.calls += 1;
+    }
+  }
+
   return {
     hasKey: !!org?.geminiApiKeyEncrypted,
     last4: org?.geminiApiKeyLast4 ?? null,
-    month: byFeature.map((f) => ({
-      feature: f.feature,
-      calls: f._count._all,
-      failed: failedBy.get(f.feature) ?? 0,
-      inputTokens: f._sum.inputTokens ?? 0,
-      outputTokens: f._sum.outputTokens ?? 0,
-      totalTokens: f._sum.totalTokens ?? 0,
-    })),
-    recent: recent.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
+    month,
+    features: byFeature
+      .map((f) => ({
+        feature: f.feature,
+        calls: f._count._all,
+        failed: failedBy.get(f.feature) ?? 0,
+        inputTokens: f._sum.inputTokens ?? 0,
+        outputTokens: f._sum.outputTokens ?? 0,
+        totalTokens: f._sum.totalTokens ?? 0,
+        costUsd: f._sum.costUsd ?? 0,
+      }))
+      .sort((a, b) => b.costUsd - a.costUsd),
+    records: records.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
+    trend,
   };
 }
 

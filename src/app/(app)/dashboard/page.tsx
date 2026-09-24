@@ -31,7 +31,9 @@ const GROUP_ORDER: ProjectType[] = ["PROJECT", "ROUTINE", "ONE_TIME"];
 
 export default async function DashboardPage() {
   const { org } = await requireActiveOrg();
-  const { projects } = await getDashboardData(org.id);
+  const { projects: all } = await getDashboardData(org.id);
+  // 總覽只看「進行中」的專案；未開始 / 暫停 / 完成 / 取消一律不顯示。
+  const projects = all.filter((p) => p.status === "ACTIVE");
   const week = thisWeekStart();
 
   const enriched = projects.map((p) => {
@@ -45,7 +47,7 @@ export default async function DashboardPage() {
     return { p, latest, updatedThisWeek, overdue, needsAttention };
   });
 
-  const active = enriched.filter((e) => e.p.status !== "COMPLETED");
+  const active = enriched;
   const attention = enriched
     .filter((e) => e.needsAttention)
     .sort((a, b) => healthRank(b.p.health) - healthRank(a.p.health));
@@ -67,9 +69,9 @@ export default async function DashboardPage() {
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Kpi
           icon={<FolderKanban className="h-5 w-5" />}
-          label="專案 / 任務"
+          label="進行中專案 / 任務"
           value={projects.length}
-          sub={`進行中 ${active.length}`}
+          sub="只列進行中"
           tone="slate"
         />
         <Kpi
@@ -141,9 +143,9 @@ export default async function DashboardPage() {
         </section>
       )}
 
-      {/* 全部專案：當週狀態 */}
+      {/* 進行中專案：當週狀態 */}
       <section className="mt-8">
-        <h2 className="mb-3 text-lg font-semibold">所有專案 · 本週狀態</h2>
+        <h2 className="mb-3 text-lg font-semibold">進行中專案 · 本週狀態</h2>
         <div className="space-y-6">
           {GROUP_ORDER.map((type) => {
             const items = enriched.filter((e) => e.p.type === type);

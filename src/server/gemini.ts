@@ -10,6 +10,7 @@
 
 import { db } from "@/server/db";
 import { decryptSecret, isEncryptionConfigured } from "@/server/encryption";
+import { aiCostUsd } from "@/lib/ai-pricing";
 
 const DEFAULT_MODEL = "gemini-2.5-flash";
 
@@ -92,6 +93,8 @@ async function logUsage(
   usage: Usage,
   result: { ok: true } | { ok: false; error: string },
 ) {
+  // 計費的輸出＝total − input（含 thinking tokens），與 Google 帳單一致。
+  const billedOutput = Math.max(usage.output, usage.total - usage.input);
   try {
     await db.aiUsage.create({
       data: {
@@ -102,6 +105,7 @@ async function logUsage(
         inputTokens: usage.input,
         outputTokens: usage.output,
         totalTokens: usage.total,
+        costUsd: aiCostUsd(model, usage.input, billedOutput),
         ok: result.ok,
         error: result.ok ? null : result.error.slice(0, 500),
       },
