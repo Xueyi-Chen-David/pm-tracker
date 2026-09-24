@@ -244,6 +244,7 @@ export async function getAttendanceMonth(orgId: string, start: Date, end: Date) 
     orderBy: [{ isBoss: "desc" }, { user: { name: "asc" } }],
     select: {
       isBoss: true,
+      checkInExempt: true,
       user: {
         select: {
           ...userIdentitySelect,
@@ -267,7 +268,11 @@ export async function getAttendanceMonth(orgId: string, start: Date, end: Date) 
       },
     },
   });
-  return members.map((m) => ({ ...m.user, isBoss: m.isBoss }));
+  return members.map((m) => ({
+    ...m.user,
+    isBoss: m.isBoss,
+    checkInExempt: m.checkInExempt,
+  }));
 }
 
 export type AttendanceMonthMember = Awaited<
@@ -288,6 +293,7 @@ export async function getSelfAttendanceMonth(
     where: { organizationId_userId: { organizationId: orgId, userId } },
     select: {
       isBoss: true,
+      checkInExempt: true,
       user: {
         select: {
           ...userIdentitySelect,
@@ -312,7 +318,9 @@ export async function getSelfAttendanceMonth(
     },
   });
   if (!member) return [];
-  return [{ ...member.user, isBoss: member.isBoss }];
+  return [
+    { ...member.user, isBoss: member.isBoss, checkInExempt: member.checkInExempt },
+  ];
 }
 
 /** 本人近期補打卡申請（最新在前）。 */
@@ -388,11 +396,18 @@ export async function getCheckInReminderFacts(
   const weekday = today.getUTCDay();
   if (weekday === 0 || weekday === 6) return null; // 週末不提醒
 
-  const orgRow = await db.organization.findUnique({
-    where: { id: orgId },
-    select: { checkInEnabled: true },
-  });
+  const [orgRow, member] = await Promise.all([
+    db.organization.findUnique({
+      where: { id: orgId },
+      select: { checkInEnabled: true },
+    }),
+    db.organizationMember.findUnique({
+      where: { organizationId_userId: { organizationId: orgId, userId } },
+      select: { checkInExempt: true },
+    }),
+  ]);
   if (!orgRow?.checkInEnabled) return null;
+  if (member?.checkInExempt) return null; // 免打卡的人不提醒
 
   const [punches, record, corrections] = await Promise.all([
     db.checkIn.findMany({
@@ -928,6 +943,7 @@ export async function getHrDirectory(orgId: string) {
       department: true,
       hireDate: true,
       resignDate: true,
+      checkInExempt: true,
       managerId: true,
       secondaryManagerIds: true,
       user: { select: userIdentitySelect },
@@ -948,6 +964,7 @@ export async function getHrDirectory(orgId: string) {
     department: m.department,
     hireDate: m.hireDate ? m.hireDate.toISOString().slice(0, 10) : null,
     resignDate: m.resignDate ? m.resignDate.toISOString().slice(0, 10) : null,
+    checkInExempt: m.checkInExempt,
     managerId: m.managerId,
     secondaryManagerIds: m.secondaryManagerIds,
     roleIds: m.roleDefs.map((r) => r.id),

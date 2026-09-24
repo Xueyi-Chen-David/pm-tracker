@@ -621,6 +621,22 @@ export async function setMemberActive(id: string, active: boolean) {
 }
 
 /**
+ * 設定成員是否免打卡（人事頁）。免打卡者不會收到「忘了打卡」提醒，出勤月曆也不自動標
+ * 「未打卡」缺席；本人仍可打卡、照常記錄工時。需 hr.manage_employment。
+ */
+export async function setMemberCheckInExempt(id: string, exempt: boolean) {
+  const { org } = await requireOrgPermission("hr.manage_employment");
+  await db.organizationMember.update({
+    where: { organizationId_userId: { organizationId: org.id, userId: id } },
+    data: { checkInExempt: exempt },
+  });
+  revalidatePath("/hr");
+  revalidatePath("/attendance");
+  revalidatePath("/checkin");
+  revalidatePath(`/me/${id}`);
+}
+
+/**
  * 這位成員在本組織「建立 / 負責」的專案數（刪除成員前用來判斷要不要問「轉給誰接手」），
  * 以及可選的接手人選（本組織其他在職成員）。給刪除成員的確認對話框用。需 hr.manage_employment。
  */

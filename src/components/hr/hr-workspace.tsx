@@ -25,6 +25,7 @@ import {
   setMemberActive,
   setMemberRoles,
   setMemberEmailByAdmin,
+  setMemberCheckInExempt,
 } from "@/server/actions/team";
 import { formatSeniority, specialLeaveDays } from "@/lib/leave-entitlement";
 import { displayName, displayInitial } from "@/lib/display";
@@ -713,6 +714,24 @@ function MemberEditor({
               disabled={pending}
               onCheckedChange={(v) =>
                 run(() => setMemberActive(m.id, v), v ? "已設為在職" : "已設為停用")
+              }
+            />
+          </div>
+          <div className="flex items-center justify-between rounded-md border px-3 py-2">
+            <div>
+              <div className="text-sm font-medium">免打卡</div>
+              <p className="text-muted-foreground text-xs">
+                不提醒打卡，出勤月曆也不會自動標「未打卡」缺席；本人仍可自行打卡。
+              </p>
+            </div>
+            <Switch
+              checked={m.checkInExempt}
+              disabled={pending}
+              onCheckedChange={(v) =>
+                run(
+                  () => setMemberCheckInExempt(m.id, v),
+                  v ? "已設為免打卡" : "已恢復需要打卡",
+                )
               }
             />
           </div>

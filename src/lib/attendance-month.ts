@@ -51,7 +51,7 @@ export function monthRange(year: number, month: number) {
  *
  * 自動缺席（純顯示層、不寫 DB）：企業有開打卡、平日、落在 [第一次打卡日, 今天) 之間、
  * 且當天完全沒有紀錄 → 標記為「未打卡」缺席。被人工「清除」過的日子要尊重人工，
- * 不可再自動標缺席（否則清除後隔天又自己長回來）。
+ * 不可再自動標缺席（否則清除後隔天又自己長回來）。免打卡的成員（checkInExempt）不判。
  */
 export function buildGridMembers(
   rows: AttendanceMonthMember[],
@@ -83,7 +83,7 @@ export function buildGridMembers(
         leaveTypeName: r.leaveType?.name ?? null,
       };
     }
-    if (opts.autoAbsentEnabled) {
+    if (opts.autoAbsentEnabled && !m.checkInExempt) {
       for (const d of days) {
         if (d.weekend) continue; // 週末不判缺席
         if (d.dateStr >= opts.todayStr) continue; // 今天與未來還能補打卡

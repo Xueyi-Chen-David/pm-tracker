@@ -260,6 +260,9 @@ model OrganizationMember {
   secondaryManagerIds String[] @default([])
   // 免簽核：這位成員送出的請假一律直接核准，跳過組織設定的簽核關卡（他當其他人的簽核人不受影響）。
   leaveApprovalExempt Boolean  @default(false)
+  // 免打卡：不需要打卡的成員（如老闆、外勤、兼職顧問）。不跳「忘了打卡」提醒，出勤月曆也不自動標「未打卡」缺席；
+  // 仍可自行打卡，打了照常記錄與計算工時。
+  checkInExempt       Boolean  @default(false)
 
   // 人資：指派的自訂角色（多對多，如 人資 / 會計）；權限取聯集。刪除角色時自動解除指派。
   roleDefs           OrgRoleDef[]        @relation("MemberRoles")
