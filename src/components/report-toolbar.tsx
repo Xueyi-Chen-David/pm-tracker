@@ -13,6 +13,7 @@ export function ReportToolbar({
   thisWeek,
   isCurrent,
   pdfName,
+  extraQuery = "",
 }: {
   prevWeek: string;
   nextWeek: string;
@@ -20,6 +21,8 @@ export function ReportToolbar({
   isCurrent: boolean;
   /** 存成 PDF 時的預設檔名（瀏覽器以 document.title 命名）。 */
   pdfName: string;
+  /** 切換週次時要保留的其他網址參數（例如 "&status=ACTIVE&done=0"）。 */
+  extraQuery?: string;
 }) {
   const [exporting, setExporting] = useState(false);
 
@@ -64,20 +67,20 @@ export function ReportToolbar({
     <div className="no-print mb-4 flex flex-wrap items-center justify-between gap-2">
       <div className="flex items-center gap-1.5">
         <Link
-          href={`/report?week=${prevWeek}`}
+          href={`/report?week=${prevWeek}${extraQuery}`}
           className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
         >
           <ChevronLeft className="h-4 w-4" /> 上一週
         </Link>
         <Link
-          href={`/report?week=${nextWeek}`}
+          href={`/report?week=${nextWeek}${extraQuery}`}
           className={cn(buttonVariants({ variant: "outline", size: "sm" }))}
         >
           下一週 <ChevronRight className="h-4 w-4" />
         </Link>
         {!isCurrent && (
           <Link
-            href={`/report?week=${thisWeek}`}
+            href={`/report?week=${thisWeek}${extraQuery}`}
             className={cn(buttonVariants({ variant: "ghost", size: "sm" }))}
           >
             <RotateCcw className="h-4 w-4" /> 回到本週

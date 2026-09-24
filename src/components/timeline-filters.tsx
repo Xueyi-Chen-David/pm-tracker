@@ -23,15 +23,17 @@ export function parseTimelineStatuses(raw: string | undefined): ProjectStatus[] 
 }
 
 /**
- * 時程藍圖的篩選列：勾選要帶入的專案狀態，以及是否帶入所有已完成的里程碑。
+ * 時程藍圖 / 週報的篩選列：勾選要帶入的專案狀態，以及是否帶入所有已完成的里程碑。
  * 狀態記在網址（?status=、?done=0），重新整理 / 分享連結都保留。
  */
 export function TimelineFilters({
   statuses,
   includeDone,
+  className,
 }: {
   statuses: ProjectStatus[];
   includeDone: boolean;
+  className?: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -57,7 +59,12 @@ export function TimelineFilters({
   }
 
   return (
-    <div className="bg-muted/40 mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border p-2">
+    <div
+      className={cn(
+        "bg-muted/40 mb-5 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border p-2",
+        className,
+      )}
+    >
       <div className="flex flex-wrap items-center gap-1.5">
         <span className="text-muted-foreground px-1 text-xs">專案狀態</span>
         {OPTIONS.map((o) => {

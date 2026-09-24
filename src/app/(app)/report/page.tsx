@@ -32,6 +32,10 @@ import { ReportToolbar } from "@/components/report-toolbar";
 import { ReportSheet } from "@/components/report-sheet";
 import { ReportSummaryEditor } from "@/components/report-summary-editor";
 import { RoadmapChart } from "@/components/roadmap-chart";
+import {
+  TimelineFilters,
+  parseTimelineStatuses,
+} from "@/components/timeline-filters";
 import { HealthBadge, StatusBadge, TypeBadge } from "@/components/badges";
 import { ProgressBar } from "@/components/progress-bar";
 
@@ -51,10 +55,16 @@ function meetingNotesPreview(html: string): string {
 export default async function ReportPage({
   searchParams,
 }: {
-  searchParams: Promise<{ week?: string }>;
+  searchParams: Promise<{ week?: string; status?: string; done?: string }>;
 }) {
   const { org } = await requireActiveOrg();
-  const { week } = await searchParams;
+  const { week, status, done: doneParam } = await searchParams;
+  // 專案狀態 / 已完成里程碑篩選：與時程藍圖同一套（預設只看進行中、帶入所有已完成里程碑）。
+  const statuses = parseTimelineStatuses(status);
+  const includeDone = doneParam !== "0";
+  const extraQuery =
+    (status !== undefined ? `&status=${encodeURIComponent(status)}` : "") +
+    (includeDone ? "" : "&done=0");
   const weekStart = week ? weekStartOf(week) : thisWeekStart();
   const [projects, weeklyReport, meetings, users, timelineProjects] =
     await Promise.all([
@@ -65,10 +75,15 @@ export default async function ReportPage({
       getTimelineData(org.id),
     ]);
   const nameById = new Map(users.map((u) => [u.id, displayName(u)]));
-  // 路線圖不顯示未開始 / 暫停的專案
-  const roadmapProjects = timelineProjects.filter(
-    (p) => p.status !== "NOT_STARTED" && p.status !== "ON_HOLD",
-  );
+  // 路線圖：勾選狀態的專案；另外帶入其他專案已完成的里程碑（只畫里程碑、不畫泳道）。
+  const roadmapProjects = timelineProjects.filter((p) => statuses.includes(p.status));
+  const roadmapIds = new Set(roadmapProjects.map((p) => p.id));
+  const roadmapDoneOnly = includeDone
+    ? timelineProjects
+        .filter((p) => !roadmapIds.has(p.id))
+        .map((p) => ({ ...p, milestones: p.milestones.filter((m) => m.status === "DONE") }))
+        .filter((p) => p.milestones.length > 0)
+    : [];
   // 整體說明文件 HTML（新版 contentHtml；舊資料由區塊 / summary+images 轉成 HTML）
   const summaryHtml =
     weeklyReport?.contentHtml ??
@@ -95,10 +110,8 @@ export default async function ReportPage({
         counted.reduce((s, r) => s + r.p.progress, 0) / counted.length,
       )
     : 0;
-  // 各專案進度總表：排除未開始 / 暫停
-  const summaryRows = rows.filter(
-    (r) => r.p.status !== "NOT_STARTED" && r.p.status !== "ON_HOLD",
-  );
+  // 各專案進度總表：只列勾選狀態的專案
+  const summaryRows = rows.filter((r) => statuses.includes(r.p.status));
 
   const done = rows.filter((r) => r.u?.thisWeekDone);
   const nextGoals = rows.filter((r) => r.u?.nextWeekGoals);
@@ -120,6 +133,12 @@ export default async function ReportPage({
         thisWeek={toDateInput(thisWeekStart())}
         isCurrent={isCurrent}
         pdfName={`週報_${toDateInput(weekStart)}`}
+        extraQuery={extraQuery}
+      />
+      <TimelineFilters
+        statuses={statuses}
+        includeDone={includeDone}
+        className="no-print mb-4"
       />
 
       <ReportSheet>
@@ -170,7 +189,7 @@ export default async function ReportPage({
             title="路線圖"
             icon={<FolderKanban className="h-4 w-4 text-slate-600" />}
           >
-            <RoadmapChart projects={roadmapProjects} />
+            <RoadmapChart projects={roadmapProjects} extraProjects={roadmapDoneOnly} />
           </Section>
         </div>
 
@@ -273,11 +292,11 @@ export default async function ReportPage({
           </div>
         )}
 
-        {/* 各專案進度總表（不含未開始 / 暫停） */}
+        {/* 各專案進度總表（只列勾選狀態的專案） */}
         <div className="mt-4 print-break">
           <Section title="各專案進度總表" icon={<FolderKanban className="h-4 w-4 text-slate-600" />}>
             {summaryRows.length === 0 ? (
-              <Empty>沒有進行中 / 已完成的專案。</Empty>
+              <Empty>目前勾選的狀態沒有專案。</Empty>
             ) : (
               <table className="w-full border-collapse text-sm">
                 <thead>
