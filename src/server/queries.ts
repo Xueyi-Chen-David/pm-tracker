@@ -2289,3 +2289,60 @@ export async function getCrmCompanyProfiles(orgId: string) {
 export type CrmCompanyProfileRow = Awaited<
   ReturnType<typeof getCrmCompanyProfiles>
 >[number];
+
+/**
+ * AI 設定與用量（應用程式頁）：key 是否設定（只回末四碼）、本月與近 30 天各功能用量。
+ * 月份以台灣時間為準（UTC+8）。
+ */
+export async function getAiSettingsSummary(orgId: string) {
+  const now = new Date();
+  const tw = new Date(now.getTime() + 8 * 3_600_000);
+  const monthStart = new Date(Date.UTC(tw.getUTCFullYear(), tw.getUTCMonth(), 1) - 8 * 3_600_000);
+  const [org, byFeature, recent] = await Promise.all([
+    db.organization.findUnique({
+      where: { id: orgId },
+      select: { geminiApiKeyEncrypted: true, geminiApiKeyLast4: true },
+    }),
+    db.aiUsage.groupBy({
+      by: ["feature"],
+      where: { organizationId: orgId, createdAt: { gte: monthStart } },
+      _count: { _all: true },
+      _sum: { inputTokens: true, outputTokens: true, totalTokens: true },
+    }),
+    db.aiUsage.findMany({
+      where: { organizationId: orgId },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+      select: {
+        id: true,
+        feature: true,
+        totalTokens: true,
+        ok: true,
+        error: true,
+        createdAt: true,
+        userId: true,
+      },
+    }),
+  ]);
+  const failed = await db.aiUsage.groupBy({
+    by: ["feature"],
+    where: { organizationId: orgId, createdAt: { gte: monthStart }, ok: false },
+    _count: { _all: true },
+  });
+  const failedBy = new Map(failed.map((f) => [f.feature, f._count._all]));
+  return {
+    hasKey: !!org?.geminiApiKeyEncrypted,
+    last4: org?.geminiApiKeyLast4 ?? null,
+    month: byFeature.map((f) => ({
+      feature: f.feature,
+      calls: f._count._all,
+      failed: failedBy.get(f.feature) ?? 0,
+      inputTokens: f._sum.inputTokens ?? 0,
+      outputTokens: f._sum.outputTokens ?? 0,
+      totalTokens: f._sum.totalTokens ?? 0,
+    })),
+    recent: recent.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
+  };
+}
+
+export type AiSettingsSummary = Awaited<ReturnType<typeof getAiSettingsSummary>>;

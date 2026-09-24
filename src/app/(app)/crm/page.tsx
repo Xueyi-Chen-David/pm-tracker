@@ -57,7 +57,7 @@ export default async function CrmPage({
   searchParams: Promise<{ tab?: string }>;
 }) {
   const { org } = await requireActiveOrg();
-  const aiEnabled = isAiEnabled();
+  const aiEnabled = await isAiEnabled(org.id);
   const { tab: tabParam } = await searchParams;
 
   const [

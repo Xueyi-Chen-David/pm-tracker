@@ -80,7 +80,7 @@ export default async function FoodLabelPage() {
             : `共 ${rows.length} 支輸台商品，其中 ${blocked} 支尚有強制項目未補齊。`
         }
       />
-      <FoodLabelWorkbench deals={deals} aiEnabled={isAiEnabled()} />
+      <FoodLabelWorkbench deals={deals} aiEnabled={await isAiEnabled(org.id)} />
       <h2 className="mt-8 mb-3 text-sm font-semibold">輸台商品</h2>
       <ProductList products={rows} />
     </div>

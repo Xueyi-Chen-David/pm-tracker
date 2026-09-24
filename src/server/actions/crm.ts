@@ -131,10 +131,10 @@ export async function getContactCard(id: string): Promise<string | null> {
 export async function extractContactCardFields(
   dataUrl: string,
 ): Promise<{ ok: true; fields: BusinessCardFields } | { ok: false; error: string }> {
-  await requireActiveOrg();
+  const { org, user } = await requireActiveOrg();
   const v = validateCardDataUrl(dataUrl);
   if (!v.ok) return { ok: false, error: v.error };
-  return extractBusinessCard(dataUrl);
+  return extractBusinessCard({ orgId: org.id, userId: user.id }, dataUrl);
 }
 
 export async function deleteContact(id: string) {

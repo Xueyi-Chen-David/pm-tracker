@@ -156,8 +156,8 @@ export async function extractFoodLabelFields(
 ): Promise<
   { ok: true; fields: FoodLabelOcrFields } | { ok: false; error: string }
 > {
-  await requireInstalledModule("foodlabel");
+  const { org, user } = await requireInstalledModule("foodlabel");
   const v = validateImageDataUrl(dataUrl, "包裝照片");
   if (!v.ok) return { ok: false, error: v.error };
-  return extractFoodLabel(dataUrl);
+  return extractFoodLabel({ orgId: org.id, userId: user.id }, dataUrl);
 }

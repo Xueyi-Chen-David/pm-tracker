@@ -177,6 +177,11 @@ model Organization {
   // 委派」把服務帳戶的用戶端 ID 授權 https://www.googleapis.com/auth/calendar 範圍。
   googleCalendarImpersonateUser String?
 
+  // AI（Gemini）：組織自備的 API key。平台不提供預設 key——沒設定就不開 AI 功能。
+  // 用 src/server/encryption.ts 的 AES-256-GCM 加密存放；末四碼另存明文只供畫面辨識。
+  geminiApiKeyEncrypted String? @db.Text
+  geminiApiKeyLast4     String?
+
   members              OrganizationMember[]
   emailChangeRequests  EmailChangeRequest[]
   projects             Project[]
@@ -221,6 +226,7 @@ model Organization {
   foodLabelProducts    FoodLabelProduct[]
   foodLabelConversions FoodLabelConversion[]
   holidays             OrgHoliday[]
+  aiUsages             AiUsage[]
 }
 
 /**
@@ -580,6 +586,24 @@ model Meeting {
 
   @@index([organizationId])
   @@index([date])
+}
+
+/// AI 呼叫用量紀錄：每次呼叫 Gemini 一筆（含失敗），供組織查看用量。token 數取自 API 回傳的 usageMetadata。
+model AiUsage {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  userId         String? // 觸發的人（被刪除時保留紀錄）
+  feature        String // "crm_card" | "foodlabel_ocr" | "meeting_summary"
+  model          String
+  inputTokens    Int          @default(0)
+  outputTokens   Int          @default(0)
+  totalTokens    Int          @default(0)
+  ok             Boolean      @default(true)
+  error          String?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, createdAt])
 }
 
 /// 組織年度假日清單（「匯入年度假日」對話框記住的內容）。一筆可以是單日或區間（date ~ endDate，含頭尾）。
