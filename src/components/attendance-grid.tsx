@@ -247,7 +247,7 @@ function StaticCell({
     !isHoliday && !isLeave && mark?.leaveHours ? ` · 請假 ${mark.leaveHours} 小時` : "";
   return (
     <div
-      title={`${label}${isHoliday ? " · 休假" : isLeave ? ` · ${mark?.leaveTypeName ?? "請假"}` : weekend && !mark ? " · 放假" : ""}${(isAbsent || isOffsite || isLeave || isHoliday) && mark?.reason ? ` · ${mark.reason}` : ""}${hourlyNote}`}
+      title={`${label}${isHoliday ? " · 放假" : isLeave ? ` · ${mark?.leaveTypeName ?? "請假"}` : weekend && !mark ? " · 放假" : ""}${(isAbsent || isOffsite || isLeave || isHoliday) && mark?.reason ? ` · ${mark.reason}` : ""}${hourlyNote}`}
       className={cn(
         "relative mx-auto flex h-7 w-7 items-center justify-center rounded-md border text-xs",
         isPresent && "border-emerald-300 bg-emerald-100 text-emerald-700",
@@ -264,7 +264,7 @@ function StaticCell({
       )}
     >
       {isHoliday ? (
-        <span className="text-[9px] leading-none font-medium tracking-tighter">休假</span>
+        <span className="text-[9px] leading-none font-medium tracking-tighter">放假</span>
       ) : isLeave ? (
         <span className="text-[9px] leading-none font-medium tracking-tighter">
           {leaveLabel(mark)}
@@ -383,7 +383,7 @@ function AttendanceCell({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        title={`${label}${isHoliday ? " · 休假" : isLeave ? ` · ${state?.leaveTypeName ?? "請假"}` : weekend && !state ? " · 放假" : ""}${(isAbsent || isOffsite || isLeave || isHoliday) && state?.reason ? ` · ${state.reason}` : ""}${hourlyNote}`}
+        title={`${label}${isHoliday ? " · 放假" : isLeave ? ` · ${state?.leaveTypeName ?? "請假"}` : weekend && !state ? " · 放假" : ""}${(isAbsent || isOffsite || isLeave || isHoliday) && state?.reason ? ` · ${state.reason}` : ""}${hourlyNote}`}
         className={cn(
           "relative mx-auto flex h-7 w-7 items-center justify-center rounded-md border text-xs transition-colors",
           isPresent && "border-emerald-300 bg-emerald-100 text-emerald-700",
@@ -401,7 +401,7 @@ function AttendanceCell({
         )}
       >
         {isHoliday ? (
-          <span className="text-[9px] leading-none font-medium tracking-tighter">休假</span>
+          <span className="text-[9px] leading-none font-medium tracking-tighter">放假</span>
         ) : isLeave ? (
           <span className="text-[9px] leading-none font-medium tracking-tighter">
             {leaveLabel(state)}
@@ -447,14 +447,14 @@ function AttendanceCell({
               缺席
             </button>
           )}
-          {/* 休假：人工把某天標為休（既不算出席也不算缺席）。週末已預設放假，不重複提供。 */}
+          {/* 放假：人工把某天標為放假（既不算出席也不算缺席）。週末已預設放假，不重複提供。 */}
           {!weekend && (
             <button
               type="button"
               onClick={() => apply("holiday")}
               className="rounded-md border border-slate-300 bg-slate-50 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100"
             >
-              休假
+              放假
             </button>
           )}
           <button

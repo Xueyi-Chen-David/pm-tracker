@@ -9,6 +9,7 @@ import {
   getOrgLeaveTypes,
   getMemberEventsForUser,
   getOrgMemberDirectory,
+  getOrgHolidayMap,
 } from "@/server/queries";
 import { parseMatchMode } from "@/lib/checkin";
 import { taipeiTodayUtc, fmtDate } from "@/lib/date";
@@ -127,10 +128,12 @@ export default async function CheckInPage({
     ? firstCheckIn.date.toISOString().slice(0, 10)
     : null;
 
+  const orgHolidays = await getOrgHolidayMap(org.id, start, end);
   const members = buildGridMembers(rows, days, {
     autoAbsentEnabled: checkInEnabled && anchorStr !== null,
     anchorStr,
     todayStr,
+    orgHolidays,
   });
   const timecardDays = buildTimecardDays(myCheckIns, days, todayStr);
   // 待審核的補打卡也疊到打卡紙上（琥珀色「待審核」），核准前就能在同一張表看到，

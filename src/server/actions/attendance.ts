@@ -7,6 +7,7 @@ import { requireActiveOrg, requireOrgPermission } from "@/server/org";
 import { hasPermission } from "@/lib/permissions";
 import { displayName } from "@/lib/display";
 import { taipeiTimeToUtc } from "@/lib/date";
+import { expandHolidayRanges } from "@/lib/tw-holidays";
 import { createNotification, createNotifications } from "@/server/notify";
 
 /** yyyy-mm-dd → UTC 午夜（對應 @db.Date，避免時區位移）。 */
@@ -354,93 +355,139 @@ export async function reviewCheckInCorrection(
   return { ok: true as const };
 }
 
+const DateStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日期格式錯誤");
+
 const ImportHolidaysInput = z.object({
   year: z.number().int().min(2000).max(2100),
-  dates: z
+  entries: z
     .array(
-      z.object({
-        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "日期格式錯誤"),
-        name: z.string().trim().max(40).optional(),
-      }),
+      z
+        .object({
+          date: DateStr,
+          endDate: DateStr.optional(),
+          name: z.string().trim().max(40).optional(),
+        })
+        .refine((e) => !e.endDate || e.endDate >= e.date, "結束日不能早於開始日")
+        .refine(
+          (e) =>
+            !e.endDate ||
+            (Date.parse(e.endDate) - Date.parse(e.date)) / 86_400_000 <= 31,
+          "單一區間最長 32 天",
+        ),
     )
-    .min(1)
     .max(60),
-});
+}).refine(
+  (d) => d.entries.every((e) => e.date.startsWith(`${d.year}-`)),
+  "開始日必須落在所選年度內",
+);
+
+function yearBounds(year: number) {
+  return {
+    gte: new Date(Date.UTC(year, 0, 1)),
+    lt: new Date(Date.UTC(year + 1, 0, 1)),
+  };
+}
+
+/** 讀取組織已儲存的某年度假日清單（匯入對話框開啟時帶入；需 attendance.manage）。 */
+export async function getOrgHolidays(year: number) {
+  const { org } = await requireOrgPermission("attendance.manage");
+  const rows = await db.orgHoliday.findMany({
+    where: { organizationId: org.id, date: yearBounds(year) },
+    orderBy: { date: "asc" },
+    select: { date: true, endDate: true, name: true },
+  });
+  return rows.map((r) => ({
+    date: r.date.toISOString().slice(0, 10),
+    endDate: r.endDate.toISOString().slice(0, 10),
+    name: r.name ?? "",
+  }));
+}
 
 /**
- * 年度假日匯入（需 attendance.manage）：把一批日期一次登記為「所有納入追蹤的在職成員」
- * 當天的休假，取代逐一點格子、逐人登記的做法。常見用途＝每年開春把國定假日一次建檔
- * （固定日期的部分由畫面用 lib/tw-holidays 自動帶出；農曆假期由人資另行輸入日期）。
+ * 年度假日（需 attendance.manage）：儲存組織某年度的假日清單（單日或區間），並把展開後的
+ * 平日登記為「所有納入追蹤的在職成員」當天的放假，取代逐一點格子、逐人登記的做法。
+ * 常見用途＝每年開春把國定假日一次建檔（固定日期的部分由畫面用 lib/tw-holidays 自動帶出；
+ * 農曆假期由人資另行輸入日期或區間）。
+ *
+ * 清單會存進 OrgHoliday，下次開啟對話框直接帶回；整份覆蓋該年度原本的清單。
  * 與 setAttendance 的單一登記一樣一律覆蓋當天原本的登記，之後仍可個別調整。
+ * 從清單移除的日期，會一併清掉當天由假日產生的放假紀錄（holiday=true）。
  */
 export async function importYearlyHolidays(
   input: z.input<typeof ImportHolidaysInput>,
 ) {
   const { user: me, org } = await requireOrgPermission("attendance.manage");
-  const d = ImportHolidaysInput.parse(input);
-
-  const members = await db.organizationMember.findMany({
-    where: { organizationId: org.id, active: true, trackAttendance: true },
-    select: { userId: true },
-  });
-  if (members.length === 0) {
-    return {
-      ok: false as const,
-      error: "尚未設定任何追蹤成員，請先在「追蹤成員」勾選要記錄出席的人。",
-    };
+  const parsed = ImportHolidaysInput.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false as const, error: parsed.error.issues[0]?.message ?? "資料格式錯誤" };
   }
+  const d = parsed.data;
+  const bounds = yearBounds(d.year);
 
-  // 同一天可能重複勾選（如手動新增了跟固定假日相同的日期），去重避免重複寫入。
-  const uniqueDates = Array.from(
-    new Map(d.dates.map((x) => [x.date, x])).values(),
-  );
-
-  await Promise.all(
-    uniqueDates.flatMap((h) => {
-      const date = toUtcDate(h.date);
-      const reason = h.name?.trim() || null;
-      return members.map((m) =>
-        db.attendanceRecord.upsert({
-          where: {
-            organizationId_userId_date: {
-              organizationId: org.id,
-              userId: m.userId,
-              date,
-            },
-          },
-          update: {
-            present: false,
-            reason,
-            offsite: false,
-            holiday: true,
-            leave: false,
-            leaveHours: null,
-            leaveTypeId: null,
-            cleared: false,
-            auto: false,
-            createdById: me.id,
-          },
-          create: {
-            organizationId: org.id,
-            userId: m.userId,
-            date,
-            present: false,
-            reason,
-            holiday: true,
-            auto: false,
-            createdById: me.id,
-          },
-        }),
-      );
+  const [members, prev] = await Promise.all([
+    db.organizationMember.findMany({
+      where: { organizationId: org.id, active: true, trackAttendance: true },
+      select: { userId: true },
     }),
+    db.orgHoliday.findMany({
+      where: { organizationId: org.id, date: bounds },
+      select: { date: true, endDate: true, name: true },
+    }),
+  ]);
+
+  const next = expandHolidayRanges(d.entries, { skipWeekends: true });
+  const prevDates = expandHolidayRanges(
+    prev.map((p) => ({
+      date: p.date.toISOString().slice(0, 10),
+      endDate: p.endDate.toISOString().slice(0, 10),
+    })),
+    { skipWeekends: true },
   );
+  const removed = [...prevDates.keys()].filter((ds) => !next.has(ds)).map(toUtcDate);
+  const dates = [...next.keys()].map(toUtcDate);
+  const userIds = members.map((m) => m.userId);
+
+  await db.$transaction([
+    db.orgHoliday.deleteMany({ where: { organizationId: org.id, date: bounds } }),
+    db.orgHoliday.createMany({
+      data: d.entries.map((e) => ({
+        organizationId: org.id,
+        date: toUtcDate(e.date),
+        endDate: toUtcDate(e.endDate || e.date),
+        name: e.name?.trim() || null,
+      })),
+    }),
+    // 從清單拿掉的日子：清掉當天的放假紀錄（其他狀態不動）。
+    db.attendanceRecord.deleteMany({
+      where: { organizationId: org.id, date: { in: removed }, holiday: true },
+    }),
+    // 清單內的日子：追蹤成員當天一律覆蓋成放假（先刪後建，等同 upsert 覆蓋）。
+    db.attendanceRecord.deleteMany({
+      where: { organizationId: org.id, userId: { in: userIds }, date: { in: dates } },
+    }),
+    db.attendanceRecord.createMany({
+      data: [...next].flatMap(([ds, name]) =>
+        userIds.map((userId) => ({
+          organizationId: org.id,
+          userId,
+          date: toUtcDate(ds),
+          present: false,
+          reason: name,
+          holiday: true,
+          auto: false,
+          createdById: me.id,
+        })),
+      ),
+    }),
+  ]);
 
   revalidatePath("/attendance");
+  revalidatePath("/checkin");
   revalidatePath("/payroll");
   return {
     ok: true as const,
-    memberCount: members.length,
-    dateCount: uniqueDates.length,
+    memberCount: userIds.length,
+    dateCount: next.size,
   };
 }
 

@@ -62,6 +62,8 @@ export function buildGridMembers(
     /** 該企業第一次打卡的日期 yyyy-MM-dd；在此之前不追溯。 */
     anchorStr: string | null;
     todayStr: string;
+    /** 組織年度假日（日期 → 名稱）：當天沒有個人紀錄的人（新進 / 未追蹤）也顯示放假。 */
+    orgHolidays?: Map<string, string | null>;
   },
 ): GridMember[] {
   return rows.map((m) => {
@@ -82,6 +84,22 @@ export function buildGridMembers(
         leaveHours: r.leaveHours ?? null,
         leaveTypeName: r.leaveType?.name ?? null,
       };
+    }
+    if (opts.orgHolidays) {
+      for (const d of days) {
+        if (d.weekend) continue;
+        if (clearedDates.has(d.dateStr) || marks[d.dateStr]) continue; // 個人紀錄優先
+        if (!opts.orgHolidays.has(d.dateStr)) continue;
+        marks[d.dateStr] = {
+          present: false,
+          reason: opts.orgHolidays.get(d.dateStr) ?? null,
+          offsite: false,
+          holiday: true,
+          leave: false,
+          leaveHours: null,
+          leaveTypeName: null,
+        };
+      }
     }
     if (opts.autoAbsentEnabled && !m.checkInExempt) {
       for (const d of days) {

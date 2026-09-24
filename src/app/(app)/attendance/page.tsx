@@ -6,6 +6,7 @@ import {
   getSelfAttendanceMonth,
   getTrackableMembers,
   getOrgLeaveTypes,
+  getOrgHolidayMap,
 } from "@/server/queries";
 import { parseGeofences, parseMatchMode } from "@/lib/checkin";
 import { taipeiTodayUtc } from "@/lib/date";
@@ -110,10 +111,12 @@ export default async function AttendancePage({
     ? firstCheckIn.date.toISOString().slice(0, 10)
     : null;
 
+  const orgHolidays = await getOrgHolidayMap(org.id, start, end);
   const members = buildGridMembers(rows, days, {
     autoAbsentEnabled: checkInEnabled && anchorStr !== null,
     anchorStr,
     todayStr,
+    orgHolidays,
   });
 
   // 有打卡、卻沒被納入出席追蹤的人數（他們的出席不會出現在下面的月曆）。
@@ -231,7 +234,7 @@ export default async function AttendancePage({
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="inline-flex h-4 w-4 shrink-0 rounded border border-slate-200 bg-slate-100" />
-            放假 / 休假
+            放假
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="inline-flex h-4 w-4 shrink-0 rounded border" />

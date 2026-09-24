@@ -9,6 +9,7 @@ import {
 } from "@/lib/checkin-reminder";
 import { DEFAULT_DEAL_STAGES } from "@/lib/crm";
 import { specialLeaveDays } from "@/lib/leave-entitlement";
+import { expandHolidayRanges } from "@/lib/tw-holidays";
 import { LEAVE_EVENT_TYPES } from "@/lib/constants";
 
 // 註：所有查詢皆以「目前組織」(orgId) 收斂。Project 底下的子表（成員 / 週報 /
@@ -244,6 +245,21 @@ export async function getOrgMembers(orgId: string) {
 
 export type WorkspaceMember = Awaited<ReturnType<typeof getOrgMembers>>[number];
 
+/** 組織年度假日（OrgHoliday）在 [start, end) 內的每一天 → 假日名稱（區間逐日展開）。 */
+export async function getOrgHolidayMap(orgId: string, start: Date, end: Date) {
+  const rows = await db.orgHoliday.findMany({
+    where: { organizationId: orgId, date: { lt: end }, endDate: { gte: start } },
+    select: { date: true, endDate: true, name: true },
+  });
+  return expandHolidayRanges(
+    rows.map((r) => ({
+      date: r.date.toISOString().slice(0, 10),
+      endDate: r.endDate.toISOString().slice(0, 10),
+      name: r.name,
+    })),
+  );
+}
+
 /** 出席月曆：本組織被追蹤（trackAttendance）的在職成員 + 指定月份的每日出席紀錄。 */
 export async function getAttendanceMonth(orgId: string, start: Date, end: Date) {
   const members = await db.organizationMember.findMany({
@@ -416,7 +432,7 @@ export async function getCheckInReminderFacts(
   if (!orgRow?.checkInEnabled) return null;
   if (member?.checkInExempt) return null; // 免打卡的人不提醒
 
-  const [punches, record, corrections] = await Promise.all([
+  const [punches, record, corrections, orgHoliday] = await Promise.all([
     db.checkIn.findMany({
       where: { organizationId: orgId, userId, date: today, valid: true },
       orderBy: { at: "asc" },
@@ -432,7 +448,12 @@ export async function getCheckInReminderFacts(
       where: { organizationId: orgId, userId, date: today, status: "pending" },
       select: { kind: true },
     }),
+    db.orgHoliday.findFirst({
+      where: { organizationId: orgId, date: { lte: today }, endDate: { gte: today } },
+      select: { id: true },
+    }),
   ]);
+  if (orgHoliday) return null; // 組織放假日不提醒
 
   const firstIn = punches.find((p) => p.kind === "in");
   return {

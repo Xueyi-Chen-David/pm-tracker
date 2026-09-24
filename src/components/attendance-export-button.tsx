@@ -20,7 +20,7 @@ type Mark = GridMember["marks"][string];
  */
 function cellLabel(mark: Mark | undefined): string | undefined {
   if (!mark) return undefined;
-  if (mark.holiday) return mark.reason ?? "休假";
+  if (mark.holiday) return mark.reason ?? "放假";
   if (mark.leave) return mark.leaveTypeName ?? "請假";
   if (mark.offsite) return mark.reason ?? "在外";
   if (mark.present) return mark.leaveHours ? `出席（請假${mark.leaveHours}h）` : "出席";
@@ -80,7 +80,7 @@ export function AttendanceExportButton({
           align: "center" as const,
           backgroundColor: d.weekend ? WEEKEND_BG : undefined,
         })),
-        ...["出席", "在外", "缺席", "休假", "請假"].map((t) => ({
+        ...["出席", "在外", "缺席", "放假", "請假"].map((t) => ({
           value: t,
           fontWeight: "bold" as const,
           align: "center" as const,
@@ -111,7 +111,7 @@ export function AttendanceExportButton({
         [
           {
             value:
-              "說明：在外＝出差；請假欄位顯示假別名稱（特休 / 事假 / 病假…），未指定假別顯示「請假」；空白＝未記錄。休假 / 請假不列入缺席統計。",
+              "說明：在外＝出差；請假欄位顯示假別名稱（特休 / 事假 / 病假…），未指定假別顯示「請假」；空白＝未記錄。放假 / 請假不列入缺席統計。",
             type: String,
           },
         ],

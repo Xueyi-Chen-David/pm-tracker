@@ -220,6 +220,7 @@ model Organization {
   modules              OrganizationModule[]
   foodLabelProducts    FoodLabelProduct[]
   foodLabelConversions FoodLabelConversion[]
+  holidays             OrgHoliday[]
 }
 
 /**
@@ -579,6 +580,21 @@ model Meeting {
 
   @@index([organizationId])
   @@index([date])
+}
+
+/// 組織年度假日清單（「匯入年度假日」對話框記住的內容）。一筆可以是單日或區間（date ~ endDate，含頭尾）。
+/// 套用時會展開成每位追蹤成員當天的放假紀錄（AttendanceRecord.holiday）；出席月曆對沒有紀錄的人
+/// （新進 / 未追蹤）也會直接顯示成放假。
+model OrgHoliday {
+  id             String       @id @default(cuid())
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  date           DateTime     @db.Date // 起日
+  endDate        DateTime     @db.Date // 迄日（單日＝同 date）
+  name           String?
+  createdAt      DateTime     @default(now())
+
+  @@index([organizationId, date])
 }
 
 /// 每日出席紀錄（每人每日最多一筆；present=有出席，false=缺席）。

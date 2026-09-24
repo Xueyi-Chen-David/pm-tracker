@@ -34,3 +34,29 @@ export function fixedHolidaysForYear(year: number): HolidayDate[] {
     name: h.name,
   })).sort((a, b) => a.date.localeCompare(b.date));
 }
+
+/** 組織假日（單日或區間，含頭尾），yyyy-mm-dd。 */
+export type HolidayRange = { date: string; endDate?: string | null; name?: string | null };
+
+/**
+ * 把假日清單展開成「日期 → 假日名稱」。區間會逐日展開；同一天重複時以先出現的為準。
+ * skipWeekends：寫入個人放假紀錄時略過週六日（週末本來就顯示放假，不必多存一筆）。
+ */
+export function expandHolidayRanges(
+  entries: readonly HolidayRange[],
+  opts: { skipWeekends?: boolean } = {},
+): Map<string, string | null> {
+  const out = new Map<string, string | null>();
+  for (const e of entries) {
+    const start = new Date(`${e.date}T00:00:00.000Z`);
+    const end = new Date(`${e.endDate || e.date}T00:00:00.000Z`);
+    for (let t = start.getTime(); t <= end.getTime(); t += 86_400_000) {
+      const d = new Date(t);
+      const wd = d.getUTCDay();
+      if (opts.skipWeekends && (wd === 0 || wd === 6)) continue;
+      const ds = d.toISOString().slice(0, 10);
+      if (!out.has(ds)) out.set(ds, e.name?.trim() || null);
+    }
+  }
+  return out;
+}
